@@ -1,0 +1,1024 @@
+{
+  "users": [
+    {
+      "id": "usr_owner_faisal",
+      "username": "rh.faysal007",
+      "name": "Faysal Ahmed (Main Owner)",
+      "passwordHash": "fd5e903ebdd8cdf4b84fd498b628782256ab18b877e83c6614786ee628087769",
+      "role": "owner",
+      "workspaceName": "Executive HQ Workspace",
+      "status": "active",
+      "canExport": true,
+      "canDelete": true,
+      "createdAt": 1791439937165,
+      "lastLoginAt": 1794627927426,
+      "theme": "emerald-graphite",
+      "displayMode": "light",
+      "language": "en",
+      "useBanglaNumerals": false,
+      "canAddTransactions": true,
+      "canViewLedger": true,
+      "canEditCustomers": true,
+      "canApproveInvoices": true,
+      "canManageCommissions": true
+    }
+  ],
+  "transactions": [
+    {
+      "id": "tx-bazar-1794429822023",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "description": "Daily Bazar: Basmati Rice 5kg (5 kg) [BYR-01]",
+      "amount": 650,
+      "type": "expense",
+      "category": "bazaar",
+      "paymentMethod": "cash",
+      "timestamp": 1794355200000,
+      "syncedToCloud": true,
+      "notes": "Daily Bazar purchase by Tanvir Islam (Buyer ID: BYR-01)",
+      "createdByName": "Faysal Ahmed (Main Owner) (BYR-01)"
+    },
+    {
+      "id": "tx-bazar-1794429802874",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "description": "Daily Bazar: Fresh Hilsa Fish (1.5 kg)",
+      "amount": 1200,
+      "type": "expense",
+      "category": "bazaar",
+      "paymentMethod": "cash",
+      "timestamp": 1794355200000,
+      "syncedToCloud": true,
+      "notes": "Daily Bazar / Grocery purchase by Faysal Ahmed (Main Owner)",
+      "createdByName": "Faysal Ahmed (Main Owner)"
+    },
+    {
+      "id": "tx-bazar-1794347940566",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "description": "Daily Bazar: টেস্ট মাছ ",
+      "amount": 150,
+      "type": "expense",
+      "category": "bazaar",
+      "paymentMethod": "cash",
+      "timestamp": 1794268800000,
+      "syncedToCloud": true,
+      "notes": "Daily Bazar / Grocery purchase by Faysal Ahmed (Main Owner)",
+      "createdByName": "Faysal Ahmed (Main Owner)"
+    },
+    {
+      "id": "tx-invpay-1794196964108",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "description": "Payment for Invoice #INV-2026-0001 - মেসার্স রহিম টেক্সটাইল",
+      "amount": 15000,
+      "type": "income",
+      "category": "sales",
+      "paymentMethod": "bkash",
+      "timestamp": 1794196964108,
+      "syncedToCloud": true,
+      "customerName": "মেসার্স রহিম টেক্সটাইল",
+      "notes": "Invoice #INV-2026-0001 payment  - Remaining: Credit 5000",
+      "createdByName": "Faysal Ahmed (Main Owner)"
+    },
+    {
+      "id": "tx-invpay-1794196959669",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "description": "Payment for Invoice #INV-2026-0001 - মেসার্স রহিম টেক্সটাইল",
+      "amount": 5000,
+      "type": "income",
+      "category": "sales",
+      "paymentMethod": "cash",
+      "timestamp": 1794196959669,
+      "syncedToCloud": true,
+      "customerName": "মেসার্স রহিম টেক্সটাইল",
+      "notes": "Invoice #INV-2026-0001 payment  - Remaining: 10000",
+      "createdByName": "Faysal Ahmed (Main Owner)"
+    },
+    {
+      "id": "tx-owner-2",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "description": "সফটওয়্যার ও ক্লাউড সার্ভার লাইসেন্স রিনিউ",
+      "amount": 12500,
+      "type": "expense",
+      "category": "bills",
+      "paymentMethod": "bank",
+      "timestamp": 1793945537165,
+      "notes": "AWS & Cloud Firestore Infrastructure",
+      "createdByName": "Faysal Ahmed (Main Owner)"
+    },
+    {
+      "id": "tx-owner-1",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "description": "ZARA কর্পোরেট বিনিয়োগ তহবিল জমা",
+      "amount": 150000,
+      "type": "income",
+      "category": "investment",
+      "paymentMethod": "bank",
+      "timestamp": 1793772737165,
+      "notes": "হেড অফিস মাস্টার ফান্ড",
+      "createdByName": "Faysal Ahmed (Main Owner)"
+    }
+  ],
+  "drafts": {},
+  "sessions": {
+    "token_auto_usr_owner_faisal": "usr_owner_faisal"
+  },
+  "globalSettings": {
+    "appName": "ZARA Accounting App",
+    "companyName": "ZARA Group & Holdings Ltd.",
+    "version": "2.5.0-cloud",
+    "currency": "SAR",
+    "broadcastMessage": "Welcome to ZARA Accounting Cloud System. All records are automatically saved to the cloud database.",
+    "broadcastType": "info",
+    "broadcastActive": true,
+    "updatedAt": 1794627930056,
+    "lastUpdatedBy": "Faysal Ahmed (Main Owner)",
+    "bazarMonthlyBudget": 2500,
+    "bazarBuyers": [
+      {
+        "buyerId": "rh.faysal007",
+        "name": "Faysal Ahmed (Main Owner)",
+        "role": "Owner"
+      }
+    ],
+    "headerBgColor": "#676963"
+  },
+  "auditLogs": [
+    {
+      "id": "audit-1794695801300",
+      "timestamp": 1794695801300,
+      "action": "USER_PHOTO_REMOVED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "targetUser": "rh.faysal007"
+      }
+    },
+    {
+      "id": "audit-1794695801208",
+      "timestamp": 1794695801208,
+      "action": "USER_PHOTO_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "targetUser": "rh.faysal007",
+        "photoUrl": "/api/photos/usr_owner_faisal_1794695801208.png"
+      }
+    },
+    {
+      "id": "audit-1794627930056",
+      "timestamp": 1794627930056,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#676963"
+      }
+    },
+    {
+      "id": "audit-1794627928839",
+      "timestamp": 1794627928839,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#7f8179"
+      }
+    },
+    {
+      "id": "audit-1794627927625",
+      "timestamp": 1794627927625,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#919489"
+      }
+    },
+    {
+      "id": "audit-1794627927617",
+      "timestamp": 1794627927617,
+      "action": "USER_DELETED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "deletedUser": "sync_user_02"
+      }
+    },
+    {
+      "id": "audit-1794627927608",
+      "timestamp": 1794627927608,
+      "action": "USER_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "targetUser": "sync_user_02",
+        "changes": {
+          "name": "Sync User Updated"
+        }
+      }
+    },
+    {
+      "id": "audit-1794627927450",
+      "timestamp": 1794627927450,
+      "action": "USER_LOGIN",
+      "performedBy": "Sync User (sync_user_02)",
+      "details": {
+        "role": "staff",
+        "workspace": "Sync User's Workspace"
+      }
+    },
+    {
+      "id": "audit-1794627927444",
+      "timestamp": 1794627927444,
+      "action": "USER_CREATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "username": "sync_user_02",
+        "role": "staff",
+        "workspace": "Sync User's Workspace"
+      }
+    },
+    {
+      "id": "audit-1794627927437",
+      "timestamp": 1794627927437,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#0B0F17"
+      }
+    },
+    {
+      "id": "audit-1794627927426",
+      "timestamp": 1794627927426,
+      "action": "USER_LOGIN",
+      "performedBy": "Faysal Ahmed (Main Owner) (rh.faysal007)",
+      "details": {
+        "role": "owner",
+        "workspace": "Executive HQ Workspace"
+      }
+    },
+    {
+      "id": "audit-1794627927344",
+      "timestamp": 1794627927344,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#919489"
+      }
+    },
+    {
+      "id": "audit-1794627926038",
+      "timestamp": 1794627926038,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#888a85"
+      }
+    },
+    {
+      "id": "audit-1794627924371",
+      "timestamp": 1794627924371,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#d5d7d0"
+      }
+    },
+    {
+      "id": "audit-1794627914611",
+      "timestamp": 1794627914611,
+      "action": "GLOBAL_SETTINGS_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "headerBgColor": "#a6a6a6"
+      }
+    },
+    {
+      "id": "audit-1794627851447",
+      "timestamp": 1794627851447,
+      "action": "USER_PHOTO_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "targetUser": "rh.faysal007",
+        "photoUrl": "/api/photos/usr_owner_faisal_1794627851446.jpg"
+      }
+    },
+    {
+      "id": "audit-1794627765009",
+      "timestamp": 1794627765009,
+      "action": "USER_DELETED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "deletedUser": "test_staff_01"
+      }
+    },
+    {
+      "id": "audit-1794627764989",
+      "timestamp": 1794627764989,
+      "action": "USER_LOGIN",
+      "performedBy": "Test Staff (test_staff_01)",
+      "details": {
+        "role": "staff",
+        "workspace": "Test Outlet"
+      }
+    },
+    {
+      "id": "audit-1794627764980",
+      "timestamp": 1794627764980,
+      "action": "USER_CREATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "username": "test_staff_01",
+        "role": "staff",
+        "workspace": "Test Outlet"
+      }
+    },
+    {
+      "id": "audit-1794627764969",
+      "timestamp": 1794627764969,
+      "action": "USER_LOGIN",
+      "performedBy": "Faysal Ahmed (Main Owner) (rh.faysal007)",
+      "details": {
+        "role": "owner",
+        "workspace": "Executive HQ Workspace"
+      }
+    },
+    {
+      "id": "audit-1794624586336",
+      "timestamp": 1794624586336,
+      "action": "USER_LOGIN",
+      "performedBy": "Tanvir Islam (Cashier Dhaka) (cashier_dhaka)",
+      "details": {
+        "role": "staff",
+        "workspace": "Dhaka Outlet Counter 1"
+      }
+    },
+    {
+      "id": "audit-1794196772385",
+      "timestamp": 1794196772385,
+      "action": "USER_PHOTO_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "targetUser": "rh.faysal007",
+        "photoUrl": "/api/photos/usr_owner_faisal_1794196772385.jpg"
+      }
+    },
+    {
+      "id": "audit-1794094767122",
+      "timestamp": 1794094767122,
+      "action": "USER_PHOTO_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "targetUser": "rh.faysal007",
+        "photoUrl": "/api/photos/usr_owner_faisal_1794094767122.png"
+      }
+    },
+    {
+      "id": "audit-1794094757089",
+      "timestamp": 1794094757089,
+      "action": "USER_PHOTO_UPDATED",
+      "performedBy": "Faysal Ahmed (Main Owner)",
+      "details": {
+        "targetUser": "rh.faysal007",
+        "photoUrl": "/api/photos/usr_owner_faisal_1794094757089.png"
+      }
+    },
+    {
+      "id": "audit-1794092624144",
+      "timestamp": 1794092624144,
+      "action": "USER_LOGIN",
+      "performedBy": "Faysal Ahmed (Main Owner) (rh.faysal007)",
+      "details": {
+        "role": "owner",
+        "workspace": "Executive HQ Workspace"
+      }
+    },
+    {
+      "id": "audit-1794092612597",
+      "timestamp": 1794092612597,
+      "action": "USER_LOGIN",
+      "performedBy": "Faysal Ahmed (Main Owner) (rh.faysal007)",
+      "details": {
+        "role": "owner",
+        "workspace": "Executive HQ Workspace"
+      }
+    },
+    {
+      "id": "audit-1794032968437",
+      "timestamp": 1794032968437,
+      "action": "USER_LOGIN",
+      "performedBy": "Faysal Ahmed (Main Owner) (rh.faysal007)",
+      "details": {
+        "role": "owner",
+        "workspace": "Executive HQ Workspace"
+      }
+    },
+    {
+      "id": "audit-1794031950871",
+      "timestamp": 1794031950871,
+      "action": "USER_LOGIN",
+      "performedBy": "Tanvir Islam (Cashier Dhaka) (cashier_dhaka)",
+      "details": {
+        "role": "cashier",
+        "workspace": "Dhaka Outlet Counter 1"
+      }
+    },
+    {
+      "id": "audit-1794031944955",
+      "timestamp": 1794031944955,
+      "action": "USER_LOGIN",
+      "performedBy": "Faysal Ahmed (Main Owner) (rh.faysal007)",
+      "details": {
+        "role": "owner",
+        "workspace": "Executive HQ Workspace"
+      }
+    },
+    {
+      "id": "audit-init",
+      "timestamp": 1794031937165,
+      "action": "SYSTEM_INITIALIZED",
+      "performedBy": "System / Owner (rh.faysal007)",
+      "details": "Initialized ZARA Accounting Multi-User Cloud Database with 8 pre-configured workspaces."
+    }
+  ],
+  "customers": [
+    {
+      "id": "cust-1794094777412",
+      "workspaceUserId": "usr_owner_faisal",
+      "name": "Majarul (wikiliks)",
+      "phone": "+966 0599432476",
+      "whatsapp": "0599432476",
+      "photoUrl": "/api/photos/cust_1794094772853_5rx5z0.png",
+      "type": "customer",
+      "balance": 0,
+      "updatedAt": 1794094777412,
+      "photoData": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    },
+    {
+      "id": "cust-1",
+      "workspaceUserId": "usr_owner_faisal",
+      "name": "মেসার্স রহিম টেক্সটাইল",
+      "phone": "+880 1711-234567",
+      "type": "customer",
+      "balance": 25000,
+      "updatedAt": 1794196964108
+    },
+    {
+      "id": "cust-2",
+      "workspaceUserId": "usr_owner_faisal",
+      "name": "প্রিমিয়াম ফ্যাব্রিক্স সরবরাহকারী",
+      "phone": "+880 1819-876543",
+      "type": "vendor",
+      "balance": -28000,
+      "updatedAt": 1793687360587
+    }
+  ],
+  "invoices": [],
+  "homeBazarEntries": [
+    {
+      "id": "bz-today-34",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "date": "2026-11-12",
+      "itemName": "কাঁচামরিচ, ধনেপাতা ও লেবু",
+      "category": "vegetables_fruits",
+      "quantity": "৫০০ গ্রাম",
+      "amount": 34,
+      "paymentMethod": "cash",
+      "purchasedBy": "Faysal Ahmed (Main Owner)",
+      "buyerId": "rh.faysal007",
+      "notes": "তাজা কাঁচা বাজার",
+      "createdAt": 1794475000000,
+      "updatedAt": 1794475000000
+    },
+    {
+      "id": "bz-prev-1",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "date": "2026-10-28",
+      "itemName": "তাজা রুই মাছ ও ইলিশ মাছ (২ কেজি)",
+      "category": "fish_meat",
+      "quantity": "২ কেজি",
+      "amount": 850,
+      "paymentMethod": "cash",
+      "purchasedBy": "Faysal Ahmed (Main Owner)",
+      "buyerId": "rh.faysal007",
+      "notes": "মাছ ঘাট বাজার",
+      "createdAt": 1794300000000,
+      "updatedAt": 1794300000000
+    },
+    {
+      "id": "bz-prev-2",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "date": "2026-10-25",
+      "itemName": "বাসমতী কাটারিভোগ চাল ও আটা (১০ কেজি)",
+      "category": "rice_grains_flour",
+      "quantity": "১০ কেজি",
+      "amount": 720,
+      "paymentMethod": "bank",
+      "purchasedBy": "Rahat Karim (General Manager)",
+      "buyerId": "zara_manager",
+      "notes": "মুদি পাইকারি আড়ৎ",
+      "createdAt": 1794210000000,
+      "updatedAt": 1794210000000
+    },
+    {
+      "id": "bz-prev-3",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "date": "2026-10-20",
+      "itemName": "দেশি মুরগি ও ফার্মের তাজা ডিম",
+      "category": "dairy_eggs",
+      "quantity": "২টি মুরগি + ২ ডজন ডিম",
+      "amount": 540,
+      "paymentMethod": "cash",
+      "purchasedBy": "Faysal Ahmed (Main Owner)",
+      "buyerId": "rh.faysal007",
+      "notes": "সুপার শপ ফ্রেশ",
+      "createdAt": 1794120000000,
+      "updatedAt": 1794120000000
+    },
+    {
+      "id": "bz-prev-4",
+      "userId": "usr_owner_faisal",
+      "workspaceUserId": "usr_owner_faisal",
+      "date": "2026-10-15",
+      "itemName": "সয়াবিন তেল, সরিষার তেল ও মসলা সামগ্রী",
+      "category": "oil_spices",
+      "quantity": "৫ লিটার + মসলা",
+      "amount": 620,
+      "paymentMethod": "cash",
+      "purchasedBy": "Tanvir Islam (Cashier Dhaka)",
+      "buyerId": "cashier_dhaka",
+      "notes": "মাসিক মসলা স্টক",
+      "createdAt": 1794030000000,
+      "updatedAt": 1794030000000
+    }
+  ],
+  "commissionEntries": [
+    {
+      "id": "comm-nov2026-4580356569",
+      "date": "2026-11-15",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "4580356569",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "SHOUKATH ALI - VALIYAKATHU",
+      "service": "Iqama renewal - 9m",
+      "qty": 1,
+      "ratePerUnit": 180,
+      "invoiceTotal": 0,
+      "remainingAmount": 0,
+      "eligible": false,
+      "reasonNotEligible": "Pending invoice clearance",
+      "commissionAmount": 180,
+      "isClawback": false,
+      "payoutStatus": "Not eligible",
+      "period": "2026-11",
+      "createdAt": 1794768418006,
+      "updatedAt": 1794768418006
+    },
+    {
+      "id": "comm-nov2026-533218235",
+      "date": "2026-11-15",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "533218235",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "ARAVIND KUMAR RAJBHAR",
+      "service": "Sponsorship transfer",
+      "qty": 1,
+      "ratePerUnit": 250,
+      "invoiceTotal": 0,
+      "remainingAmount": 0,
+      "eligible": false,
+      "reasonNotEligible": "Pending invoice clearance",
+      "commissionAmount": 250,
+      "isClawback": false,
+      "payoutStatus": "Not eligible",
+      "period": "2026-11",
+      "createdAt": 1794768418005,
+      "updatedAt": 1794768418005
+    },
+    {
+      "id": "comm-nov2026-4585948197",
+      "date": "2026-11-15",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "4585948197",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "MD UZZAL KHAN",
+      "service": "Iqama renewal - 6m",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 0,
+      "remainingAmount": 0,
+      "eligible": false,
+      "reasonNotEligible": "Pending invoice clearance",
+      "commissionAmount": 100,
+      "isClawback": false,
+      "payoutStatus": "Not eligible",
+      "period": "2026-11",
+      "createdAt": 1794768418004,
+      "updatedAt": 1794768418004
+    },
+    {
+      "id": "comm-nov2026-3821768906",
+      "date": "2026-11-15",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "3821768906",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "KALAM BOATI",
+      "service": "Iqama renewal - 6m",
+      "qty": 1,
+      "ratePerUnit": 120,
+      "invoiceTotal": 0,
+      "remainingAmount": 0,
+      "eligible": false,
+      "reasonNotEligible": "Pending invoice clearance",
+      "commissionAmount": 120,
+      "isClawback": false,
+      "payoutStatus": "Not eligible",
+      "period": "2026-11",
+      "createdAt": 1794768418003,
+      "updatedAt": 1794768418003
+    },
+    {
+      "id": "comm-el-1",
+      "date": "2026-09-01",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "8295503408",
+      "invoiceStatus": "Active",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "سيف الاسلام",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 8000,
+      "remainingAmount": 0,
+      "eligible": true,
+      "commissionAmount": 100,
+      "payoutStatus": "To pay",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793500000000,
+      "updatedAt": 1793500000000
+    },
+    {
+      "id": "comm-el-2",
+      "date": "2026-09-03",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "8447871758",
+      "invoiceStatus": "Active",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "PRAMOD KUMAR GOPAL",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 8000,
+      "remainingAmount": 0,
+      "eligible": true,
+      "commissionAmount": 100,
+      "payoutStatus": "To pay",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793600000000,
+      "updatedAt": 1793600000000
+    },
+    {
+      "id": "comm-el-3",
+      "date": "2026-09-12",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9235103681",
+      "invoiceStatus": "Active",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "NAZMUL HASAN",
+      "service": "Sponsorship transfer",
+      "qty": 1,
+      "ratePerUnit": 200,
+      "invoiceTotal": 10000,
+      "remainingAmount": 0,
+      "eligible": true,
+      "commissionAmount": 200,
+      "payoutStatus": "To pay",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793700000000,
+      "updatedAt": 1793700000000
+    },
+    {
+      "id": "comm-el-4",
+      "date": "2026-09-13",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9320113270",
+      "invoiceStatus": "Active",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "MOHAMMAD RAJAN",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 8000,
+      "remainingAmount": 0,
+      "eligible": true,
+      "commissionAmount": 100,
+      "payoutStatus": "To pay",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793800000000,
+      "updatedAt": 1793800000000
+    },
+    {
+      "id": "comm-el-5",
+      "date": "2026-09-17",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9671528878",
+      "invoiceStatus": "Active",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "MA SAYED PITU",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 8000,
+      "remainingAmount": 0,
+      "eligible": true,
+      "commissionAmount": 100,
+      "payoutStatus": "To pay",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793900000000,
+      "updatedAt": 1793900000000
+    },
+    {
+      "id": "comm-nel-1",
+      "date": "2026-09-04",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "8547076942",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "PRAMOD KUMAR GOPAL",
+      "clientMobile": "0531598048",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 8000,
+      "remainingAmount": 5500,
+      "eligible": false,
+      "reasonNotEligible": "Pending: the wakalah installment",
+      "commissionAmount": 100,
+      "payoutStatus": "Not eligible",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793650000000,
+      "updatedAt": 1793650000000
+    },
+    {
+      "id": "comm-nel-2",
+      "date": "2026-09-09",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "8975836040",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "SHAHWAR AFTAB",
+      "clientMobile": "0510534085",
+      "service": "Iqama renewal - 6m",
+      "qty": 1,
+      "ratePerUnit": 120,
+      "invoiceTotal": 8500,
+      "remainingAmount": 1000,
+      "eligible": false,
+      "reasonNotEligible": "Invoice not fully paid",
+      "commissionAmount": 120,
+      "payoutStatus": "Not eligible",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793750000000,
+      "updatedAt": 1793750000000
+    },
+    {
+      "id": "comm-nel-3",
+      "date": "2026-09-14",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9348102911",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "AL-AMIN HOSSAIN",
+      "clientMobile": "0558192039",
+      "service": "Iqama renewal - 9m",
+      "qty": 1,
+      "ratePerUnit": 180,
+      "invoiceTotal": 9200,
+      "remainingAmount": 4200,
+      "eligible": false,
+      "reasonNotEligible": "Awaiting employer authorization",
+      "commissionAmount": 180,
+      "payoutStatus": "Not eligible",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793820000000,
+      "updatedAt": 1793820000000
+    },
+    {
+      "id": "comm-nel-4",
+      "date": "2026-09-18",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9482103982",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "TARIQUL ISLAM",
+      "clientMobile": "0549201948",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 7500,
+      "remainingAmount": 3000,
+      "eligible": false,
+      "reasonNotEligible": "Visa processing in progress",
+      "commissionAmount": 100,
+      "payoutStatus": "Not eligible",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793870000000,
+      "updatedAt": 1793870000000
+    },
+    {
+      "id": "comm-nel-5",
+      "date": "2026-09-22",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9592019482",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "HABIBUR RAHMAN",
+      "clientMobile": "0538192049",
+      "service": "Iqama renewal - 6m",
+      "qty": 1,
+      "ratePerUnit": 120,
+      "invoiceTotal": 8500,
+      "remainingAmount": 2500,
+      "eligible": false,
+      "reasonNotEligible": "Medical report pending",
+      "commissionAmount": 120,
+      "payoutStatus": "Not eligible",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793920000000,
+      "updatedAt": 1793920000000
+    },
+    {
+      "id": "comm-nel-6",
+      "date": "2026-09-25",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9710293841",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "KAMRUL HASAN",
+      "clientMobile": "0569102948",
+      "service": "Iqama renewal - 9m",
+      "qty": 1,
+      "ratePerUnit": 180,
+      "invoiceTotal": 9200,
+      "remainingAmount": 5000,
+      "eligible": false,
+      "reasonNotEligible": "Insurance renewal pending",
+      "commissionAmount": 180,
+      "payoutStatus": "Not eligible",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793950000000,
+      "updatedAt": 1793950000000
+    },
+    {
+      "id": "comm-nel-7",
+      "date": "2026-09-28",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "9820194820",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "SHAMIM REZA",
+      "clientMobile": "0501928491",
+      "service": "Iqama renewal - 9m",
+      "qty": 1,
+      "ratePerUnit": 180,
+      "invoiceTotal": 9200,
+      "remainingAmount": 3200,
+      "eligible": false,
+      "reasonNotEligible": "Ministry clearance pending",
+      "commissionAmount": 180,
+      "payoutStatus": "Not eligible",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793980000000,
+      "updatedAt": 1793980000000
+    },
+    {
+      "id": "comm-cb-1",
+      "date": "2026-08-15",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "7810293812",
+      "invoiceStatus": "Cancelled",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "RASHEDUL KARIM",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 7500,
+      "remainingAmount": 0,
+      "eligible": false,
+      "isClawback": true,
+      "clawbackAmount": -250,
+      "commissionAmount": 0,
+      "reasonNotEligible": "Visa rejected / client refund requested",
+      "payoutStatus": "Carried over",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793400000000,
+      "updatedAt": 1793400000000
+    },
+    {
+      "id": "comm-cb-2",
+      "date": "2026-08-20",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "7920194819",
+      "invoiceStatus": "Cancelled",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "ANISUR RAHMAN",
+      "service": "Sponsorship transfer",
+      "qty": 1,
+      "ratePerUnit": 200,
+      "invoiceTotal": 9000,
+      "remainingAmount": 0,
+      "eligible": false,
+      "isClawback": true,
+      "clawbackAmount": -300,
+      "commissionAmount": 0,
+      "reasonNotEligible": "Transfer uncompleted / client backed out",
+      "payoutStatus": "Carried over",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793450000000,
+      "updatedAt": 1793450000000
+    },
+    {
+      "id": "comm-cb-3",
+      "date": "2026-08-28",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "8019284910",
+      "invoiceStatus": "Cancelled",
+      "agent": "FAYSAL",
+      "agentId": "usr_owner_faisal",
+      "client": "JAHID HOSSAIN",
+      "service": "6-month visa",
+      "qty": 1,
+      "ratePerUnit": 100,
+      "invoiceTotal": 7500,
+      "remainingAmount": 0,
+      "eligible": false,
+      "isClawback": true,
+      "clawbackAmount": -200,
+      "commissionAmount": 0,
+      "reasonNotEligible": "Cancelled by sponsor before issuance",
+      "payoutStatus": "Carried over",
+      "period": "2026-06 — 2026-09",
+      "createdAt": 1793490000000,
+      "updatedAt": 1793490000000
+    },
+    {
+      "id": "comm-test-recovery-1794768451664",
+      "date": "2026-11-15",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "invoiceNo": "TEST-999999",
+      "invoiceStatus": "Pending",
+      "agent": "FAYSAL",
+      "client": "RECOVERY TEST CLIENT",
+      "service": "Test Service",
+      "qty": 1,
+      "ratePerUnit": 50,
+      "commissionAmount": 50,
+      "eligible": false,
+      "isClawback": false,
+      "payoutStatus": "Not eligible",
+      "period": "2026-11",
+      "createdAt": 1794768451664,
+      "updatedAt": 1794768451664
+    }
+  ],
+  "commissionPersons": [
+    {
+      "id": "person_faysal",
+      "name": "FAYSAL",
+      "office": "JUB5 - Jubail - Al Madrasa",
+      "linkedUserId": "usr_owner_faisal",
+      "createdAt": 1794690566149,
+      "updatedAt": 1794690566149
+    }
+  ],
+  "commissionMonths": [
+    "2026-08",
+    "2026-09",
+    "2026-11"
+  ],
+  "deletedRecordIds": {}
+}

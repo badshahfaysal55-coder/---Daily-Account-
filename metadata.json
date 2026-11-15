@@ -1,0 +1,8 @@
+{
+  "name": "Remix দৈনিক হিসাব - Cloud Accounting",
+  "description": "Smart cloud and offline-first daily accounting ledger with debounced auto-save, category analytics, and multi-device sync.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
