@@ -443,6 +443,18 @@ export const ApiService = {
         return { merged: Array.from(byId.values()), vaultHadMissingOnServer };
       };
 
+      const isAutoSyncedCustomerInvoice = (entry: any): boolean => {
+        if (!entry || typeof entry !== 'object') return false;
+        const id = String(entry.id || '');
+        const notes = String(entry.notes || '');
+        const isAutoSyncedSource =
+          id.startsWith('comm-inv-') || notes === 'Auto-synced from Daily Invoices';
+        if (!isAutoSyncedSource) return false;
+        const commAmt = Number(entry.commissionAmount) || 0;
+        const rate = Number(entry.ratePerUnit) || 0;
+        return commAmt === 0 && rate === 0 && !entry.isClawback && entry.invoiceStatus !== 'Cancelled';
+      };
+
       const cached = this.getCachedUser();
       if (cached?.role === 'owner') {
         const bk = await this.downloadBackup();
@@ -456,7 +468,11 @@ export const ApiService = {
           const mergedTxRes = mergeCollectionSafe(existingVault?.transactions, bk.database.transactions, mergedDeleted);
           const mergedCustRes = mergeCollectionSafe(existingVault?.customers, bk.database.customers, mergedDeleted);
           const mergedInvRes = mergeCollectionSafe(existingVault?.invoices, bk.database.invoices, mergedDeleted);
-          const mergedCommRes = mergeCollectionSafe(existingVault?.commissionEntries, bk.database.commissionEntries, mergedDeleted);
+          const mergedCommRes = mergeCollectionSafe(
+            (existingVault?.commissionEntries || []).filter((c: any) => !isAutoSyncedCustomerInvoice(c)),
+            (bk.database.commissionEntries || []).filter((c: any) => !isAutoSyncedCustomerInvoice(c)),
+            mergedDeleted
+          );
           const mergedPersonsRes = mergeCollectionSafe(existingVault?.commissionPersons, bk.database.commissionPersons, mergedDeleted);
           const mergedBazarRes = mergeCollectionSafe(existingVault?.homeBazarEntries, bk.database.homeBazarEntries, mergedDeleted);
 
@@ -552,7 +568,16 @@ export const ApiService = {
         const mergedTx = txs ? mergeCollectionSafe(existing.transactions, txs, deletedMap) : { merged: existing.transactions || [], vaultHadMissingOnServer: false };
         const mergedCust = custs ? mergeCollectionSafe(existing.customers, custs, deletedMap) : { merged: existing.customers || [], vaultHadMissingOnServer: false };
         const mergedInv = invs ? mergeCollectionSafe(existing.invoices, invs, deletedMap) : { merged: existing.invoices || [], vaultHadMissingOnServer: false };
-        const mergedComm = comms ? mergeCollectionSafe(existing.commissionEntries, comms.entries, deletedMap) : { merged: existing.commissionEntries || [], vaultHadMissingOnServer: false };
+        const mergedComm = comms
+          ? mergeCollectionSafe(
+              (existing.commissionEntries || []).filter((c: any) => !isAutoSyncedCustomerInvoice(c)),
+              (comms.entries || []).filter((c: any) => !isAutoSyncedCustomerInvoice(c)),
+              deletedMap
+            )
+          : {
+              merged: (existing.commissionEntries || []).filter((c: any) => !isAutoSyncedCustomerInvoice(c)),
+              vaultHadMissingOnServer: false,
+            };
         const mergedPersons = comms?.persons ? mergeCollectionSafe(existing.commissionPersons, comms.persons, deletedMap) : { merged: existing.commissionPersons || [], vaultHadMissingOnServer: false };
         const mergedBazar = bazarRes ? mergeCollectionSafe(existing.homeBazarEntries, bazarRes.entries, deletedMap) : { merged: existing.homeBazarEntries || [], vaultHadMissingOnServer: false };
 
@@ -1109,7 +1134,21 @@ export const ApiService = {
     if (params?.period) query.set('period', params.period);
     if (params?.office) query.set('office', params.office);
     const qs = query.toString() ? `?${query.toString()}` : '';
-    return this.request<{ entries: CommissionEntry[]; summary: CommissionStatementSummary; persons?: CommissionPersonAccount[]; months?: string[] }>(`/api/commissions${qs}`);
+    const res = await this.request<{ entries: CommissionEntry[]; summary: CommissionStatementSummary; persons?: CommissionPersonAccount[]; months?: string[] }>(`/api/commissions${qs}`);
+    const filteredEntries = (res.entries || []).filter((entry) => {
+      const id = String(entry?.id || '');
+      const notes = String(entry?.notes || '');
+      const isAutoSyncedSource =
+        id.startsWith('comm-inv-') || notes === 'Auto-synced from Daily Invoices';
+      if (!isAutoSyncedSource) return true;
+      const commAmt = Number(entry.commissionAmount) || 0;
+      const rate = Number(entry.ratePerUnit) || 0;
+      return !(commAmt === 0 && rate === 0 && !entry.isClawback && entry.invoiceStatus !== 'Cancelled');
+    });
+    return {
+      ...res,
+      entries: filteredEntries,
+    };
   },
 
   async getCommissionPersons(): Promise<{ persons: CommissionPersonAccount[]; accounts: Array<CommissionPersonAccount & { invoicesCount: number; toPayNow: number; alreadyPaid: number; notYetEligible: number; totalCommission: number }> }> {
@@ -1156,6 +1195,41 @@ export const ApiService = {
     return this.request<{ success: boolean; person: CommissionPersonAccount }>(`/api/commission-persons/${personId}/photo`, {
       method: 'DELETE',
     });
+  },
+
+  async deleteCommissionPerson(personId: string, reassignTo?: string): Promise<{ success: boolean; deletedId: string; deletedName: string }> {
+    const res = await this.request<{ success: boolean; deletedId: string; deletedName: string }>(
+      `/api/commission-persons/${encodeURIComponent(personId)}`,
+      {
+        method: 'DELETE',
+        body: JSON.stringify(reassignTo ? { reassignTo } : {}),
+      }
+    );
+    await VaultStorage.recordDeletion(personId);
+    this.setPhotoBackup(personId, null);
+    return res;
+  },
+
+  async mergeCommissionPersons(payload: {
+    sourceId?: string;
+    sourceName?: string;
+    targetId?: string;
+    targetName?: string;
+  }): Promise<{ success: boolean; mergedEntriesCount: number; target: CommissionPersonAccount; deletedSourceId: string | null }> {
+    const res = await this.request<{
+      success: boolean;
+      mergedEntriesCount: number;
+      target: CommissionPersonAccount;
+      deletedSourceId: string | null;
+    }>('/api/commission-persons/merge', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    if (res.deletedSourceId) {
+      await VaultStorage.recordDeletion(res.deletedSourceId);
+      this.setPhotoBackup(res.deletedSourceId, null);
+    }
+    return res;
   },
 
   async getCommissionMonths(): Promise<string[]> {
@@ -1280,7 +1354,13 @@ export const ApiService = {
         transactions: bk.database.transactions || [],
         customers: bk.database.customers || [],
         invoices: bk.database.invoices || [],
-        commissionEntries: bk.database.commissionEntries || [],
+        commissionEntries: (bk.database.commissionEntries || []).filter((c: any) => {
+          const id = String(c?.id || '');
+          const notes = String(c?.notes || '');
+          const isAutoSynced = id.startsWith('comm-inv-') || notes === 'Auto-synced from Daily Invoices';
+          if (!isAutoSynced) return true;
+          return !((Number(c?.commissionAmount) || 0) === 0 && (Number(c?.ratePerUnit) || 0) === 0 && !c?.isClawback && c?.invoiceStatus !== 'Cancelled');
+        }),
         commissionPersons: bk.database.commissionPersons || [],
         commissionMonths: bk.database.commissionMonths || [],
         homeBazarEntries: bk.database.homeBazarEntries || [],

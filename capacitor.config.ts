@@ -17,6 +17,11 @@ const config: CapacitorConfig = {
     backgroundColor: '#101A2C',
     allowMixedContent: false,
   },
+  ios: {
+    backgroundColor: '#101A2C',
+    contentInset: 'automatic',
+    preferredContentMode: 'mobile',
+  },
 };
 
 export default config;

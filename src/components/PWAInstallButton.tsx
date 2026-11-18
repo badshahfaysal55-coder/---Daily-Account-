@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import QRCode from 'qrcode';
 import {
   Download,
@@ -121,26 +122,26 @@ export const PWAInstallModal: React.FC<{
     await handleCopyUrl();
   };
 
-  return (
+  const modalContent = (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-4 safe-area-top safe-area-bottom overflow-y-auto"
+      className="fixed inset-0 z-[9999] flex items-start sm:items-center justify-center bg-slate-950/80 backdrop-blur-xs p-3 sm:p-6 safe-area-top safe-area-bottom overflow-y-auto"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl bg-[#131F33] border border-slate-700/80 text-white shadow-2xl overflow-hidden my-auto"
+        className="w-full max-w-2xl rounded-2xl bg-[#131F33] border border-slate-700/80 text-white shadow-2xl overflow-hidden my-auto flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-slate-700/80 bg-slate-900/70">
+        <div className="shrink-0 flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 border-b border-slate-700/80 bg-slate-900/70">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
               <Smartphone className="w-5 h-5 text-emerald-400" />
             </div>
             <div className="min-w-0">
-              <h3 className="text-sm font-bold font-heading truncate">
+              <h3 className="text-sm sm:text-base font-bold font-heading truncate">
                 {isBn ? 'iOS ও Android ফোনে অ্যাপ ডাউনলোড' : 'Download & Install on iOS & Android'}
               </h3>
-              <p className="text-[11px] text-slate-400 truncate">
+              <p className="text-[11px] sm:text-xs text-slate-400 truncate">
                 {isBn
                   ? 'ক্যামেরা দিয়ে QR কোড স্ক্যান করুন অথবা লিংক কপি করুন'
                   : 'Scan QR with phone camera or install directly'}
@@ -150,14 +151,14 @@ export const PWAInstallModal: React.FC<{
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer shrink-0"
+            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer shrink-0"
             aria-label="Close install guide"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-4 sm:p-5 space-y-4 max-h-[78dvh] overflow-y-auto">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-4">
           {/* Native Android/Chrome 1-Tap Install CTA if ready */}
           {isInstallable && (
             <button
@@ -448,6 +449,8 @@ export const PWAInstallModal: React.FC<{
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };
 
 export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({

@@ -30,6 +30,7 @@ import { ApiService } from '../services/api';
 import { firestoreSyncService, FirestoreSyncStatus } from '../services/firestoreSyncService';
 import { formatCurrency, formatDateBangla, formatDateEn, toBanglaDigits } from '../utils/formatters';
 import { ProfilePhotoModal } from './ProfilePhotoModal';
+import { ZaraLogo } from './ZaraLogo';
 
 interface OwnerControlCenterProps {
   currentUser: UserAccount;
@@ -71,7 +72,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setIsConnectingCloud(true);
       setActionError(null);
       if (!cloudVaultStatus.isVerifiedOwner) {
-        await firestoreSyncService.connectCloudVault();
+        const user = await firestoreSyncService.connectCloudVault();
+        if (!user) {
+          setActionError(
+            isBn
+              ? 'গুগল সাইন-ইন পপআপ সম্পন্ন হওয়ার আগেই বন্ধ করা হয়েছে। আবার চেষ্টা করুন।'
+              : 'Google sign-in popup was closed before completing. Please try again.'
+          );
+          return;
+        }
       }
       const res = await ApiService.syncCloudFirestoreNow();
       await loadData();
@@ -720,13 +729,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-white p-1 shadow-lg shadow-black/30 shrink-0 border border-amber-400/50">
-              <img
-                src="/assets/aistudio/WhatsApp_Image_2026-11-06_at_9.38.17_AM_2058b80b.jpeg"
-                alt="ZARA Owner"
-                className="w-full h-full object-cover rounded-xl"
-              />
-            </div>
+            <ZaraLogo size="lg" showText={false} />
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="text-xl font-bold tracking-tight">

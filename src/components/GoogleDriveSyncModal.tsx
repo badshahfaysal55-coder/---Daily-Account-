@@ -36,7 +36,7 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isSyncingCommission, setIsSyncingCommission] = useState(false);
   const [lastResultLink, setLastResultLink] = useState<string | null>(null);
-  const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null);
 
   useEffect(() => {
     const unsub = googleDriveService.subscribe((newStatus) => {
@@ -51,14 +51,33 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
     setIsConnecting(true);
     setFeedbackMessage(null);
     try {
-      await googleDriveService.connectGoogleDrive();
+      const res = await googleDriveService.connectGoogleDrive();
+      if (res.cancelled) {
+        if (res.reason === 'popup-blocked') {
+          setFeedbackMessage({
+            text: isBn
+              ? 'ব্রাউজার পপআপ ব্লক করেছে। অনুগ্রহ করে এই সাইটের জন্য পপআপ Allow করুন অথবা অ্যাপটি নতুন ট্যাবে খুলে আবার চেষ্টা করুন।'
+              : 'Your browser blocked the Google sign-in popup. Please allow popups for this site or open the app in a full browser tab and try again.',
+            type: 'error',
+          });
+        } else {
+          setFeedbackMessage({
+            text: isBn
+              ? 'গুগল সাইন-ইন পপআপ সম্পূর্ণ হওয়ার আগেই বন্ধ করা হয়েছে। সংযুক্ত করতে আবার "গুগল দিয়ে সাইন ইন করুন" বাটনে চাপ দিন।'
+              : 'Google sign-in window was closed before completing. Click "Sign in with Google" again when ready to connect.',
+            type: 'info',
+          });
+        }
+        return;
+      }
+
       setFeedbackMessage({
         text: isBn ? 'গুগল ড্রাইভ সফলভাবে সংযুক্ত হয়েছে!' : 'Google Drive connected successfully!',
         type: 'success',
       });
     } catch (err: any) {
       setFeedbackMessage({
-        text: err.message || (isBn ? 'গুগল সংযোগ ব্যর্থ হয়েছে' : 'Connection to Google Drive failed'),
+        text: err?.message || (isBn ? 'গুগল সংযোগ ব্যর্থ হয়েছে' : 'Connection to Google Drive failed'),
         type: 'error',
       });
     } finally {
@@ -201,13 +220,19 @@ export const GoogleDriveSyncModal: React.FC<GoogleDriveSyncModalProps> = ({
               className={`p-3.5 rounded-xl border text-xs flex items-center gap-2.5 animate-in fade-in ${
                 feedbackMessage.type === 'success'
                   ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
-                  : 'bg-red-950/50 border-red-500/40 text-red-300'
+                  : feedbackMessage.type === 'info'
+                    ? 'bg-amber-950/40 border-amber-500/40 text-amber-200'
+                    : 'bg-red-950/50 border-red-500/40 text-red-300'
               }`}
             >
               {feedbackMessage.type === 'success' ? (
                 <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
               ) : (
-                <AlertCircle className="w-4 h-4 shrink-0 text-red-400" />
+                <AlertCircle
+                  className={`w-4 h-4 shrink-0 ${
+                    feedbackMessage.type === 'info' ? 'text-amber-400' : 'text-red-400'
+                  }`}
+                />
               )}
               <span className="font-medium flex-1">{feedbackMessage.text}</span>
             </div>

@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import {
   getAuth,
   signInWithPopup,
@@ -9,9 +9,11 @@ import {
 } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
 
-// Initialize Firebase App
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
-const auth = getAuth(app);
+// Initialize isolated Firebase Auth app for Google Drive so Drive sign-in/out does not disturb Firestore Vault auth
+const driveApp =
+  getApps().find((a) => a.name === 'google-drive-helper') ||
+  initializeApp(firebaseConfig, 'google-drive-helper');
+const auth = getAuth(driveApp);
 
 // Provider with required Drive scopes
 const provider = new GoogleAuthProvider();
@@ -23,7 +25,11 @@ provider.setCustomParameters({
 // In-memory access token cache per integration guidelines
 let cachedAccessToken: string | null = null;
 let cachedGoogleUser: User | null = null;
-let isSigningIn = false;
+let statusNotice: string | null = null;
+
+export type GoogleDriveConnectResult =
+  | { cancelled: false; user: User; accessToken: string }
+  | { cancelled: true; reason: 'popup-closed' | 'popup-blocked' | 'in-progress' };
 
 export interface DriveFileInfo {
   id: string;
@@ -48,6 +54,7 @@ export interface GoogleDriveBackupStatus {
 class GoogleDriveService {
   private listeners: Array<(status: GoogleDriveBackupStatus) => void> = [];
   private autoSyncTimer: any = null;
+  private pendingSignIn: Promise<GoogleDriveConnectResult> | null = null;
 
   constructor() {
     this.initAuthListener();
@@ -87,7 +94,9 @@ class GoogleDriveService {
       lastBackupAt: lastBackupAtStr ? parseInt(lastBackupAtStr, 10) : null,
       lastBackupFileId: lastBackupFileId || null,
       autoSyncEnabled: autoSync,
-      statusMessage: cachedAccessToken ? 'Connected to Google Drive' : 'Ready to connect',
+      statusMessage: cachedAccessToken
+        ? 'Connected to Google Drive'
+        : statusNotice || 'Ready to connect',
     };
   }
 
@@ -96,25 +105,70 @@ class GoogleDriveService {
     this.listeners.forEach((l) => l(status));
   }
 
-  public async connectGoogleDrive(): Promise<{ user: User; accessToken: string }> {
-    try {
-      isSigningIn = true;
-      const result = await signInWithPopup(auth, provider);
-      const credential = GoogleAuthProvider.credentialFromResult(result);
-      if (!credential?.accessToken) {
-        throw new Error('Failed to retrieve Google Drive OAuth token from authorization');
-      }
-
-      cachedAccessToken = credential.accessToken;
-      cachedGoogleUser = result.user;
-      this.emitStatus();
-      return { user: result.user, accessToken: cachedAccessToken };
-    } catch (err: any) {
-      console.error('Google Drive sign-in error:', err);
-      throw err;
-    } finally {
-      isSigningIn = false;
+  public async connectGoogleDrive(): Promise<GoogleDriveConnectResult> {
+    if (this.pendingSignIn) {
+      return this.pendingSignIn;
     }
+
+    this.pendingSignIn = (async (): Promise<GoogleDriveConnectResult> => {
+      try {
+        statusNotice = null;
+        const result = await signInWithPopup(auth, provider);
+        const credential = GoogleAuthProvider.credentialFromResult(result);
+        const accessToken =
+          credential?.accessToken ||
+          (result as any)?._tokenResponse?.oauthAccessToken ||
+          null;
+
+        if (!accessToken) {
+          throw new Error(
+            'Google Drive permission token was not granted. Please try signing in again and allow Drive access.'
+          );
+        }
+
+        cachedAccessToken = accessToken;
+        cachedGoogleUser = result.user;
+        statusNotice = 'Connected to Google Drive';
+        this.emitStatus();
+        return { cancelled: false, user: result.user, accessToken };
+      } catch (err: any) {
+        const code = String(err?.code || '');
+        const msg = String(err?.message || '');
+
+        if (
+          code === 'auth/popup-closed-by-user' ||
+          code === 'auth/cancelled-popup-request' ||
+          msg.includes('popup-closed-by-user') ||
+          msg.includes('cancelled-popup-request')
+        ) {
+          statusNotice = 'Google sign-in popup was closed before finishing';
+          this.emitStatus();
+          return { cancelled: true, reason: 'popup-closed' };
+        }
+
+        if (code === 'auth/popup-blocked' || msg.includes('popup-blocked')) {
+          statusNotice = 'Popup was blocked by your browser';
+          this.emitStatus();
+          return { cancelled: true, reason: 'popup-blocked' };
+        }
+
+        if (code === 'auth/unauthorized-domain' || msg.includes('unauthorized-domain')) {
+          throw new Error(
+            'This domain is not authorized in Firebase Authentication settings. Please open the app from the authorized URL or add this domain in Firebase Console.'
+          );
+        }
+
+        if (code === 'auth/network-request-failed') {
+          throw new Error('Network error while connecting to Google Drive. Please check your internet connection.');
+        }
+
+        throw err;
+      } finally {
+        this.pendingSignIn = null;
+      }
+    })();
+
+    return this.pendingSignIn;
   }
 
   public async disconnectGoogleDrive(): Promise<void> {
@@ -122,9 +176,12 @@ class GoogleDriveService {
       await signOut(auth);
       cachedAccessToken = null;
       cachedGoogleUser = null;
+      statusNotice = 'Disconnected';
       this.emitStatus();
-    } catch (err) {
-      console.error('Google Drive sign out error:', err);
+    } catch {
+      cachedAccessToken = null;
+      cachedGoogleUser = null;
+      this.emitStatus();
     }
   }
 

@@ -14,6 +14,7 @@ import { UserProfile, UserAccount, GlobalAppSettings, AppTheme, DisplayMode, Cur
 import { Language } from '../utils/translations';
 import { formatDateBangla, formatDateEn } from '../utils/formatters';
 import { openPWAInstallGuide } from './PWAInstallButton';
+import { ZaraLogo } from './ZaraLogo';
 
 interface HeaderProps {
   user: UserProfile;
@@ -92,14 +93,8 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
 
           <div className="flex items-center gap-2.5 min-w-0">
-            {/* ZARA Brand Logo with rich multi-layered drop shadow */}
-            <div className="w-9 h-9 rounded-xl overflow-hidden bg-white p-0.5 shrink-0 shadow-[0_8px_22px_rgba(0,0,0,0.58),0_2px_8px_rgba(0,0,0,0.4)] ring-1 ring-white/35">
-              <img
-                src="/assets/aistudio/WhatsApp_Image_2026-11-06_at_9.38.17_AM_2058b80b.jpeg"
-                alt="ZARA Logo"
-                className="w-full h-full object-cover rounded-[inherit] drop-shadow-sm"
-              />
-            </div>
+            {/* ZARA Brand Logo — Clean 3D Glowing Emblem */}
+            <ZaraLogo size="sm" showText={false} />
 
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">

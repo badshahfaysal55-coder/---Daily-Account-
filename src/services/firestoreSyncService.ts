@@ -1,4 +1,4 @@
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
@@ -25,7 +25,7 @@ import {
 import firebaseConfig from '../../firebase-applet-config.json';
 import { PersistentVaultSnapshot } from './vaultStorage';
 
-const app = getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
+const app = getApps().find((a) => a.name === '[DEFAULT]') || initializeApp(firebaseConfig);
 export const firebaseAuth = getAuth(app);
 export const firestoreDb = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId);
 
@@ -200,30 +200,72 @@ class FirestoreSyncService {
     });
   }
 
-  public async connectCloudVault(): Promise<FirebaseUser> {
-    const provider = new GoogleAuthProvider();
-    provider.setCustomParameters({ prompt: 'select_account' });
-    const result = await signInWithPopup(firebaseAuth, provider);
-    this.currentUser = result.user;
-    this.lastError = null;
-    this.emit();
-    return result.user;
+  private pendingVaultSignIn: Promise<FirebaseUser | null> | null = null;
+  private pendingAppleSignIn: Promise<{ idToken: string; email: string | null; displayName: string | null }> | null = null;
+
+  public async connectCloudVault(): Promise<FirebaseUser | null> {
+    if (this.pendingVaultSignIn) {
+      return this.pendingVaultSignIn;
+    }
+
+    this.pendingVaultSignIn = (async () => {
+      try {
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+        const result = await signInWithPopup(firebaseAuth, provider);
+        this.currentUser = result.user;
+        this.lastError = null;
+        this.emit();
+        return result.user;
+      } catch (err: any) {
+        const code = String(err?.code || '');
+        const msg = String(err?.message || '');
+        if (
+          code === 'auth/popup-closed-by-user' ||
+          code === 'auth/cancelled-popup-request' ||
+          msg.includes('popup-closed-by-user') ||
+          msg.includes('cancelled-popup-request')
+        ) {
+          return null;
+        }
+        if (code === 'auth/popup-blocked' || msg.includes('popup-blocked')) {
+          throw new Error('Popup was blocked by your browser. Please allow popups or open the app in a new tab.');
+        }
+        throw err;
+      } finally {
+        this.pendingVaultSignIn = null;
+      }
+    })();
+
+    return this.pendingVaultSignIn;
   }
 
   public async signInWithAppleId(): Promise<{ idToken: string; email: string | null; displayName: string | null }> {
-    const helperApp =
-      getApps().find((a) => a.name === 'apple-auth-helper') ||
-      initializeApp(firebaseConfig, 'apple-auth-helper');
-    const helperAuth = getAuth(helperApp);
-    const provider = new OAuthProvider('apple.com');
-    provider.addScope('email');
-    provider.addScope('name');
-    const result = await signInWithPopup(helperAuth, provider);
-    const idToken = await result.user.getIdToken();
-    const email = result.user.email || result.user.providerData?.[0]?.email || null;
-    const displayName = result.user.displayName || null;
-    await signOut(helperAuth).catch(() => {});
-    return { idToken, email, displayName };
+    if (this.pendingAppleSignIn) {
+      return this.pendingAppleSignIn;
+    }
+
+    this.pendingAppleSignIn = (async () => {
+      try {
+        const helperApp =
+          getApps().find((a) => a.name === 'apple-auth-helper') ||
+          initializeApp(firebaseConfig, 'apple-auth-helper');
+        const helperAuth = getAuth(helperApp);
+        const provider = new OAuthProvider('apple.com');
+        provider.addScope('email');
+        provider.addScope('name');
+        const result = await signInWithPopup(helperAuth, provider);
+        const idToken = await result.user.getIdToken();
+        const email = result.user.email || result.user.providerData?.[0]?.email || null;
+        const displayName = result.user.displayName || null;
+        await signOut(helperAuth).catch(() => {});
+        return { idToken, email, displayName };
+      } finally {
+        this.pendingAppleSignIn = null;
+      }
+    })();
+
+    return this.pendingAppleSignIn;
   }
 
   private getVerifiedOwnerUid(): string | null {
@@ -460,7 +502,13 @@ class FirestoreSyncService {
         transactions: txRows.map(stripInternal),
         customers: custRows.map(stripInternal),
         invoices: invRows.map(stripInternal),
-        commissionEntries: commRows.map(stripInternal),
+        commissionEntries: commRows.map(stripInternal).filter((ce: any) => {
+          const id = String(ce?.id || '');
+          const notes = String(ce?.notes || '');
+          const isAutoSynced = id.startsWith('comm-inv-') || notes === 'Auto-synced from Daily Invoices';
+          if (!isAutoSynced) return true;
+          return !((Number(ce?.commissionAmount) || 0) === 0 && (Number(ce?.ratePerUnit) || 0) === 0 && !ce?.isClawback && ce?.invoiceStatus !== 'Cancelled');
+        }),
         commissionPersons: personRows.map(stripInternal),
         commissionMonths: monthRows.map((m) => String(m.month || '')).filter(Boolean).sort(),
         homeBazarEntries: bazarRows.map((raw) => {
@@ -722,10 +770,19 @@ class FirestoreSyncService {
         }
       }
 
-      // 7. Commission Entries
+      // 7. Commission Entries (exclude auto-synced 0-commission customer invoices)
       const activeCommIds = new Set<string>();
       for (const ce of database.commissionEntries || []) {
         if (!ce?.id) continue;
+        const ceId = String(ce.id || '');
+        const ceNotes = String(ce.notes || '');
+        const isAutoSyncedZero =
+          (ceId.startsWith('comm-inv-') || ceNotes === 'Auto-synced from Daily Invoices') &&
+          (Number(ce.commissionAmount) || 0) === 0 &&
+          (Number(ce.ratePerUnit) || 0) === 0 &&
+          !ce.isClawback &&
+          ce.invoiceStatus !== 'Cancelled';
+        if (isAutoSyncedZero) continue;
         const docId = toSafeDocId('', ce.id);
         activeCommIds.add(docId);
         const ceDoc: Record<string, any> = {
@@ -764,15 +821,17 @@ class FirestoreSyncService {
         await this.upsertDoc('commissionEntries', docId, ceDoc);
       }
       for (const [recId] of Object.entries(deletedMap)) {
-        if (recId.startsWith('comm_') && !activeCommIds.has(toSafeDocId('', recId))) {
+        if ((recId.startsWith('comm_') || recId.startsWith('comm-')) && !activeCommIds.has(toSafeDocId('', recId))) {
           await this.removeDoc('commissionEntries', toSafeDocId('', recId));
         }
       }
 
       // 8. Commission Persons
+      const activePersonIds = new Set<string>();
       for (const cp of database.commissionPersons || []) {
         if (!cp?.id || !cp?.name) continue;
         const docId = toSafeDocId('', cp.id);
+        activePersonIds.add(docId);
         const cpDoc: Record<string, any> = {
           ownerUid: uid,
           id: docId,
@@ -786,6 +845,11 @@ class FirestoreSyncService {
         if (cp.linkedUserId) cpDoc.linkedUserId = clampStr(cp.linkedUserId, 128);
         if (cp.photoUrl) cpDoc.photoUrl = clampStr(cp.photoUrl, 512);
         await this.upsertDoc('commissionPersons', docId, cpDoc);
+      }
+      for (const [recId] of Object.entries(deletedMap)) {
+        if (recId.startsWith('person_') && !activePersonIds.has(toSafeDocId('', recId))) {
+          await this.removeDoc('commissionPersons', toSafeDocId('', recId));
+        }
       }
 
       // 9. Commission Months

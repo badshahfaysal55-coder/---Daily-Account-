@@ -32,9 +32,11 @@ import {
   Calendar,
   Building,
   AlertCircle,
+  AlertTriangle,
   Camera,
   Lock,
   ShieldCheck,
+  GitMerge,
 } from 'lucide-react';
 import {
   CommissionEntry,
@@ -165,22 +167,30 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const [selectedOffice, setSelectedOffice] = useState<string>('all');
   const [selectedServiceFilter, setSelectedServiceFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeSection, setActiveSection] = useState<SheetSection>('all');
+  const [activeSection, setActiveSection] = useState<SheetSection>(() => {
+    const saved = localStorage.getItem('zara_comm_active_section') as SheetSection | null;
+    return saved || 'all';
+  });
+  const handleSectionChange = (section: SheetSection) => {
+    setActiveSection(section);
+    localStorage.setItem('zara_comm_active_section', section);
+  };
 
   // Inline Quick-Entry Row State (ZERO auto amount — always starts empty / 0)
   const [showQuickRow, setShowQuickRow] = useState<boolean>(false);
   const [quickDate, setQuickDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [quickOffice, setQuickOffice] = useState<string>(DEFAULT_OFFICES[0]);
   const [quickInvoiceNo, setQuickInvoiceNo] = useState<string>('');
-  const [quickAgent, setQuickAgent] = useState<string>(currentUser.name || 'FAYSAL');
+  const [quickAgent, setQuickAgent] = useState<string>('RH FAYSAL');
   const [quickClient, setQuickClient] = useState<string>('');
   const [quickWorker, setQuickWorker] = useState<string>('');
   const [quickMobile, setQuickMobile] = useState<string>('');
   const [quickService, setQuickService] = useState<string>(DEFAULT_SERVICES[0]);
   const [quickQty, setQuickQty] = useState<number>(1);
+  const [quickInvoiceTotal, setQuickInvoiceTotal] = useState<string>('');
+  const [quickRemaining, setQuickRemaining] = useState<string>('');
   const [quickRate, setQuickRate] = useState<string>('');
   const [quickCommission, setQuickCommission] = useState<string>('');
-  const [quickRemaining, setQuickRemaining] = useState<string>('');
   const [quickStatusType, setQuickStatusType] = useState<'eligible' | 'waiting' | 'paid' | 'clawback'>('eligible');
   const [isQuickSaving, setIsQuickSaving] = useState<boolean>(false);
 
@@ -196,7 +206,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
 
-  // Person Add / Edit Modal (Photo add/change/remove is Owner-only)
+  // Person Add / Edit / Delete / Merge Modals (Photo add/change/remove is Owner-only)
   const [showPersonModal, setShowPersonModal] = useState(false);
   const [editingPerson, setEditingPerson] = useState<CommissionPersonAccount | null>(null);
   const [personNameInput, setPersonNameInput] = useState('');
@@ -209,6 +219,17 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const [isSavingPerson, setIsSavingPerson] = useState(false);
   const personPhotoFileRef = useRef<HTMLInputElement>(null);
   const personPhotoCameraRef = useRef<HTMLInputElement>(null);
+
+  // Delete Person Modal
+  const [personToDelete, setPersonToDelete] = useState<CommissionPersonAccount | null>(null);
+  const [deleteReassignTo, setDeleteReassignTo] = useState<string>('');
+  const [isDeletingPerson, setIsDeletingPerson] = useState(false);
+
+  // Merge Persons Modal
+  const [showMergePersonModal, setShowMergePersonModal] = useState(false);
+  const [mergeSourceName, setMergeSourceName] = useState<string>('');
+  const [mergeTargetId, setMergeTargetId] = useState<string>('');
+  const [isMergingPersons, setIsMergingPersons] = useState(false);
 
   // Month Files Modal
   const [showMonthsModal, setShowMonthsModal] = useState(false);
@@ -229,7 +250,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formOffice, setFormOffice] = useState(DEFAULT_OFFICES[0]);
   const [formInvoiceNo, setFormInvoiceNo] = useState('');
-  const [formAgent, setFormAgent] = useState(currentUser.name || 'FAYSAL');
+  const [formAgent, setFormAgent] = useState('RH FAYSAL');
   const [formClient, setFormClient] = useState('');
   const [formWorker, setFormWorker] = useState('');
   const [formClientMobile, setFormClientMobile] = useState('');
@@ -267,6 +288,17 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       ? 'font-mono'
       : 'font-sans';
 
+  const isExplicitCommissionEntry = (entry: CommissionEntry): boolean => {
+    const id = String(entry?.id || '');
+    const notes = String(entry?.notes || '');
+    const isAutoSyncedSource =
+      id.startsWith('comm-inv-') || notes === 'Auto-synced from Daily Invoices';
+    if (!isAutoSyncedSource) return true;
+    const commAmt = Number(entry?.commissionAmount) || 0;
+    const rate = Number(entry?.ratePerUnit) || 0;
+    return !(commAmt === 0 && rate === 0 && !entry?.isClawback && entry?.invoiceStatus !== 'Cancelled');
+  };
+
   // Load Commissions, Person Accounts & Months
   const loadData = async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -277,7 +309,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         ApiService.getCommissionPersons().catch(() => ({ persons: [], accounts: [] })),
       ]);
 
-      const fetchedEntries = commRes.entries || [];
+      const fetchedEntries = (commRes.entries || []).filter(isExplicitCommissionEntry);
       setEntries(fetchedEntries);
 
       const serverPersons = personsRes.persons?.length ? personsRes.persons : commRes.persons || [];
@@ -286,7 +318,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       if (personsRes.accounts && personsRes.accounts.length > 0) {
         setPersonAccounts(personsRes.accounts);
       } else {
-        // Compute client fallback if personsRes wasn't populated
+        // Compute balances strictly for explicitly added Persons (never auto-generate from entries)
         const accMap = new Map<string, PersonAccountSummary>();
         serverPersons.forEach((p) => {
           accMap.set(p.name.trim().toLowerCase(), {
@@ -299,23 +331,8 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           });
         });
         fetchedEntries.forEach((e) => {
-          const key = (e.agent || 'UNASSIGNED').trim().toLowerCase();
-          if (!accMap.has(key)) {
-            accMap.set(key, {
-              id: 'person_' + key.replace(/[^a-z0-9]+/g, '_'),
-              name: e.agent || 'UNASSIGNED',
-              iqamaNo: '',
-              phone: '',
-              office: e.office || '',
-              createdAt: e.createdAt || Date.now(),
-              updatedAt: e.updatedAt || Date.now(),
-              invoicesCount: 0,
-              toPayNow: 0,
-              alreadyPaid: 0,
-              notYetEligible: 0,
-              totalCommission: 0,
-            });
-          }
+          const key = (e.agent || '').trim().toLowerCase();
+          if (!key || !accMap.has(key)) return;
           const acc = accMap.get(key)!;
           acc.invoicesCount += 1;
           const amt = e.isClawback || e.invoiceStatus === 'Cancelled' ? 0 : Number(e.commissionAmount) || 0;
@@ -358,7 +375,6 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       if (
         event.startsWith('commission_') ||
         event.startsWith('commissions_') ||
-        event.startsWith('invoice_') ||
         event === 'user_updated' ||
         event === 'global_settings_updated' ||
         event === 'database_restored'
@@ -387,25 +403,37 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     }
   }, [toastMessage]);
 
-  // Dynamic Dropdown Options (only real saved persons & entries — NO fake agents)
+  // Strict Manual Person Dropdown Options (ONLY manually created Persons — NEVER auto-generated from entries or user profiles)
   const availablePersons = useMemo(() => {
     const map = new Map<string, CommissionPersonAccount>();
     persons.forEach((p) => {
       if (p.name) map.set(p.name.trim().toLowerCase(), p);
     });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [persons]);
+
+  // Any legacy/imported entry agent names that don't have a manual Person profile (available to merge cleanly)
+  const unlinkedEntryAgents = useMemo(() => {
+    const known = new Set(availablePersons.map((p) => p.name.trim().toLowerCase()));
+    const extra = new Map<string, string>();
     entries.forEach((e) => {
-      if (e.agent && !map.has(e.agent.trim().toLowerCase())) {
-        map.set(e.agent.trim().toLowerCase(), {
-          id: 'person_' + e.agent.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-          name: e.agent.trim(),
-          office: e.office || '',
-          createdAt: e.createdAt,
-          updatedAt: e.updatedAt,
-        });
+      const nm = (e.agent || '').trim();
+      if (nm && !known.has(nm.toLowerCase()) && !extra.has(nm.toLowerCase())) {
+        extra.set(nm.toLowerCase(), nm);
       }
     });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [persons, entries]);
+    return Array.from(extra.values()).sort((a, b) => a.localeCompare(b));
+  }, [availablePersons, entries]);
+
+  useEffect(() => {
+    if (
+      selectedAgent !== 'all' &&
+      availablePersons.length > 0 &&
+      !availablePersons.some((p) => p.name.trim().toLowerCase() === selectedAgent.trim().toLowerCase())
+    ) {
+      setSelectedAgent('all');
+    }
+  }, [selectedAgent, availablePersons]);
 
   const activePersonProfile = useMemo(() => {
     if (selectedAgent === 'all') {
@@ -443,9 +471,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     }).length;
   };
 
-  // Filtered Entries
+  // Filtered Entries (strictly explicit/imported Commission Sheet records)
   const filtered = useMemo(() => {
     return entries.filter((e) => {
+      if (!isExplicitCommissionEntry(e)) return false;
       if (selectedAgent !== 'all' && e.agent.trim().toLowerCase() !== selectedAgent.trim().toLowerCase()) {
         return false;
       }
@@ -716,15 +745,98 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     if (activePersonProfile) {
       openEditSpecificPersonModal(activePersonProfile);
     } else {
-      setEditingPerson(null);
-      setPersonNameInput(selectedAgent !== 'all' ? selectedAgent : currentUser.name || '');
-      setPersonIqamaInput('');
-      setPersonPhoneInput('');
-      setPersonOfficeInput(DEFAULT_OFFICES[0]);
-      setPersonPhotoPreview(null);
-      setPersonPhotoBase64(null);
-      setPersonPhotoRemoved(false);
-      setShowPersonModal(true);
+      openAddPersonModal();
+    }
+  };
+
+  const openDeletePersonModal = (person: CommissionPersonAccount) => {
+    setPersonToDelete(person);
+    const other = availablePersons.find((p) => p.id !== person.id);
+    setDeleteReassignTo(other ? other.name : '');
+  };
+
+  const handleConfirmDeletePerson = async () => {
+    if (!personToDelete) return;
+    setIsDeletingPerson(true);
+    try {
+      await ApiService.deleteCommissionPerson(personToDelete.id, deleteReassignTo || undefined);
+      const deletedName = personToDelete.name;
+      setPersonToDelete(null);
+      setShowPersonModal(false);
+      if (selectedAgent.trim().toLowerCase() === deletedName.trim().toLowerCase()) {
+        setSelectedAgent('all');
+      }
+      await loadData(true);
+      setToastMessage({
+        text: deleteReassignTo
+          ? `Deleted "${deletedName}" & reassigned records to "${deleteReassignTo}"`
+          : `Deleted person "${deletedName}"`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      setToastMessage({ text: err.message || 'Failed to delete person', type: 'error' });
+    } finally {
+      setIsDeletingPerson(false);
+    }
+  };
+
+  const openMergePersonsModal = (initialSourceName?: string) => {
+    const allSourceChoices = [
+      ...availablePersons.map((p) => p.name),
+      ...unlinkedEntryAgents,
+    ];
+    const source =
+      initialSourceName ||
+      allSourceChoices.find((nm) => nm.toLowerCase() !== 'rh faysal') ||
+      allSourceChoices[0] ||
+      '';
+    const target =
+      availablePersons.find((p) => p.name.trim().toLowerCase() !== source.trim().toLowerCase()) ||
+      availablePersons[0];
+    setMergeSourceName(source);
+    setMergeTargetId(target?.id || '');
+    setShowMergePersonModal(true);
+  };
+
+  const handleConfirmMergePersons = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mergeSourceName || !mergeTargetId) {
+      setToastMessage({ text: 'Select both Source and Target person', type: 'error' });
+      return;
+    }
+    const sourcePersonObj = availablePersons.find(
+      (p) => p.name.trim().toLowerCase() === mergeSourceName.trim().toLowerCase()
+    );
+    const targetPersonObj = availablePersons.find((p) => p.id === mergeTargetId);
+    if (!targetPersonObj) return;
+    if (
+      (sourcePersonObj && sourcePersonObj.id === targetPersonObj.id) ||
+      mergeSourceName.trim().toLowerCase() === targetPersonObj.name.trim().toLowerCase()
+    ) {
+      setToastMessage({ text: 'Source and Target person must be different', type: 'error' });
+      return;
+    }
+
+    setIsMergingPersons(true);
+    try {
+      const res = await ApiService.mergeCommissionPersons({
+        sourceId: sourcePersonObj?.id,
+        sourceName: mergeSourceName,
+        targetId: targetPersonObj.id,
+        targetName: targetPersonObj.name,
+      });
+      setShowMergePersonModal(false);
+      setShowPersonModal(false);
+      setSelectedAgent(res.target.name);
+      await loadData(true);
+      setToastMessage({
+        text: `Merged "${mergeSourceName}" (${res.mergedEntriesCount} record(s)) into "${res.target.name}"`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      setToastMessage({ text: err.message || 'Failed to merge persons', type: 'error' });
+    } finally {
+      setIsMergingPersons(false);
     }
   };
 
@@ -838,12 +950,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     setIsQuickSaving(true);
     try {
       const parsedQty = Math.max(1, Number(quickQty) || 1);
+      const parsedInvTotal = Math.max(0, Number(quickInvoiceTotal) || 0);
+      const parsedRem = Math.max(0, Number(quickRemaining) || 0);
       const parsedRate = Math.max(0, Number(quickRate) || 0);
       const parsedComm =
         quickCommission !== ''
           ? Math.max(0, Number(quickCommission) || 0)
           : parsedQty * parsedRate;
-      const parsedRem = Math.max(0, Number(quickRemaining) || 0);
       const isClaw = quickStatusType === 'clawback';
       const isPaid = quickStatusType === 'paid';
       const isElig = quickStatusType === 'eligible' || isPaid;
@@ -857,14 +970,14 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         office: quickOffice,
         invoiceNo: quickInvoiceNo.trim(),
         invoiceStatus: isClaw ? 'Cancelled' : isElig ? 'Active' : 'Pending',
-        agent: (quickAgent || (selectedAgent !== 'all' ? selectedAgent : currentUser.name)).trim(),
+        agent: (quickAgent || (selectedAgent !== 'all' ? selectedAgent : availablePersons[0]?.name || 'RH FAYSAL')).trim(),
         client: quickClient.trim(),
         workerName: quickWorker.trim() || undefined,
         clientMobile: quickMobile.trim() || undefined,
         service: quickService.trim() || 'General Service',
         qty: parsedQty,
         ratePerUnit: parsedRate,
-        invoiceTotal: 0,
+        invoiceTotal: parsedInvTotal,
         remainingAmount: parsedRem,
         eligible: isElig,
         isClawback: isClaw,
@@ -886,13 +999,14 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       setQuickWorker('');
       setQuickMobile('');
       setQuickQty(1);
+      setQuickInvoiceTotal('');
+      setQuickRemaining('');
       setQuickRate('');
       setQuickCommission('');
-      setQuickRemaining('');
       setShowQuickRow(false);
       await loadData(true);
       setToastMessage({
-        text: `Added #${created.invoiceNo} & synced account for ${created.agent}`,
+        text: `Added #${created.invoiceNo} for ${created.agent}`,
         type: 'success',
       });
     } catch (err: any) {
@@ -919,7 +1033,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     setFormAgent(
       selectedAgent !== 'all'
         ? selectedAgent
-        : activePersonProfile?.name || currentUser.name || 'FAYSAL'
+        : activePersonProfile?.name || availablePersons[0]?.name || 'RH FAYSAL'
     );
     setFormClient('');
     setFormWorker('');
@@ -981,7 +1095,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         date: formDate,
         office: formOffice.trim(),
         invoiceNo: formInvoiceNo.trim(),
-        agent: (formAgent || currentUser.name).trim(),
+        agent: (formAgent || availablePersons[0]?.name || 'RH FAYSAL').trim(),
         client: formClient.trim(),
         workerName: formWorker.trim() || undefined,
         clientMobile: formClientMobile.trim() || undefined,
@@ -1010,7 +1124,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         const created = await ApiService.createCommission(payload);
         setEntries((prev) => [created, ...prev]);
         setToastMessage({
-          text: `Record #${created.invoiceNo} saved & auto-account synced for ${created.agent}`,
+          text: `Record #${created.invoiceNo} saved for ${created.agent}`,
           type: 'success',
         });
       }
@@ -1129,12 +1243,31 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         Mobile: e.clientMobile || '',
         Service: e.service,
         Qty: e.qty,
+        [`Invoice Total (${currency})`]: Number(e.invoiceTotal) || 0,
+        [`Remaining (${currency})`]: Number(e.remainingAmount) || 0,
         [`Rate (${currency})`]: e.ratePerUnit,
         [`Commission (${currency})`]: getRowCommission(e),
-        [`Remaining (${currency})`]: e.remainingAmount || 0,
         Status: e.payoutStatus,
         Notes: e.reasonNotEligible || e.notes || '',
       }));
+      recordsSheetRows.push({
+        '#': '' as any,
+        Date: 'TOTAL',
+        Office: '',
+        'Invoice #': `${filtered.length} RECORDS`,
+        Person: '',
+        Client: '',
+        Worker: '',
+        Mobile: '',
+        Service: '',
+        Qty: filtered.reduce((a, b) => a + (Number(b.qty) || 1), 0),
+        [`Invoice Total (${currency})`]: filtered.reduce((a, b) => a + (Number(b.invoiceTotal) || 0), 0),
+        [`Remaining (${currency})`]: filtered.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0),
+        [`Rate (${currency})`]: '' as any,
+        [`Commission (${currency})`]: filtered.reduce((a, b) => a + getRowCommission(b), 0),
+        Status: '' as any,
+        Notes: '',
+      });
 
       const ws1 = XLSX.utils.json_to_sheet(summarySheetRows);
       const ws2 = XLSX.utils.json_to_sheet(recordsSheetRows);
@@ -1253,6 +1386,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       doc.setLineWidth(1);
       doc.line(marginX, dividerY, pageWidth - marginX, dividerY);
 
+      const totalPdfQty = filtered.reduce((a, b) => a + (Number(b.qty) || 1), 0);
+      const totalPdfInv = filtered.reduce((a, b) => a + (Number(b.invoiceTotal) || 0), 0);
+      const totalPdfRem = filtered.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0);
+
       const tableRows = filtered.map((e, idx) => [
         String(idx + 1),
         e.date || '',
@@ -1260,7 +1397,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         e.agent || '',
         e.client || '',
         e.service || '',
-        `${e.qty} x ${(Number(e.ratePerUnit) || 0).toLocaleString('en-US')} ${currency}`,
+        String(Number(e.qty) || 1),
+        formatPlainMoney(Number(e.invoiceTotal) || 0),
+        formatPlainMoney(Number(e.remainingAmount) || 0),
+        formatPlainMoney(Number(e.ratePerUnit) || 0),
         formatPlainMoney(getRowCommission(e)),
         e.payoutStatus || '',
       ]);
@@ -1268,7 +1408,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       autoTable(doc, {
         startY: dividerY + 14,
         margin: { left: marginX, right: marginX },
-        head: [['#', 'Date', 'Invoice #', 'Person', 'Client', 'Service', 'Qty x Rate', 'Commission', 'Status']],
+        head: [['#', 'Date', 'Invoice #', 'Person', 'Client', 'Service', 'Qty', 'Invoice Total', 'Remaining', 'Rate', 'Commission', 'Status']],
         body: tableRows,
         foot: [
           [
@@ -1278,7 +1418,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             '',
             '',
             '',
-            '',
+            String(totalPdfQty),
+            formatPlainMoney(totalPdfInv),
+            formatPlainMoney(totalPdfRem),
+            '—',
             formatPlainMoney(totalCommission),
             '',
           ],
@@ -1286,8 +1429,8 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         theme: 'grid',
         styles: {
           font: 'helvetica',
-          fontSize: 8.5,
-          cellPadding: 5,
+          fontSize: 8,
+          cellPadding: 4.5,
           textColor: [15, 23, 42],
           lineColor: [203, 213, 225],
           lineWidth: 0.5,
@@ -1302,13 +1445,22 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           textColor: [6, 95, 70],
           fontStyle: 'bold',
         },
+        didParseCell: (data) => {
+          if (data.column.index === 8 && (data.section === 'body' || data.section === 'foot' || data.section === 'head')) {
+            data.cell.styles.textColor = [220, 38, 38];
+            data.cell.styles.fontStyle = 'bold';
+          }
+        },
         columnStyles: {
-          0: { halign: 'center', cellWidth: 26 },
-          1: { cellWidth: 64 },
-          2: { fontStyle: 'bold', cellWidth: 74 },
-          6: { halign: 'right' },
-          7: { halign: 'right', fontStyle: 'bold' },
-          8: { halign: 'center' },
+          0: { halign: 'center', cellWidth: 24 },
+          1: { cellWidth: 58 },
+          2: { fontStyle: 'bold', cellWidth: 66 },
+          6: { halign: 'right', cellWidth: 30 },
+          7: { halign: 'right' },
+          8: { halign: 'right', textColor: [220, 38, 38], fontStyle: 'bold' },
+          9: { halign: 'right' },
+          10: { halign: 'right', fontStyle: 'bold' },
+          11: { halign: 'center' },
         },
       });
 
@@ -1341,6 +1493,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         ? `<img src="${resolvedPhoto || rawPhoto}" alt="Person" style="width:52px;height:52px;border-radius:8px;object-fit:cover;border:1px solid #cbd5e1;" />`
         : '';
 
+      const totalPrintQty = filtered.reduce((a, b) => a + (Number(b.qty) || 1), 0);
+      const totalPrintInv = filtered.reduce((a, b) => a + (Number(b.invoiceTotal) || 0), 0);
+      const totalPrintRem = filtered.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0);
+
       const rowsHtml = filtered
         .map(
           (e) => `
@@ -1350,7 +1506,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             <td>${escapeHtml(e.agent)}</td>
             <td>${escapeHtml(e.client)}</td>
             <td>${escapeHtml(e.service)}</td>
-            <td style="text-align:right;">${e.qty} &times; ${escapeHtml(formatPrintMoney(Number(e.ratePerUnit || 0)))}</td>
+            <td style="text-align:right;">${e.qty}</td>
+            <td style="text-align:right;">${escapeHtml(formatPrintMoney(Number(e.invoiceTotal || 0)))}</td>
+            <td style="text-align:right;color:#dc2626;font-weight:700;">${escapeHtml(formatPrintMoney(Number(e.remainingAmount || 0)))}</td>
+            <td style="text-align:right;">${escapeHtml(formatPrintMoney(Number(e.ratePerUnit || 0)))}</td>
             <td style="text-align:right;font-weight:700;">${escapeHtml(formatPrintMoney(getRowCommission(e)))}</td>
             <td style="text-align:center;">${escapeHtml(e.payoutStatus)}</td>
           </tr>`
@@ -1371,8 +1530,8 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     .sub { margin: 2px 0 0; font-size: 13px; color: #475569; }
     .meta { margin: 4px 0 0; font-size: 11.5px; color: #64748b; }
     .totals { text-align: right; font-size: 12px; line-height: 1.5; }
-    table { width: 100%; border-collapse: collapse; font-size: 11.5px; }
-    th, td { border: 1px solid #cbd5e1; padding: 6px 8px; text-align: left; }
+    table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    th, td { border: 1px solid #cbd5e1; padding: 5px 7px; text-align: left; }
     th { background: #f1f5f9; font-weight: 700; }
     tfoot td { background: #ecfdf5; font-weight: 700; color: #065f46; }
   </style>
@@ -1401,17 +1560,24 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         <th>Person</th>
         <th>Client</th>
         <th>Service</th>
-        <th style="text-align:right;">Qty &times; Rate</th>
+        <th style="text-align:right;">Qty</th>
+        <th style="text-align:right;">Invoice Total</th>
+        <th style="text-align:right;color:#dc2626;">Remaining</th>
+        <th style="text-align:right;">Rate</th>
         <th style="text-align:right;">Commission</th>
         <th style="text-align:center;">Status</th>
       </tr>
     </thead>
     <tbody>
-      ${rowsHtml || '<tr><td colspan="8" style="text-align:center;padding:16px;color:#64748b;">No records found</td></tr>'}
+      ${rowsHtml || '<tr><td colspan="11" style="text-align:center;padding:16px;color:#64748b;">No records found</td></tr>'}
     </tbody>
     <tfoot>
       <tr>
-        <td colspan="6">TOTAL (${filtered.length} invoices)</td>
+        <td colspan="5">TOTAL (${filtered.length} invoices)</td>
+        <td style="text-align:right;">${totalPrintQty}</td>
+        <td style="text-align:right;">${escapeHtml(formatPlainMoney(totalPrintInv))}</td>
+        <td style="text-align:right;color:#dc2626;">${escapeHtml(formatPlainMoney(totalPrintRem))}</td>
+        <td style="text-align:right;">—</td>
         <td style="text-align:right;">${escapeHtml(formatPlainMoney(totalCommission))}</td>
         <td></td>
       </tr>
@@ -1496,30 +1662,44 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               if (!invNo && !client) return null;
 
               const qtyVal = Math.max(1, Number(pick('qty', 'quantity', 'units')) || 1);
+              const invTotalVal = Math.max(0, Number(pick('invoice total', 'invoicetotal', 'invoice total (sar)', 'total')) || 0);
+              const remVal = Math.max(0, Number(pick('remaining', 'remaining (sar)', 'balance')) || 0);
               const rateVal = Math.max(0, Number(pick('rate', 'rate per unit', 'rate (sar)', 'unit rate')) || 0);
               const commRaw = pick('commission', 'commission amount', 'commission (sar)', 'amount', 'to pay');
               const commVal = commRaw !== '' ? Math.max(0, Number(commRaw) || 0) : qtyVal * rateVal;
-              const remVal = Math.max(0, Number(pick('remaining', 'remaining (sar)', 'balance')) || 0);
               const statusStr = pick('status', 'payout status', 'payoutstatus', 'eligible').toLowerCase();
               const isPaid = statusStr === 'paid';
               const isNotElig = statusStr.includes('not') || statusStr === 'no' || statusStr === 'pending';
               const isClaw = statusStr.includes('cancel') || statusStr.includes('claw') || statusStr.includes('carried');
 
+              const pickedAgentRaw = pick('person', 'agent', 'person / agent', 'staff');
+              const resolveImportedAgent = (raw: string): string => {
+                const fallback = selectedAgent !== 'all' ? selectedAgent : (availablePersons[0]?.name || 'RH FAYSAL');
+                const t = raw.trim();
+                if (!t) return fallback;
+                const match = availablePersons.find((p) => p.name.trim().toLowerCase() === t.toLowerCase());
+                if (match) return match.name;
+                if (t.toLowerCase() === 'faysal') {
+                  const rh = availablePersons.find((p) => p.name.trim().toLowerCase() === 'rh faysal');
+                  if (rh) return rh.name;
+                }
+                return fallback;
+              };
+
               return {
                 date: pick('date') || new Date().toISOString().slice(0, 10),
                 office: pick('office', 'branch') || DEFAULT_OFFICES[0],
                 invoiceNo: invNo || `IMP-${Date.now().toString().slice(-6)}`,
-                agent:
-                  pick('person', 'agent', 'person / agent', 'staff') ||
-                  (selectedAgent !== 'all' ? selectedAgent : currentUser.name),
+                agent: resolveImportedAgent(pickedAgentRaw),
                 client: client || 'Imported Client',
                 workerName: pick('worker', 'worker name'),
                 clientMobile: pick('mobile', 'client mobile', 'phone'),
                 service: pick('service', 'service name') || 'General Service',
                 qty: qtyVal,
+                invoiceTotal: invTotalVal,
+                remainingAmount: remVal,
                 ratePerUnit: rateVal,
                 commissionAmount: isClaw ? 0 : commVal,
-                remainingAmount: remVal,
                 eligible: !isClaw && !isNotElig,
                 isClawback: isClaw,
                 payoutStatus: isClaw ? 'Carried over' : isPaid ? 'Paid' : isNotElig ? 'Not eligible' : 'To pay',
@@ -1558,12 +1738,22 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     setIsScanning(true);
     try {
       const res = await ApiService.extractCommissionWithAi(scanFile.base64, scanFile.mimeType);
-      const list = (res.entries || []).map((row: any) => ({
-        ...row,
-        agent: row.agent || (selectedAgent !== 'all' ? selectedAgent : currentUser.name),
-        ratePerUnit: Number(row.ratePerUnit) || 0,
-        commissionAmount: Number(row.commissionAmount) || 0,
-      }));
+      const fallbackAgent = selectedAgent !== 'all' ? selectedAgent : (availablePersons[0]?.name || 'RH FAYSAL');
+      const list = (res.entries || []).map((row: any) => {
+        const rawAg = String(row.agent || '').trim();
+        const matched = rawAg
+          ? availablePersons.find((p) => p.name.trim().toLowerCase() === rawAg.toLowerCase()) ||
+            (rawAg.toLowerCase() === 'faysal'
+              ? availablePersons.find((p) => p.name.trim().toLowerCase() === 'rh faysal')
+              : undefined)
+          : undefined;
+        return {
+          ...row,
+          agent: matched?.name || fallbackAgent,
+          ratePerUnit: Number(row.ratePerUnit) || 0,
+          commissionAmount: Number(row.commissionAmount) || 0,
+        };
+      });
       setImportedRows(list);
       setSelectedImportIndices(list.map((_: any, i: number) => i));
     } catch (err: any) {
@@ -1584,7 +1774,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       setScanFile(null);
       await loadData(true);
       setToastMessage({
-        text: `Imported ${res.count} record(s) & auto-updated person accounts!`,
+        text: `Imported ${res.count} record(s) into Commission Sheet!`,
         type: 'success',
       });
     } catch (err: any) {
@@ -1595,7 +1785,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   };
 
   // Excel Column Letters Helper
-  const colLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M'];
+  const colLetters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N'];
 
   return (
     <div
@@ -1656,7 +1846,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   </button>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                  Separate monthly sheets, official Excel gridlines & auto-synced person accounts
+                  Separate monthly sheets, official Excel gridlines & manual person accounts
                 </p>
               </div>
             </div>
@@ -1720,11 +1910,23 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               </select>
               <button
                 onClick={openAddPersonModal}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors"
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors cursor-pointer"
+                title="Manually add a new Person account"
               >
                 <Plus className="w-3.5 h-3.5" />
                 <span>Add</span>
               </button>
+              {(availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => openMergePersonsModal()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold transition-colors cursor-pointer"
+                  title="Merge duplicate or old Person accounts into another Person"
+                >
+                  <GitMerge className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Merge</span>
+                </button>
+              )}
 
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span>
@@ -1748,12 +1950,25 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               <span className="px-2 py-0.5 rounded-md bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-semibold">
                 Invoices: {filtered.length}
               </span>
-              <button
-                onClick={openEditPersonModal}
-                className="text-emerald-700 dark:text-emerald-400 underline font-medium hover:text-emerald-800"
-              >
-                (Edit info)
-              </button>
+              {activePersonProfile && (
+                <>
+                  <button
+                    onClick={openEditPersonModal}
+                    className="text-emerald-700 dark:text-emerald-400 underline font-medium hover:text-emerald-800 cursor-pointer"
+                  >
+                    (Edit info)
+                  </button>
+                  {selectedAgent !== 'all' && availablePersons.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => openDeletePersonModal(activePersonProfile)}
+                      className="text-rose-600 dark:text-rose-400 underline font-medium hover:text-rose-700 cursor-pointer"
+                    >
+                      (Delete)
+                    </button>
+                  )}
+                </>
+              )}
             </div>
           </div>
 
@@ -1931,7 +2146,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           </p>
         </div>
 
-        {/* Card 3: Total Commission */}
+        {/* Card 3: Total Commission & Not Eligible Due Reminder */}
         <div className="bg-white dark:bg-slate-900 rounded-xl border border-emerald-200 dark:border-emerald-900/60 border-l-4 border-l-teal-500 p-4 shadow-xs">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400 font-serif">
             Total Commission
@@ -1939,14 +2154,50 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           <p className="text-2xl sm:text-3xl font-bold text-emerald-700 dark:text-emerald-400 font-serif mt-1">
             {fmtMoney(totalCommission)}
           </p>
-          <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-1 flex items-center gap-1">
-            <DollarSign className="w-3.5 h-3.5" />
-            <span>Total monthly commission earned</span>
+          <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-medium mt-1 flex items-center gap-1 flex-wrap">
+            <DollarSign className="w-3.5 h-3.5 shrink-0" />
+            <span>Total earned</span>
+            {notEligibleEntries.length > 0 && (
+              <span className="text-rose-600 dark:text-rose-400 font-bold">
+                • Not Eligible Comm Due: {fmtMoney(notYetEligibleAmount)}
+              </span>
+            )}
           </p>
         </div>
       </div>
 
-      {/* AUTO PERSON ACCOUNTS STRIP (Created automatically whenever any person has entry data) */}
+      {/* PERSISTENT NOT ELIGIBLE COMMISSION DUE REMINDER BANNER */}
+      {notEligibleEntries.length > 0 && (
+        <div className="rounded-xl border border-rose-300 dark:border-rose-800/80 bg-rose-50/90 dark:bg-rose-950/35 px-4 py-2.5 flex flex-wrap items-center justify-between gap-2.5 shadow-xs">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-7 h-7 rounded-lg bg-rose-600 text-white flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-4 h-4" />
+            </span>
+            <div className="text-xs min-w-0">
+              <div className="font-bold text-rose-800 dark:text-rose-300 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <span>Not Eligible Commission Due Reminder ({notEligibleEntries.length})</span>
+                <span className="px-2 py-0.5 rounded-md bg-rose-600 text-white text-[11px] font-bold">
+                  Pending Comm Due: {fmtMoney(notYetEligibleAmount)}
+                </span>
+              </div>
+              <p className="text-[11px] text-rose-700/90 dark:text-rose-300/80 mt-0.5">
+                These records have pending commission eligibility and are remembered here until settled.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              handleSectionChange(activeSection === 'not_eligible' ? 'all' : 'not_eligible')
+            }
+            className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs transition cursor-pointer shrink-0"
+          >
+            {activeSection === 'not_eligible' ? 'Show All Records' : 'View Not Eligible Due'}
+          </button>
+        </div>
+      )}
+
+      {/* PERSON ACCOUNTS STRIP (Manual accounts via + Add) */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
@@ -1954,18 +2205,30 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               <Wallet className="w-3.5 h-3.5" />
             </div>
             <span className="text-xs font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wide">
-              Auto Person Accounts ({personAccounts.length})
+              Person Accounts ({personAccounts.length})
             </span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              Any person with entry data automatically gets an account & ledger sync
+              Manual person accounts only — use + Add to add, or edit/merge/delete anytime
             </span>
           </div>
-          <button
-            onClick={() => setShowAccountsStrip((p) => !p)}
-            className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline"
-          >
-            {showAccountsStrip ? 'Hide Accounts' : 'Show Accounts'}
-          </button>
+          <div className="flex items-center gap-3">
+            {(availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
+              <button
+                type="button"
+                onClick={() => openMergePersonsModal()}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 dark:text-amber-400 hover:underline cursor-pointer"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                <span>Merge Persons</span>
+              </button>
+            )}
+            <button
+              onClick={() => setShowAccountsStrip((p) => !p)}
+              className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:underline cursor-pointer"
+            >
+              {showAccountsStrip ? 'Hide Accounts' : 'Show Accounts'}
+            </button>
+          </div>
         </div>
 
         {showAccountsStrip && (
@@ -2012,21 +2275,32 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {isOwner && (
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openEditSpecificPersonModal(acc);
+                        }}
+                        title="Edit person info & photo"
+                        className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-emerald-600 hover:border-emerald-400 transition"
+                      >
+                        {isOwner ? <Camera className="w-3.5 h-3.5" /> : <Edit2 className="w-3.5 h-3.5" />}
+                      </button>
+                      {availablePersons.length > 1 && (
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            openEditSpecificPersonModal(acc);
+                            openDeletePersonModal(acc);
                           }}
-                          title="Owner Only: Add or change person photo & info"
-                          className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-emerald-600 hover:border-emerald-400 transition"
+                          title="Delete person account"
+                          className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-rose-600 hover:border-rose-400 transition"
                         >
-                          <Camera className="w-3.5 h-3.5" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
-                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 ml-0.5">
                         {fmtMoney(acc.totalCommission)}
                       </span>
                     </div>
@@ -2038,8 +2312,8 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     <span className="text-blue-600 dark:text-blue-400 font-medium">
                       Paid: {fmtMoney(acc.alreadyPaid)}
                     </span>
-                    <span className="text-amber-600 dark:text-amber-400 font-medium">
-                      Wait: {fmtMoney(acc.notYetEligible)}
+                    <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                      Due/Wait: {fmtMoney(acc.notYetEligible)}
                     </span>
                   </div>
                 </div>
@@ -2102,10 +2376,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           {/* Left Filter Tabs */}
           <div className="flex flex-wrap items-center gap-1.5">
             <button
-              onClick={() => setActiveSection('all')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              onClick={() => handleSectionChange('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 activeSection === 'all'
-                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
+                  ? 'bg-slate-900 text-white border border-slate-900 dark:bg-slate-100 dark:text-slate-900 dark:border-slate-100'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
@@ -2113,45 +2387,72 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveSection('eligible')}
-              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              onClick={() => handleSectionChange('eligible')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border cursor-pointer ${
                 activeSection === 'eligible'
-                  ? 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
-                  : 'bg-rose-50/50 text-rose-700 dark:text-rose-300 border border-rose-100 dark:border-rose-900/40 hover:bg-rose-50'
+                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800'
               }`}
             >
               <span>Eligible Invoices</span>
-              <span className="px-1.5 py-0.2 rounded-full bg-rose-600 text-white text-[10px] font-bold">
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold leading-none ${
+                  activeSection === 'eligible'
+                    ? 'bg-white text-emerald-700'
+                    : 'bg-emerald-600 text-white'
+                }`}
+              >
                 {eligibleEntries.length}
               </span>
             </button>
 
             <button
-              onClick={() => setActiveSection('paid')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              onClick={() => handleSectionChange('not_eligible')}
+              title={`Remember Commission Due (${notEligibleEntries.length}): ${fmtMoney(notYetEligibleAmount)}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-colors border cursor-pointer ${
+                activeSection === 'not_eligible'
+                  ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                  : 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800'
+              }`}
+            >
+              <span>Not Eligible Invoices</span>
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold leading-none ${
+                  activeSection === 'not_eligible'
+                    ? 'bg-white text-rose-700'
+                    : 'bg-rose-600 text-white'
+                }`}
+              >
+                {notEligibleEntries.length}
+              </span>
+              {notYetEligibleAmount > 0 && (
+                <span
+                  className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                    activeSection === 'not_eligible'
+                      ? 'bg-rose-700 text-rose-50'
+                      : 'bg-rose-100 text-rose-800 dark:bg-rose-900/70 dark:text-rose-200'
+                  }`}
+                >
+                  Due: {fmtMoney(notYetEligibleAmount)}
+                </span>
+              )}
+            </button>
+
+            <button
+              onClick={() => handleSectionChange('paid')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 activeSection === 'paid'
-                  ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800'
+                  ? 'bg-blue-600 text-white border border-blue-600 shadow-xs'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               Paid ({paidEntries.length})
             </button>
 
-            <button
-              onClick={() => setActiveSection('not_eligible')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                activeSection === 'not_eligible'
-                  ? 'bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800'
-                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-              }`}
-            >
-              Waiting ({notEligibleEntries.length})
-            </button>
-
             {clawbackEntries.length > 0 && (
               <button
-                onClick={() => setActiveSection('clawback')}
-                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                onClick={() => handleSectionChange('clawback')}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                   activeSection === 'clawback'
                     ? 'bg-rose-100 text-rose-800 border border-rose-300'
                     : 'text-rose-600 hover:bg-rose-50'
@@ -2162,8 +2463,8 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             )}
 
             <button
-              onClick={() => setActiveSection('summary')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              onClick={() => handleSectionChange('summary')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 activeSection === 'summary'
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
@@ -2173,15 +2474,15 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             </button>
 
             <button
-              onClick={() => setActiveSection('accounts')}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              onClick={() => handleSectionChange('accounts')}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                 activeSection === 'accounts'
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                   : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
               }`}
             >
               <Users className="w-3.5 h-3.5" />
-              <span>Auto Accounts ({personAccounts.length})</span>
+              <span>Person Accounts ({personAccounts.length})</span>
             </button>
           </div>
 
@@ -2268,16 +2569,28 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                 A
               </span>
               <h2 className="text-xs sm:text-sm font-bold tracking-wide uppercase text-slate-800 dark:text-white">
-                AUTO PERSON ACCOUNTS & LEDGER SYNC
+                PERSON ACCOUNTS & LEDGER SYNC
               </h2>
             </div>
-            <button
-              onClick={openAddPersonModal}
-              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Person Account</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {(availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
+                <button
+                  type="button"
+                  onClick={() => openMergePersonsModal()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-semibold hover:bg-amber-100 cursor-pointer"
+                >
+                  <GitMerge className="w-3.5 h-3.5" />
+                  <span>Merge Persons</span>
+                </button>
+              )}
+              <button
+                onClick={openAddPersonModal}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Person Account</span>
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full border-collapse text-xs">
@@ -2349,30 +2662,48 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       {fmtMoney(acc.totalCommission)}
                     </td>
                     <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-center">
-                      <div className="flex items-center justify-center gap-1.5">
+                      <div className="flex items-center justify-center gap-1.5 flex-wrap">
                         <button
                           onClick={() => {
                             setSelectedAgent(acc.name);
                             setActiveSection('all');
                           }}
-                          className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 text-slate-700 dark:text-slate-200 font-semibold"
+                          className="px-2 py-1 rounded bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 text-slate-700 dark:text-slate-200 font-semibold cursor-pointer"
                         >
                           Open Sheet
                         </button>
-                        {isOwner && (
+                        <button
+                          onClick={() => openEditSpecificPersonModal(acc)}
+                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300 font-semibold hover:bg-amber-100 cursor-pointer"
+                          title={isOwner ? 'Edit Photo & Info' : 'Edit Info'}
+                        >
+                          {isOwner ? <Camera className="w-3 h-3" /> : <Edit2 className="w-3 h-3" />}
+                          <span>{isOwner ? 'Edit / Photo' : 'Edit'}</span>
+                        </button>
+                        {availablePersons.length >= 2 && (
                           <button
-                            onClick={() => openEditSpecificPersonModal(acc)}
-                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300 font-semibold hover:bg-amber-100"
-                            title="Owner Only: Edit Photo & Info"
+                            onClick={() => openMergePersonsModal(acc.name)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-semibold hover:bg-blue-100 cursor-pointer"
+                            title="Merge this person into another Person"
                           >
-                            <Camera className="w-3 h-3" />
-                            <span>Photo</span>
+                            <GitMerge className="w-3 h-3" />
+                            <span>Merge</span>
+                          </button>
+                        )}
+                        {availablePersons.length > 1 && (
+                          <button
+                            onClick={() => openDeletePersonModal(acc)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-semibold hover:bg-rose-100 cursor-pointer"
+                            title="Delete person account"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Delete</span>
                           </button>
                         )}
                         {acc.toPayNow > 0 && (
                           <button
                             onClick={() => handleSettlePayout(acc.name)}
-                            className="px-2 py-1 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700"
+                            className="px-2 py-1 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 cursor-pointer"
                           >
                             Pay Due
                           </button>
@@ -2435,7 +2766,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       <th className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right">
                         RATE
                       </th>
-                      <th className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right">
+                      <th className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right text-emerald-700 dark:text-emerald-400">
                         ELIGIBLE INVOICES
                       </th>
                       <th className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right">
@@ -2447,8 +2778,8 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       <th className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right text-blue-600 dark:text-blue-400">
                         PAID
                       </th>
-                      <th className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right text-amber-600 dark:text-amber-400">
-                        NOT YET ELIGIBLE
+                      <th className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right text-rose-600 dark:text-rose-400">
+                        NOT ELIGIBLE (DUE)
                       </th>
                     </tr>
                   </thead>
@@ -2480,7 +2811,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                           <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right font-semibold text-emerald-700 dark:text-emerald-400">
                             {fmtMoney(row.ratePerUnit)}
                           </td>
-                          <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right text-slate-700 dark:text-slate-300">
+                          <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right font-bold text-emerald-700 dark:text-emerald-400">
                             {row.eligibleInvoices}
                           </td>
                           <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right text-slate-700 dark:text-slate-300">
@@ -2492,7 +2823,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                           <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right font-semibold text-blue-600 dark:text-blue-400">
                             {fmtMoney(row.paid)}
                           </td>
-                          <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right font-bold text-amber-600 dark:text-amber-400">
+                          <td className="border border-slate-200 dark:border-slate-700 px-3 py-2 text-right font-bold text-rose-600 dark:text-rose-400">
                             {fmtMoney(row.notYetEligible)}
                           </td>
                         </tr>
@@ -2513,7 +2844,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       <td className="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-right text-slate-400">
                         —
                       </td>
-                      <td className="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-right">
+                      <td className="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-right text-emerald-700 dark:text-emerald-400">
                         {serviceSummary.reduce((a, b) => a + b.eligibleInvoices, 0)}
                       </td>
                       <td className="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-right">
@@ -2525,7 +2856,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       <td className="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-right text-blue-600 dark:text-blue-400">
                         {fmtMoney(serviceSummary.reduce((a, b) => a + b.paid, 0))}
                       </td>
-                      <td className="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-right text-amber-600 dark:text-amber-400">
+                      <td className="border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-right text-rose-600 dark:text-rose-400">
                         {fmtMoney(serviceSummary.reduce((a, b) => a + b.notYetEligible, 0))}
                       </td>
                     </tr>
@@ -2554,7 +2885,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      setQuickAgent(selectedAgent !== 'all' ? selectedAgent : currentUser.name || 'FAYSAL');
+                      setQuickAgent(selectedAgent !== 'all' ? selectedAgent : availablePersons[0]?.name || 'RH FAYSAL');
                       setShowQuickRow((p) => !p);
                     }}
                     className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors"
@@ -2593,16 +2924,22 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   </div>
                   <div className="lg:col-span-2">
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Person</label>
-                    <input
-                      type="text"
-                      list="person-datalist"
+                    <select
                       value={quickAgent}
                       onChange={(e) => setQuickAgent(e.target.value)}
-                      placeholder="Person name"
-                      className="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
-                    />
+                      className="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                    >
+                      {availablePersons.map((p) => (
+                        <option key={p.id} value={p.name}>
+                          {p.name}
+                        </option>
+                      ))}
+                      {quickAgent && !availablePersons.some((p) => p.name.toLowerCase() === quickAgent.toLowerCase()) && (
+                        <option value={quickAgent}>{quickAgent}</option>
+                      )}
+                    </select>
                   </div>
-                  <div className="lg:col-span-2">
+                  <div className="lg:col-span-1">
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Client *</label>
                     <input
                       type="text"
@@ -2634,6 +2971,52 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     />
                   </div>
                   <div className="lg:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Qty</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={quickQty}
+                      onChange={(e) => {
+                        const q = Math.max(1, Number(e.target.value) || 1);
+                        setQuickQty(q);
+                        if (quickRate !== '') {
+                          setQuickCommission(String((Number(quickRate) || 0) * q));
+                        }
+                      }}
+                      className="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    />
+                  </div>
+                  <div className="lg:col-span-1">
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Invoice Total</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={quickInvoiceTotal}
+                      onChange={(e) => setQuickInvoiceTotal(e.target.value)}
+                      placeholder="0"
+                      className="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800"
+                    />
+                  </div>
+                  <div className="lg:col-span-1">
+                    <label className="block text-[10px] font-bold text-rose-600 uppercase mb-1">Remaining</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={quickRemaining}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setQuickRemaining(val);
+                        if (Number(val) > 0 && quickStatusType === 'eligible') {
+                          setQuickStatusType('waiting');
+                        }
+                      }}
+                      placeholder="0"
+                      className="w-full px-2 py-1.5 rounded border border-rose-300 dark:border-rose-700 bg-white dark:bg-slate-800 font-bold text-rose-600 dark:text-rose-400"
+                    />
+                  </div>
+                  <div className="lg:col-span-1">
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Rate ({currency})</label>
                     <input
                       type="number"
@@ -2662,7 +3045,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       className="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-bold text-emerald-700"
                     />
                   </div>
-                  <div className="lg:col-span-1">
+                  <div className="lg:col-span-2">
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Status</label>
                     <select
                       value={quickStatusType}
@@ -2675,13 +3058,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       <option value="clawback">Cancelled</option>
                     </select>
                   </div>
-                  <div className="lg:col-span-1">
+                  <div className="lg:col-span-10 flex justify-end">
                     <button
                       type="submit"
                       disabled={isQuickSaving}
-                      className="w-full py-1.5 px-3 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-1 disabled:opacity-50"
+                      className="py-1.5 px-4 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center justify-center gap-1 disabled:opacity-50"
                     >
-                      {isQuickSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save'}
+                      {isQuickSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 'Save Row'}
                     </button>
                   </div>
                 </form>
@@ -2715,14 +3098,14 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                               </p>
                             </div>
                             <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
                                 entry.payoutStatus === 'Paid'
-                                  ? 'bg-blue-100 text-blue-700'
+                                  ? 'bg-blue-100 text-blue-700 border-blue-200'
                                   : entry.isClawback || entry.invoiceStatus === 'Cancelled'
-                                  ? 'bg-rose-100 text-rose-700'
+                                  ? 'bg-rose-100 text-rose-700 border-rose-200'
                                   : entry.eligible
-                                  ? 'bg-emerald-100 text-emerald-700'
-                                  : 'bg-amber-100 text-amber-700'
+                                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                                  : 'bg-rose-100 text-rose-700 border-rose-200'
                               }`}
                             >
                               {entry.payoutStatus}
@@ -2733,6 +3116,24 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                             {entry.workerName && <span>Worker: {entry.workerName}</span>}
                             <span>Qty: {entry.qty} × {fmtMoney(entry.ratePerUnit)}</span>
                           </div>
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-100/80 dark:bg-slate-800/60 px-2.5 py-1.5 rounded-lg border border-slate-200/80 dark:border-slate-700/70">
+                            <span className="text-slate-600 dark:text-slate-300">
+                              Invoice Total: <strong className="text-slate-900 dark:text-white">{fmtMoney(entry.invoiceTotal || 0)}</strong>
+                            </span>
+                            <span className="text-rose-600 dark:text-rose-400 font-bold">
+                              Remaining: {fmtMoney(entry.remainingAmount || 0)}
+                            </span>
+                          </div>
+                          {!entry.eligible && !entry.isClawback && (
+                            <div className="rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/70 px-2.5 py-1.5 text-[11px] text-rose-700 dark:text-rose-300 flex flex-wrap items-center justify-between gap-1">
+                              <span className="font-bold">
+                                Pending Comm Due: {fmtMoney(comm)}
+                              </span>
+                              {entry.reasonNotEligible && (
+                                <span className="text-[10px] truncate">{entry.reasonNotEligible}</span>
+                              )}
+                            </div>
+                          )}
                           <div className="pt-2 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between">
                             <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
                               {fmtMoney(comm)}
@@ -2774,7 +3175,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                         <th className="border border-slate-200 dark:border-slate-700 px-2 py-1 text-center w-10">
                           FX
                         </th>
-                        {colLetters.slice(0, 13).map((letter) => (
+                        {colLetters.slice(0, 14).map((letter) => (
                           <th
                             key={letter}
                             className="border border-slate-200 dark:border-slate-700 px-2.5 py-1 text-center"
@@ -2793,9 +3194,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                         <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-left">WORKER</th>
                         <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-left">SERVICE</th>
                         <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-right">QTY</th>
+                        <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-right">INVOICE TOTAL</th>
+                        <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-right text-rose-600 dark:text-rose-400">REMAINING</th>
                         <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-right">RATE</th>
                         <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-right text-emerald-700">COMMISSION</th>
-                        <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-right">REMAINING</th>
                         <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-center">STATUS</th>
                         <th className="border border-slate-200 dark:border-slate-700 px-2.5 py-2 text-center">ACTIONS</th>
                       </tr>
@@ -2804,7 +3206,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       {displayedRecords.length === 0 ? (
                         <tr>
                           <td
-                            colSpan={14}
+                            colSpan={15}
                             className="border border-slate-200 dark:border-slate-700 px-4 py-8 text-center text-slate-400 italic"
                           >
                             No records in this sheet. Click "+ Add Record" or "Quick Entry Row" to enter data.
@@ -2912,6 +3314,51 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                   entry.qty
                                 )}
                               </td>
+                              <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right font-medium text-slate-800 dark:text-slate-200">
+                                {directEditActive ? (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    defaultValue={Number(entry.invoiceTotal) || 0}
+                                    onBlur={(e) => {
+                                      const v = Math.max(0, Number(e.target.value) || 0);
+                                      if (v !== (Number(entry.invoiceTotal) || 0)) {
+                                        handleDirectCellUpdate(entry, { invoiceTotal: v });
+                                      }
+                                    }}
+                                    className="bg-transparent border-0 focus:ring-1 focus:ring-emerald-500 rounded px-1 py-0.5 text-xs text-right w-20"
+                                  />
+                                ) : (
+                                  fmtMoney(entry.invoiceTotal || 0)
+                                )}
+                              </td>
+                              <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right font-bold text-rose-600 dark:text-rose-400">
+                                {directEditActive ? (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="any"
+                                    defaultValue={Number(entry.remainingAmount) || 0}
+                                    onBlur={(e) => {
+                                      const v = Math.max(0, Number(e.target.value) || 0);
+                                      if (v !== (Number(entry.remainingAmount) || 0)) {
+                                        handleDirectCellUpdate(entry, {
+                                          remainingAmount: v,
+                                          ...(v > 0 && entry.payoutStatus !== 'Paid' && !isCancelled
+                                            ? { eligible: false, payoutStatus: 'Not eligible' }
+                                            : {}),
+                                        });
+                                      }
+                                    }}
+                                    className="bg-transparent border-0 focus:ring-1 focus:ring-rose-500 rounded px-1 py-0.5 text-xs text-right font-bold text-rose-600 dark:text-rose-400 w-20"
+                                  />
+                                ) : (
+                                  <span className="font-bold text-rose-600 dark:text-rose-400">
+                                    {fmtMoney(entry.remainingAmount || 0)}
+                                  </span>
+                                )}
+                              </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right">
                                 {directEditActive ? (
                                   <input
@@ -2952,9 +3399,6 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                   <span className="text-emerald-700">{fmtMoney(rowComm)}</span>
                                 )}
                               </td>
-                              <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right text-slate-600 dark:text-slate-300">
-                                {fmtMoney(entry.remainingAmount || 0)}
-                              </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-center">
                                 {directEditActive && !isCancelled ? (
                                   <select
@@ -2971,7 +3415,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                         ? 'bg-blue-100 text-blue-700'
                                         : entry.payoutStatus === 'To pay'
                                         ? 'bg-emerald-100 text-emerald-700'
-                                        : 'bg-amber-100 text-amber-700'
+                                        : 'bg-rose-100 text-rose-700'
                                     }`}
                                   >
                                     <option value="To pay">To pay</option>
@@ -2987,7 +3431,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                         ? 'bg-rose-100 text-rose-700'
                                         : entry.eligible
                                         ? 'bg-emerald-100 text-emerald-700'
-                                        : 'bg-amber-100 text-amber-700'
+                                        : 'bg-rose-100 text-rose-700'
                                     }`}
                                   >
                                     {entry.payoutStatus}
@@ -3037,14 +3481,17 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                         <td className="border border-slate-200 dark:border-slate-700 px-2 py-2 text-right">
                           {displayedRecords.reduce((a, b) => a + (Number(b.qty) || 1), 0)}
                         </td>
+                        <td className="border border-slate-200 dark:border-slate-700 px-2 py-2 text-right font-bold text-slate-900 dark:text-white">
+                          {fmtMoney(displayedRecords.reduce((a, b) => a + (Number(b.invoiceTotal) || 0), 0))}
+                        </td>
+                        <td className="border border-slate-200 dark:border-slate-700 px-2 py-2 text-right font-bold text-rose-600 dark:text-rose-400">
+                          {fmtMoney(displayedRecords.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0))}
+                        </td>
                         <td className="border border-slate-200 dark:border-slate-700 px-2 py-2 text-right text-slate-400">
                           —
                         </td>
                         <td className="border border-slate-200 dark:border-slate-700 px-2 py-2 text-right text-emerald-700 dark:text-emerald-400">
                           {fmtMoney(displayedRecords.reduce((a, b) => a + getRowCommission(b), 0))}
-                        </td>
-                        <td className="border border-slate-200 dark:border-slate-700 px-2 py-2 text-right">
-                          {fmtMoney(displayedRecords.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0))}
                         </td>
                         <td colSpan={2} className="border border-slate-200 dark:border-slate-700 px-2 py-2" />
                       </tr>
@@ -3079,7 +3526,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   {editingEntry ? 'Edit Commission Record' : 'Add Commission Record'}
                 </h3>
                 <p className="text-xs text-slate-500">
-                  Enter exact amounts manually (no automatic amount will be added). Person account updates automatically.
+                  Enter exact amounts manually (no automatic amount will be added).
                 </p>
               </div>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
@@ -3112,15 +3559,21 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                 </div>
                 <div>
                   <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Person / Agent *</label>
-                  <input
-                    type="text"
-                    list="person-datalist"
+                  <select
                     required
                     value={formAgent}
                     onChange={(e) => setFormAgent(e.target.value)}
-                    placeholder="Person name"
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
-                  />
+                  >
+                    {availablePersons.map((p) => (
+                      <option key={p.id} value={p.name}>
+                        {p.name}
+                      </option>
+                    ))}
+                    {formAgent && !availablePersons.some((p) => p.name.toLowerCase() === formAgent.toLowerCase()) && (
+                      <option value={formAgent}>{formAgent}</option>
+                    )}
+                  </select>
                 </div>
               </div>
 
@@ -3187,7 +3640,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                 </div>
               </div>
 
-              {/* Manual Amount Fields — Zero auto amounts */}
+              {/* Manual Amount Fields — Qty, Invoice Total, Remaining, Rate, Commission */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-50 dark:bg-slate-800/50 p-3 rounded-xl border border-slate-200 dark:border-slate-700">
                 <div>
                   <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Qty</label>
@@ -3203,6 +3656,37 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       }
                     }}
                     className="w-full px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Invoice Total ({currency})</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={formInvoiceTotal}
+                    onChange={(e) => setFormInvoiceTotal(e.target.value)}
+                    placeholder="0"
+                    className="w-full px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-rose-600 dark:text-rose-400 mb-1">Remaining ({currency})</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="any"
+                    value={formRemaining}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormRemaining(val);
+                      if (Number(val) > 0 && formPayoutStatus === 'To pay' && !formIsClawback) {
+                        setFormPayoutStatus('Not eligible');
+                        setFormEligible(false);
+                      }
+                    }}
+                    placeholder="0"
+                    className="w-full px-2.5 py-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-white dark:bg-slate-800 font-bold text-rose-600 dark:text-rose-400"
                   />
                 </div>
                 <div>
@@ -3233,30 +3717,6 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     className="w-full px-2.5 py-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-white dark:bg-slate-800 font-bold text-emerald-700"
                   />
                 </div>
-                <div>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Invoice Total</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={formInvoiceTotal}
-                    onChange={(e) => setFormInvoiceTotal(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
-                <div>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Remaining</label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={formRemaining}
-                    onChange={(e) => setFormRemaining(e.target.value)}
-                    placeholder="0"
-                    className="w-full px-2.5 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                  />
-                </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3272,9 +3732,9 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     }}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                   >
-                    <option value="To pay">To pay (Eligible)</option>
+                    <option value="To pay">To pay (Eligible — Green)</option>
                     <option value="Paid">Paid (Auto-post to Ledger)</option>
-                    <option value="Not eligible">Not eligible (Waiting)</option>
+                    <option value="Not eligible">Not eligible (Due Pending — Red)</option>
                   </select>
                 </div>
                 <div className="flex items-center gap-4 pt-5">
@@ -3289,6 +3749,21 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   </label>
                 </div>
               </div>
+
+              {!formIsClawback && (!formEligible || formPayoutStatus === 'Not eligible') && (
+                <div className="bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl border border-rose-200 dark:border-rose-900">
+                  <label className="block font-bold text-rose-700 dark:text-rose-300 mb-1">
+                    Not Eligible Due Reminder Note
+                  </label>
+                  <input
+                    type="text"
+                    value={formReason}
+                    onChange={(e) => setFormReason(e.target.value)}
+                    placeholder="e.g. Client due balance pending payment before payout..."
+                    className="w-full px-3 py-2 rounded-lg border border-rose-300 dark:border-rose-800 bg-white dark:bg-slate-800 text-rose-800 dark:text-rose-200"
+                  />
+                </div>
+              )}
 
               {formIsClawback && (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-rose-50 dark:bg-rose-950/30 p-3 rounded-xl border border-rose-200 dark:border-rose-900">
@@ -3476,21 +3951,210 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
                 />
               </div>
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <div className="flex items-center gap-1.5">
+                  {editingPerson && availablePersons.length >= 2 && (
+                    <button
+                      type="button"
+                      onClick={() => openMergePersonsModal(editingPerson.name)}
+                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-950/40 font-semibold cursor-pointer"
+                    >
+                      <GitMerge className="w-3.5 h-3.5" />
+                      <span>Merge</span>
+                    </button>
+                  )}
+                  {editingPerson && availablePersons.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() => openDeletePersonModal(editingPerson)}
+                      className="inline-flex items-center gap-1 px-2.5 py-2 rounded-lg border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 font-semibold cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Delete</span>
+                    </button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setShowPersonModal(false)}
+                    className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingPerson}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isSavingPerson && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    <span>Save Person</span>
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE PERSON CONFIRMATION MODAL */}
+      {personToDelete && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full shadow-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                <Trash2 className="w-4 h-4" />
+                <h3 className="text-base font-bold">Delete Person Account</h3>
+              </div>
+              <button onClick={() => setPersonToDelete(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3.5 text-xs">
+              <p className="text-slate-700 dark:text-slate-300">
+                Remove <strong>{personToDelete.name}</strong> from the Person dropdown?
+                {(() => {
+                  const count = entries.filter(
+                    (e) => (e.agent || '').trim().toLowerCase() === personToDelete.name.trim().toLowerCase()
+                  ).length;
+                  return count > 0
+                    ? ` This person currently has ${count} commission record(s).`
+                    : ' This person has 0 commission records.';
+                })()}
+              </p>
+              {availablePersons.filter((p) => p.id !== personToDelete.id).length > 0 && (
+                <div>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                    Reassign Existing Records To (Optional)
+                  </label>
+                  <select
+                    value={deleteReassignTo}
+                    onChange={(e) => setDeleteReassignTo(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                  >
+                    <option value="">Keep existing records untouched</option>
+                    {availablePersons
+                      .filter((p) => p.id !== personToDelete.id)
+                      .map((p) => (
+                        <option key={p.id} value={p.name}>
+                          Move all records to {p.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
-                  onClick={() => setShowPersonModal(false)}
+                  onClick={() => setPersonToDelete(null)}
+                  className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingPerson}
+                  onClick={handleConfirmDeletePerson}
+                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isDeletingPerson && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Delete Person</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MERGE PERSONS MODAL */}
+      {showMergePersonModal && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full shadow-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-400">
+                <GitMerge className="w-4 h-4" />
+                <h3 className="text-base font-bold">Merge Person Accounts</h3>
+              </div>
+              <button onClick={() => setShowMergePersonModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmMergePersons} className="p-5 space-y-3.5 text-xs">
+              <p className="text-slate-600 dark:text-slate-400">
+                Combine duplicate or old Person records into one Person account. All commission records from the Source Person will move to the Target Person, and the Source Person will be removed.
+              </p>
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                  Source Person (Will be merged & removed) *
+                </label>
+                <select
+                  required
+                  value={mergeSourceName}
+                  onChange={(e) => setMergeSourceName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                >
+                  <option value="">Select source person...</option>
+                  {availablePersons.map((p) => (
+                    <option key={p.id} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+                  {unlinkedEntryAgents.map((nm) => (
+                    <option key={`unlinked-${nm}`} value={nm}>
+                      {nm} (Unlinked records only)
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                  Target Person (Keeps all merged records) *
+                </label>
+                <select
+                  required
+                  value={mergeTargetId}
+                  onChange={(e) => setMergeTargetId(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                >
+                  <option value="">Select target person...</option>
+                  {availablePersons
+                    .filter((p) => p.name.trim().toLowerCase() !== mergeSourceName.trim().toLowerCase())
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {mergeSourceName && (
+                <div className="rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 px-3 py-2 text-emerald-800 dark:text-emerald-300 font-medium">
+                  {
+                    entries.filter(
+                      (e) => (e.agent || '').trim().toLowerCase() === mergeSourceName.trim().toLowerCase()
+                    ).length
+                  }{' '}
+                  commission record(s) from <strong>{mergeSourceName}</strong> will move into{' '}
+                  <strong>
+                    {availablePersons.find((p) => p.id === mergeTargetId)?.name || 'Target Person'}
+                  </strong>
+                  .
+                </div>
+              )}
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowMergePersonModal(false)}
                   className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  disabled={isSavingPerson}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5"
+                  disabled={isMergingPersons || !mergeSourceName || !mergeTargetId}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold flex items-center gap-1.5 cursor-pointer"
                 >
-                  {isSavingPerson && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                  <span>Save Person</span>
+                  {isMergingPersons && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Merge Persons</span>
                 </button>
               </div>
             </form>
@@ -3839,7 +4503,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   <th className="border border-slate-300 p-2 text-left">Person</th>
                   <th className="border border-slate-300 p-2 text-left">Client</th>
                   <th className="border border-slate-300 p-2 text-left">Service</th>
-                  <th className="border border-slate-300 p-2 text-right">Qty × Rate</th>
+                  <th className="border border-slate-300 p-2 text-right">Qty</th>
+                  <th className="border border-slate-300 p-2 text-right">Invoice Total</th>
+                  <th className="border border-slate-300 p-2 text-right text-rose-600">Remaining</th>
+                  <th className="border border-slate-300 p-2 text-right">Rate</th>
                   <th className="border border-slate-300 p-2 text-right">Commission</th>
                   <th className="border border-slate-300 p-2 text-center">Status</th>
                 </tr>
@@ -3852,8 +4519,15 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     <td className="border border-slate-300 p-2">{e.agent}</td>
                     <td className="border border-slate-300 p-2">{e.client}</td>
                     <td className="border border-slate-300 p-2">{e.service}</td>
+                    <td className="border border-slate-300 p-2 text-right">{e.qty}</td>
                     <td className="border border-slate-300 p-2 text-right">
-                      {e.qty} × {formatPrintMoney(Number(e.ratePerUnit || 0))}
+                      {formatPrintMoney(Number(e.invoiceTotal || 0))}
+                    </td>
+                    <td className="border border-slate-300 p-2 text-right font-bold text-rose-600">
+                      {formatPrintMoney(Number(e.remainingAmount || 0))}
+                    </td>
+                    <td className="border border-slate-300 p-2 text-right">
+                      {formatPrintMoney(Number(e.ratePerUnit || 0))}
                     </td>
                     <td className="border border-slate-300 p-2 text-right font-bold">
                       {formatPrintMoney(getRowCommission(e))}
@@ -3862,6 +4536,27 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr className="bg-emerald-50 font-bold text-slate-900">
+                  <td colSpan={5} className="border border-slate-300 p-2 uppercase">
+                    TOTAL ({filtered.length} invoices)
+                  </td>
+                  <td className="border border-slate-300 p-2 text-right">
+                    {filtered.reduce((a, b) => a + (Number(b.qty) || 1), 0)}
+                  </td>
+                  <td className="border border-slate-300 p-2 text-right">
+                    {formatPrintMoney(filtered.reduce((a, b) => a + (Number(b.invoiceTotal) || 0), 0))}
+                  </td>
+                  <td className="border border-slate-300 p-2 text-right text-rose-600">
+                    {formatPrintMoney(filtered.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0))}
+                  </td>
+                  <td className="border border-slate-300 p-2 text-right text-slate-400">—</td>
+                  <td className="border border-slate-300 p-2 text-right text-emerald-700">
+                    {formatPrintMoney(filtered.reduce((a, b) => a + getRowCommission(b), 0))}
+                  </td>
+                  <td className="border border-slate-300 p-2" />
+                </tr>
+              </tfoot>
             </table>
           </div>
         </div>

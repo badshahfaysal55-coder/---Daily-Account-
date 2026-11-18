@@ -12,6 +12,7 @@ import { ApiService } from '../services/api';
 import { firestoreSyncService } from '../services/firestoreSyncService';
 import { UserAccount, GlobalAppSettings } from '../types/accounting';
 import { t, Language } from '../utils/translations';
+import { ZaraLogo } from './ZaraLogo';
 
 interface AuthModalProps {
   onSuccess: (user: UserAccount, settings: GlobalAppSettings) => void;
@@ -120,8 +121,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             ? 'Firebase Console-এ Apple Sign-In provider এখনো চালু করা হয়নি। তবে আপনার Apple ID ইমেইল ও পাসওয়ার্ড দিয়ে উপরের ফর্মে সরাসরি লগইন করতে পারবেন।'
             : 'Apple OAuth popup provider is not enabled in Firebase Console yet. You can still sign in right above using your Apple ID email + password.'
         );
-      } else if (code.includes('popup-closed-by-user')) {
-        setError(isBn ? 'Apple সাইন-ইন পপআপ বন্ধ করা হয়েছে।' : 'Apple sign-in popup was closed.');
+      } else if (
+        code.includes('popup-closed-by-user') ||
+        code.includes('cancelled-popup-request') ||
+        msg.includes('popup-closed-by-user')
+      ) {
+        setError(isBn ? 'Apple সাইন-ইন পপআপ বন্ধ করা হয়েছে।' : 'Apple sign-in popup was closed before completing.');
+      } else if (code.includes('popup-blocked') || msg.includes('popup-blocked')) {
+        setError(
+          isBn
+            ? 'ব্রাউজার পপআপ ব্লক করেছে। পপআপ Allow করুন অথবা উপরে আপনার Apple ID ইমেইল ও পাসওয়ার্ড দিয়ে লগইন করুন।'
+            : 'Browser blocked the sign-in popup. Please allow popups or sign in above with your Apple ID email + password.'
+        );
       } else {
         setError(msg || (isBn ? 'Apple ID লগইন ব্যর্থ হয়েছে' : 'Apple ID login failed'));
       }
@@ -148,12 +159,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Brand Header */}
         <div className="text-center mb-6">
           <div className="inline-block relative">
-            <img
-              src="/assets/aistudio/WhatsApp_Image_2026-11-06_at_9.38.17_AM_2058b80b.jpeg"
-              alt="ZARA Accounting App"
-              className="w-20 h-20 mx-auto rounded-2xl shadow-xl border-2 border-amber-400 object-cover bg-white p-0.5"
-            />
-            <div className="absolute -bottom-1 -right-1 bg-amber-500 text-slate-950 rounded-full p-1 shadow-md">
+            <ZaraLogo size="xl" showText={false} />
+            <div className="absolute -bottom-1 -right-1 bg-amber-500 text-slate-950 rounded-full p-1 shadow-md ring-2 ring-white dark:ring-[#101A2C]">
               <Crown className="w-4 h-4 stroke-[2.5]" />
             </div>
           </div>

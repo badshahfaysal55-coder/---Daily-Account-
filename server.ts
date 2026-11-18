@@ -356,8 +356,8 @@ const INITIAL_DATABASE: DatabaseSchema = {
   commissionEntries: [],
   commissionPersons: [
     {
-      id: 'person_owner_faisal',
-      name: 'FAYSAL',
+      id: 'person_rh_faysal',
+      name: 'RH FAYSAL',
       iqamaNo: '',
       phone: '',
       office: 'JUB5 - Jubail - Al Madrasa',
@@ -397,6 +397,18 @@ const INITIAL_DATABASE: DatabaseSchema = {
   ],
 };
 
+function isAutoSyncedCustomerInvoiceCommission(entry: any): boolean {
+  if (!entry || typeof entry !== 'object') return false;
+  const id = String(entry.id || '');
+  const notes = String(entry.notes || '');
+  const isAutoSyncedSource =
+    id.startsWith('comm-inv-') || notes === 'Auto-synced from Daily Invoices';
+  if (!isAutoSyncedSource) return false;
+  const commAmt = Number(entry.commissionAmount) || 0;
+  const rate = Number(entry.ratePerUnit) || 0;
+  return commAmt === 0 && rate === 0 && !entry.isClawback && entry.invoiceStatus !== 'Cancelled';
+}
+
 // Non-destructive database loader that preserves all old settings and data across updates
 function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   if (!parsed || !Array.isArray(parsed.users) || !Array.isArray(parsed.transactions) || !parsed.globalSettings) {
@@ -413,6 +425,21 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   if (!parsed.sessions || typeof parsed.sessions !== 'object') parsed.sessions = {};
   if (!parsed.deletedRecordIds || typeof parsed.deletedRecordIds !== 'object') parsed.deletedRecordIds = {};
 
+  // Exclude and tombstone any legacy auto-synced 0-commission customer invoices from Commission Sheet
+  const purgeTs = Date.now();
+  const keptCommissionEntries: any[] = [];
+  parsed.commissionEntries.forEach((entry: any) => {
+    if (isAutoSyncedCustomerInvoiceCommission(entry)) {
+      if (entry?.id && !parsed.deletedRecordIds[entry.id]) {
+        parsed.deletedRecordIds[entry.id] = purgeTs;
+      }
+      parsed.__purgedAutoSyncedCommissions = true;
+    } else {
+      keptCommissionEntries.push(entry);
+    }
+  });
+  parsed.commissionEntries = keptCommissionEntries;
+
   if (!parsed.globalSettings.currency) {
     parsed.globalSettings.currency = 'SAR';
   }
@@ -428,26 +455,85 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
     ];
   }
 
-  // Ensure current month and any entry months exist in commissionMonths
-  const currentYm = new Date().toISOString().slice(0, 7);
-  if (!parsed.commissionMonths.includes(currentYm)) {
-    parsed.commissionMonths.push(currentYm);
+  // Consolidate legacy "FAYSAL" records & profile into "RH FAYSAL" (one-time / idempotent)
+  // and NEVER auto-create new Person accounts from commissionEntries or user profiles
+  const nowTs = Date.now();
+  const hasExplicitFaysalOnly = parsed.commissionPersons.some(
+    (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'faysal'
+  );
+  const hasRhFaysal = parsed.commissionPersons.some(
+    (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'rh faysal'
+  );
+
+  if (hasExplicitFaysalOnly || !hasRhFaysal) {
+    const faysalPersons = parsed.commissionPersons.filter(
+      (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'faysal'
+    );
+    const existingRh = parsed.commissionPersons.find(
+      (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'rh faysal'
+    );
+
+    if (faysalPersons.length > 0) {
+      const primarySource = faysalPersons[0];
+      const mergedRh: any = existingRh
+        ? {
+            ...existingRh,
+            name: 'RH FAYSAL',
+            iqamaNo: existingRh.iqamaNo || primarySource.iqamaNo || '',
+            phone: existingRh.phone || primarySource.phone || '',
+            office: existingRh.office || primarySource.office || 'JUB5 - Jubail - Al Madrasa',
+            linkedUserId: existingRh.linkedUserId || primarySource.linkedUserId || 'usr_owner_faisal',
+            photoUrl: existingRh.photoUrl || primarySource.photoUrl,
+            photoData: existingRh.photoData || primarySource.photoData,
+            updatedAt: nowTs,
+          }
+        : {
+            ...primarySource,
+            id: 'person_rh_faysal',
+            name: 'RH FAYSAL',
+            updatedAt: nowTs,
+          };
+
+      faysalPersons.forEach((fp: any) => {
+        if (fp?.id && fp.id !== mergedRh.id) {
+          parsed.deletedRecordIds[fp.id] = nowTs;
+        }
+      });
+
+      parsed.commissionPersons = parsed.commissionPersons.filter(
+        (p: any) =>
+          typeof p?.name === 'string' &&
+          p.name.trim().toLowerCase() !== 'faysal' &&
+          p.name.trim().toLowerCase() !== 'rh faysal'
+      );
+      parsed.commissionPersons.unshift(mergedRh);
+      parsed.__migratedPersons = true;
+    } else if (!existingRh && parsed.commissionPersons.length === 0) {
+      parsed.commissionPersons.push({
+        id: 'person_rh_faysal',
+        name: 'RH FAYSAL',
+        iqamaNo: '',
+        phone: '',
+        office: 'JUB5 - Jubail - Al Madrasa',
+        linkedUserId: 'usr_owner_faisal',
+        createdAt: nowTs,
+        updatedAt: nowTs,
+      });
+      parsed.__migratedPersons = true;
+    }
   }
+
+  // Ensure any "FAYSAL" commission records are merged into "RH FAYSAL"
   parsed.commissionEntries.forEach((entry: any) => {
     const ym = typeof entry?.date === 'string' && /^\d{4}-\d{2}/.test(entry.date) ? entry.date.slice(0, 7) : null;
     if (ym && !parsed.commissionMonths.includes(ym)) {
       parsed.commissionMonths.push(ym);
     }
     const agName = typeof entry?.agent === 'string' ? entry.agent.trim() : '';
-    if (agName && !parsed.commissionPersons.some((p: any) => p.name.toLowerCase() === agName.toLowerCase())) {
-      parsed.commissionPersons.push({
-        id: 'person_' + agName.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-        name: agName,
-        office: entry.office || undefined,
-        linkedUserId: entry.agentId || undefined,
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      });
+    if (agName && (agName.toLowerCase() === 'faysal' || agName.toLowerCase() === 'rh faysal') && entry.agent !== 'RH FAYSAL') {
+      entry.agent = 'RH FAYSAL';
+      entry.updatedAt = nowTs;
+      parsed.__migratedPersons = true;
     }
   });
 
@@ -557,8 +643,19 @@ function loadDatabase(): DatabaseSchema {
         const parsed = JSON.parse(data);
         const normalized = normalizeLoadedDatabase(parsed);
         if (normalized) {
-          if (candidatePath === DB_BACKUP_FILE) {
-            console.warn('Recovered database from rolling backup without losing settings or data.');
+          const hadPurgeOrMigration = Boolean(
+            (normalized as any).__purgedAutoSyncedCommissions || (normalized as any).__migratedPersons
+          );
+          if ((normalized as any).__purgedAutoSyncedCommissions !== undefined) {
+            delete (normalized as any).__purgedAutoSyncedCommissions;
+          }
+          if ((normalized as any).__migratedPersons !== undefined) {
+            delete (normalized as any).__migratedPersons;
+          }
+          if (candidatePath === DB_BACKUP_FILE || hadPurgeOrMigration) {
+            if (candidatePath === DB_BACKUP_FILE) {
+              console.warn('Recovered database from rolling backup without losing settings or data.');
+            }
             fs.writeFileSync(DB_FILE, JSON.stringify(normalized, null, 2), 'utf-8');
           }
           return normalized;
@@ -2184,16 +2281,11 @@ async function startServer() {
     customer.balance = (customer.balance || 0) + totalAmount - initialPayment;
     customer.updatedAt = Date.now();
 
-    // Auto-sync invoice into Agent Commission Statement
-    const syncedCommission = upsertCommissionFromInvoice(newInvoice, currentUser);
-
+    // Keep Commission Sheet completely separate from regular customer invoices
     saveDatabase(db);
 
     notifySubscribers('invoice_created', { workspaceUserId: customer.workspaceUserId, invoice: newInvoice });
     notifySubscribers('customer_updated', { workspaceUserId: customer.workspaceUserId, customer });
-    if (syncedCommission) {
-      notifySubscribers('commission_added', { entry: syncedCommission });
-    }
 
     return res.status(201).json({ invoice: newInvoice, customer, success: true });
   });
@@ -2286,8 +2378,6 @@ async function startServer() {
     };
     db.transactions.unshift(newTx);
 
-    const syncedCommissionOnPay = upsertCommissionFromInvoice(inv, currentUser);
-
     saveDatabase(db);
 
     notifySubscribers('invoice_payment_recorded', { workspaceUserId: inv.workspaceUserId, invoice: inv, payment: newPayment });
@@ -2295,9 +2385,6 @@ async function startServer() {
       notifySubscribers('customer_updated', { workspaceUserId: inv.workspaceUserId, customer });
     }
     notifySubscribers('transaction_created', { workspaceUserId: inv.workspaceUserId, transaction: newTx });
-    if (syncedCommissionOnPay) {
-      notifySubscribers('commission_updated', { entry: syncedCommissionOnPay });
-    }
 
     return res.status(201).json({
       success: true,
@@ -2397,16 +2484,11 @@ async function startServer() {
       customer.updatedAt = Date.now();
     }
 
-    const syncedCommissionOnEdit = upsertCommissionFromInvoice(inv, currentUser);
-
     saveDatabase(db);
 
     notifySubscribers('invoice_updated', { workspaceUserId: inv.workspaceUserId, invoice: inv });
     if (customer) {
       notifySubscribers('customer_updated', { workspaceUserId: inv.workspaceUserId, customer });
-    }
-    if (syncedCommissionOnEdit) {
-      notifySubscribers('commission_updated', { entry: syncedCommissionOnEdit });
     }
 
     return res.json({ success: true, invoice: inv, customer });
@@ -3243,88 +3325,34 @@ async function startServer() {
     }
   }
 
-  function upsertCommissionFromInvoice(inv: DbInvoice, actor: DbUser): DbCommissionEntry | null {
-    db.commissionEntries = db.commissionEntries || [];
-    const linkedId = `comm-inv-${inv.id}`;
-    const existingIdx = db.commissionEntries.findIndex(
-      (c) => c.id === linkedId || c.invoiceNo.toLowerCase() === inv.invoiceNumber.toLowerCase()
-    );
-
-    const remaining = Math.max(0, Number(inv.balanceDue) || 0);
-    const isEligibleNow = remaining <= 0 && inv.totalAmount > 0;
-    const serviceLabel = inv.serviceName || inv.items?.[0]?.description || 'General Service';
-    const qty = Math.max(
-      1,
-      Array.isArray(inv.items) && inv.items.length > 0
-        ? inv.items.reduce((sum, it) => sum + (Number(it.quantity) || 1), 0)
-        : 1
-    );
-
-    if (existingIdx !== -1) {
-      const existing = db.commissionEntries[existingIdx];
-      if (!existing.isClawback && existing.invoiceStatus !== 'Cancelled') {
-        existing.date = new Date(inv.date).toISOString().slice(0, 10);
-        existing.office = inv.branchOffice || existing.office;
-        existing.client = inv.customerName || existing.client;
-        existing.clientMobile = inv.customerPhone || existing.clientMobile;
-        existing.service = serviceLabel || existing.service;
-        existing.invoiceTotal = inv.totalAmount;
-        existing.remainingAmount = remaining;
-        existing.eligible = isEligibleNow;
-        existing.invoiceStatus = isEligibleNow ? 'Active' : 'Pending';
-        existing.reasonNotEligible = isEligibleNow
-          ? undefined
-          : existing.reasonNotEligible || 'Pending invoice payment';
-        if (existing.payoutStatus !== 'Paid') {
-          existing.payoutStatus = isEligibleNow ? 'To pay' : 'Not eligible';
-        }
-        existing.updatedAt = Date.now();
-        db.commissionEntries[existingIdx] = existing;
-      }
-      return existing;
+  // Resolve a record's agent name against manually registered Persons without ever auto-creating new Persons
+  function resolveExplicitCommissionPerson(rawName?: string): { name: string; linkedUserId?: string } {
+    const persons = db.commissionPersons || [];
+    const trimmed = String(rawName || '').trim();
+    if (!trimmed) {
+      const primary = persons[0];
+      return { name: primary?.name || 'RH FAYSAL', linkedUserId: primary?.linkedUserId };
     }
-
-    // Do NOT add any automatic commission rate or amount — keep 0 until entered manually
-    const agentName = actor.role === 'owner' ? 'FAYSAL' : actor.name.toUpperCase();
-    const dateStr = new Date(inv.date).toISOString().slice(0, 10);
-    ensureCommissionPersonAccount(agentName, { office: inv.branchOffice, linkedUserId: actor.id });
-    ensureCommissionMonth(dateStr);
-
-    const entry: DbCommissionEntry = {
-      id: linkedId,
-      date: dateStr,
-      office: inv.branchOffice || 'JUB5 - Jubail - Al Madrasa',
-      invoiceNo: inv.invoiceNumber,
-      invoiceStatus: isEligibleNow ? 'Active' : 'Pending',
-      agent: agentName,
-      agentId: actor.id,
-      client: inv.customerName,
-      clientMobile: inv.customerPhone || undefined,
-      service: serviceLabel,
-      qty,
-      ratePerUnit: 0,
-      invoiceTotal: inv.totalAmount,
-      remainingAmount: remaining,
-      eligible: isEligibleNow,
-      reasonNotEligible: isEligibleNow ? undefined : 'Pending invoice payment',
-      commissionAmount: 0,
-      isClawback: false,
-      payoutStatus: isEligibleNow ? 'To pay' : 'Not eligible',
-      period: dateStr.slice(0, 7),
-      notes: 'Auto-synced from Daily Invoices',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    db.commissionEntries.unshift(entry);
-    return entry;
+    const lower = trimmed.toLowerCase();
+    const directMatch = persons.find((p) => p.name.trim().toLowerCase() === lower);
+    if (directMatch) {
+      return { name: directMatch.name, linkedUserId: directMatch.linkedUserId };
+    }
+    if (lower === 'faysal') {
+      const rhMatch = persons.find((p) => p.name.trim().toLowerCase() === 'rh faysal');
+      if (rhMatch) {
+        return { name: rhMatch.name, linkedUserId: rhMatch.linkedUserId };
+      }
+    }
+    return { name: trimmed };
   }
 
-  // Commission Person Accounts API (Auto-created whenever any person has entry data)
+  // Commission Person Accounts API (Manual Persons only — NEVER auto-generated from entries or user profiles)
   app.get('/api/commission-persons', authMiddleware, (_req, res) => {
     const persons = db.commissionPersons || [];
-    const entries = db.commissionEntries || [];
+    const entries = (db.commissionEntries || []).filter((c) => !isAutoSyncedCustomerInvoiceCommission(c));
 
-    // Compute live account balances per person
+    // Compute live account balances strictly for explicitly registered Persons
     const accountMap = new Map<string, any>();
     persons.forEach((p) => {
       accountMap.set(p.name.trim().toLowerCase(), {
@@ -3338,22 +3366,9 @@ async function startServer() {
     });
 
     entries.forEach((e) => {
-      const key = (e.agent || 'UNASSIGNED').trim().toLowerCase();
-      if (!accountMap.has(key)) {
-        accountMap.set(key, {
-          id: 'person_' + key.replace(/[^a-z0-9]+/g, '_'),
-          name: e.agent || 'UNASSIGNED',
-          iqamaNo: '',
-          phone: '',
-          office: e.office || '',
-          createdAt: e.createdAt || Date.now(),
-          updatedAt: e.updatedAt || Date.now(),
-          invoicesCount: 0,
-          toPayNow: 0,
-          alreadyPaid: 0,
-          notYetEligible: 0,
-          totalCommission: 0,
-        });
+      const key = (e.agent || '').trim().toLowerCase();
+      if (!key || !accountMap.has(key)) {
+        return; // Do NOT auto-generate Person accounts from entry variations
       }
       const acc = accountMap.get(key);
       acc.invoicesCount += 1;
@@ -3487,6 +3502,142 @@ async function startServer() {
     return res.json({ success: true, person: existing });
   });
 
+  // Delete Person Account (with optional record reassignment)
+  app.delete('/api/commission-persons/:id', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    const targetId = req.params.id;
+    const reassignTo = String((req.body && req.body.reassignTo) || req.query.reassignTo || '').trim();
+    db.commissionPersons = db.commissionPersons || [];
+    const idx = db.commissionPersons.findIndex((p) => p.id === targetId);
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Person profile not found' });
+    }
+    const target = db.commissionPersons[idx];
+    const oldNameLower = target.name.trim().toLowerCase();
+
+    if (reassignTo && reassignTo.toLowerCase() !== oldNameLower) {
+      const targetMatch = resolveExplicitCommissionPerson(reassignTo);
+      (db.commissionEntries || []).forEach((e) => {
+        if ((e.agent || '').trim().toLowerCase() === oldNameLower) {
+          e.agent = targetMatch.name;
+          if (targetMatch.linkedUserId) e.agentId = targetMatch.linkedUserId;
+          e.updatedAt = Date.now();
+        }
+      });
+    }
+
+    removeCommissionPersonPhotoFiles(target);
+    db.commissionPersons.splice(idx, 1);
+    db.deletedRecordIds = db.deletedRecordIds || {};
+    db.deletedRecordIds[targetId] = Date.now();
+
+    db.auditLogs.unshift({
+      id: 'audit-' + Date.now(),
+      timestamp: Date.now(),
+      action: 'COMMISSION_PERSON_DELETED',
+      performedBy: currentUser.name,
+      details: { personId: target.id, personName: target.name, reassignTo: reassignTo || null },
+    });
+    saveDatabase(db);
+    notifySubscribers('commission_person_deleted', { id: targetId, person: target });
+    if (reassignTo) {
+      notifySubscribers('commission_updated', { type: 'person_reassigned' });
+    }
+    return res.json({ success: true, deletedId: targetId, deletedName: target.name });
+  });
+
+  // Merge one Person (and all their commission records) into another Person
+  app.post('/api/commission-persons/merge', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    const { sourceId, sourceName, targetId, targetName } = req.body || {};
+    db.commissionPersons = db.commissionPersons || [];
+
+    const targetPerson =
+      (targetId && db.commissionPersons.find((p) => p.id === targetId)) ||
+      (targetName &&
+        db.commissionPersons.find(
+          (p) => p.name.trim().toLowerCase() === String(targetName).trim().toLowerCase()
+        ));
+
+    if (!targetPerson) {
+      return res.status(404).json({ error: 'Target person account not found' });
+    }
+
+    const sourcePerson =
+      (sourceId && db.commissionPersons.find((p) => p.id === sourceId)) ||
+      (sourceName &&
+        db.commissionPersons.find(
+          (p) => p.name.trim().toLowerCase() === String(sourceName).trim().toLowerCase()
+        ));
+
+    const effectiveSourceName = (sourcePerson?.name || String(sourceName || '')).trim();
+    if (!effectiveSourceName) {
+      return res.status(400).json({ error: 'Source person to merge is required' });
+    }
+    if (
+      (sourcePerson && sourcePerson.id === targetPerson.id) ||
+      effectiveSourceName.toLowerCase() === targetPerson.name.trim().toLowerCase()
+    ) {
+      return res.status(400).json({ error: 'Cannot merge a person into themselves' });
+    }
+
+    const sourceLower = effectiveSourceName.toLowerCase();
+    const now = Date.now();
+    let mergedEntriesCount = 0;
+
+    (db.commissionEntries || []).forEach((e) => {
+      if ((e.agent || '').trim().toLowerCase() === sourceLower) {
+        e.agent = targetPerson.name;
+        if (targetPerson.linkedUserId) e.agentId = targetPerson.linkedUserId;
+        e.updatedAt = now;
+        mergedEntriesCount += 1;
+      }
+    });
+
+    if (sourcePerson) {
+      if (!targetPerson.iqamaNo && sourcePerson.iqamaNo) targetPerson.iqamaNo = sourcePerson.iqamaNo;
+      if (!targetPerson.phone && sourcePerson.phone) targetPerson.phone = sourcePerson.phone;
+      if (!targetPerson.office && sourcePerson.office) targetPerson.office = sourcePerson.office;
+      if (!targetPerson.linkedUserId && sourcePerson.linkedUserId) {
+        targetPerson.linkedUserId = sourcePerson.linkedUserId;
+      }
+      const reusedSourcePhoto = !targetPerson.photoUrl && !targetPerson.photoData && (sourcePerson.photoUrl || sourcePerson.photoData);
+      if (reusedSourcePhoto) {
+        targetPerson.photoUrl = sourcePerson.photoUrl;
+        targetPerson.photoData = sourcePerson.photoData;
+      } else {
+        removeCommissionPersonPhotoFiles(sourcePerson);
+      }
+      targetPerson.updatedAt = now;
+
+      db.commissionPersons = db.commissionPersons.filter((p) => p.id !== sourcePerson.id);
+      db.deletedRecordIds = db.deletedRecordIds || {};
+      db.deletedRecordIds[sourcePerson.id] = now;
+    }
+
+    db.auditLogs.unshift({
+      id: 'audit-' + now,
+      timestamp: now,
+      action: 'COMMISSION_PERSON_MERGED',
+      performedBy: currentUser.name,
+      details: {
+        from: effectiveSourceName,
+        into: targetPerson.name,
+        mergedEntriesCount,
+      },
+    });
+    saveDatabase(db);
+    notifySubscribers('commission_person_updated', { person: targetPerson });
+    notifySubscribers('commission_updated', { type: 'person_merged' });
+
+    return res.json({
+      success: true,
+      mergedEntriesCount,
+      target: targetPerson,
+      deletedSourceId: sourcePerson?.id || null,
+    });
+  });
+
   // Owner-Only Person Photo Upload & Delete endpoints
   app.post('/api/commission-persons/:id/photo', authMiddleware, ownerOnlyMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
@@ -3570,7 +3721,7 @@ async function startServer() {
 
   app.get('/api/commissions', authMiddleware, (req, res) => {
     const { agent, period, office } = req.query;
-    let list = db.commissionEntries || [];
+    let list = (db.commissionEntries || []).filter((c) => !isAutoSyncedCustomerInvoiceCommission(c));
 
     if (agent && agent !== 'all') {
       const qAgent = String(agent).trim().toLowerCase();
@@ -3669,15 +3820,15 @@ async function startServer() {
         : unitQty * unitRate;
     const clawbackFlag = Boolean(isClawback) || invoiceStatus === 'Cancelled';
     const eligibleFlag = clawbackFlag ? false : Boolean(eligible);
-    const resolvedAgent = (agent || currentUser.name).trim();
+    // Do NOT fall back to currentUser.name or auto-create Person accounts
+    const resolvedPerson = resolveExplicitCommissionPerson(agent);
+    const resolvedAgent = resolvedPerson.name;
     const resolvedDate = date || new Date().toISOString().slice(0, 10);
 
-    // Auto-create Person Account & Month Sheet when any person enters data
-    const personAcc = ensureCommissionPersonAccount(resolvedAgent, {
-      office: office || undefined,
-      linkedUserId: currentUser.id,
-    });
     ensureCommissionMonth(resolvedDate);
+    const personAcc = (db.commissionPersons || []).find(
+      (p) => p.name.trim().toLowerCase() === resolvedAgent.toLowerCase()
+    );
 
     const newEntry: DbCommissionEntry = {
       id: 'comm-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
@@ -3686,7 +3837,7 @@ async function startServer() {
       invoiceNo: String(invoiceNo).trim(),
       invoiceStatus: clawbackFlag ? 'Cancelled' : invoiceStatus || (eligibleFlag ? 'Active' : 'Pending'),
       agent: resolvedAgent,
-      agentId: personAcc?.linkedUserId || currentUser.id,
+      agentId: resolvedPerson.linkedUserId || personAcc?.linkedUserId || currentUser.id,
       client: String(client).trim(),
       workerName: workerName?.trim() || undefined,
       clientMobile: clientMobile?.trim() || undefined,
@@ -3718,7 +3869,7 @@ async function startServer() {
     db.auditLogs.unshift({
       id: 'audit-' + Date.now(),
       timestamp: Date.now(),
-      action: 'COMMISSION_ACCOUNT_AUTO_SYNCED',
+      action: 'COMMISSION_ENTRY_ADDED',
       performedBy: currentUser.name,
       details: {
         person: newEntry.agent,
@@ -3731,10 +3882,9 @@ async function startServer() {
     db.auditLogs = db.auditLogs.slice(0, 100);
 
     saveDatabase(db);
-    notifySubscribers('commission_added', { entry: newEntry, person: personAcc });
-    if (personAcc) notifySubscribers('commission_person_updated', { person: personAcc });
+    notifySubscribers('commission_added', { entry: newEntry, person: personAcc || null });
 
-    return res.status(201).json({ success: true, entry: newEntry, person: personAcc });
+    return res.status(201).json({ success: true, entry: newEntry, person: personAcc || null });
   });
 
   app.put('/api/commissions/:id', authMiddleware, (req, res) => {
@@ -3754,8 +3904,9 @@ async function startServer() {
     }
     if (updates.invoiceNo) existing.invoiceNo = String(updates.invoiceNo).trim();
     if (updates.agent) {
-      existing.agent = String(updates.agent).trim();
-      ensureCommissionPersonAccount(existing.agent, { office: updates.office || existing.office });
+      const resolvedPerson = resolveExplicitCommissionPerson(String(updates.agent));
+      existing.agent = resolvedPerson.name;
+      if (resolvedPerson.linkedUserId) existing.agentId = resolvedPerson.linkedUserId;
     }
     if (updates.period) existing.period = String(updates.period);
     if (updates.qty !== undefined) existing.qty = Math.max(1, Number(updates.qty) || 1);
@@ -3980,13 +4131,10 @@ Return valid JSON matching the schema.`,
           ? Math.max(0, Number(it.commissionAmount) || 0)
           : unitQty * unitRate;
       const isClawback = Boolean(it.isClawback);
-      const agentName = (it.agent || currentUser.name).trim();
+      const resolvedPerson = resolveExplicitCommissionPerson(it.agent);
+      const agentName = resolvedPerson.name;
       const dateStr = it.date || new Date().toISOString().slice(0, 10);
 
-      const personAcc = ensureCommissionPersonAccount(agentName, {
-        office: it.office || undefined,
-        linkedUserId: currentUser.id,
-      });
       ensureCommissionMonth(dateStr);
 
       const newEntry: DbCommissionEntry = {
@@ -3996,7 +4144,7 @@ Return valid JSON matching the schema.`,
         invoiceNo: String(it.invoiceNo).trim(),
         invoiceStatus: it.invoiceStatus || (it.eligible ? 'Active' : (isClawback ? 'Cancelled' : 'Pending')),
         agent: agentName,
-        agentId: personAcc?.linkedUserId || currentUser.id,
+        agentId: resolvedPerson.linkedUserId || currentUser.id,
         client: String(it.client).trim(),
         workerName: it.workerName?.trim() || undefined,
         clientMobile: it.clientMobile?.trim() || undefined,
@@ -4210,6 +4358,9 @@ Return valid JSON matching the schema.`,
     }
 
     db = database;
+    db.commissionEntries = (db.commissionEntries || []).filter(
+      (c) => !isAutoSyncedCustomerInvoiceCommission(c)
+    );
     if (!db.sessions || typeof db.sessions !== 'object') db.sessions = {};
     SESSIONS.clear();
     for (const [tok, uid] of Object.entries(db.sessions)) {
@@ -4357,10 +4508,25 @@ Return valid JSON matching the schema.`,
       mergeCollection(db.transactions, snapshot.transactions);
       mergeCollection(db.customers, snapshot.customers);
       mergeCollection(db.invoices, snapshot.invoices);
-      mergeCollection(db.commissionEntries, snapshot.commissionEntries);
+      const explicitSnapshotCommissions = Array.isArray(snapshot.commissionEntries)
+        ? snapshot.commissionEntries.filter((c: any) => !isAutoSyncedCustomerInvoiceCommission(c))
+        : [];
+      mergeCollection(db.commissionEntries, explicitSnapshotCommissions);
+      db.commissionEntries = (db.commissionEntries || []).filter((c) => !isAutoSyncedCustomerInvoiceCommission(c));
 
-      db.commissionPersons = db.commissionPersons || [];
-      mergeCollection(db.commissionPersons, snapshot.commissionPersons, {
+      const existingPersons = db.commissionPersons || [];
+      db.commissionPersons = existingPersons;
+      const incomingPersons = Array.isArray(snapshot.commissionPersons)
+        ? snapshot.commissionPersons.filter((p: any) => {
+            if (!p?.name) return false;
+            const low = String(p.name).trim().toLowerCase();
+            if (low === 'faysal' && existingPersons.some((ep) => ep.name.trim().toLowerCase() === 'rh faysal')) {
+              return false;
+            }
+            return true;
+          })
+        : [];
+      mergeCollection(existingPersons, incomingPersons, {
         matchBy: (ext, inc) =>
           Boolean(ext.name && inc.name && ext.name.trim().toLowerCase() === inc.name.trim().toLowerCase()),
       });

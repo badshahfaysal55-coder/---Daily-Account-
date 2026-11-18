@@ -215,16 +215,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         `}
       >
         {/* Brand & Logo Header */}
-        <div className="h-16 sm:h-20 px-4 flex items-center justify-between border-b border-[#1E293B] shrink-0">
-          <div className="flex items-center gap-3 overflow-hidden">
-            <ZaraLogo size="sm" showText={false} />
+        <div
+          className={`relative border-b border-[#1E293B] shrink-0 transition-all duration-300 ${
+            isExpanded
+              ? 'h-16 sm:h-20 px-3.5 flex items-center justify-between gap-2'
+              : 'h-20 px-2 flex items-center justify-center'
+          }`}
+        >
+          <div className={`flex items-center ${isExpanded ? 'gap-3 min-w-0 flex-1' : 'justify-center'}`}>
+            <ZaraLogo size="md" showText={false} />
             {isExpanded && (
-              <div className="flex flex-col truncate">
+              <div className="flex flex-col min-w-0">
                 <span className="font-extrabold text-white text-base tracking-tight font-heading truncate">
                   {globalSettings.appName || 'ZARA Accounting'}
                 </span>
                 <span className="text-[10px] font-bold text-[#D4AF37] tracking-wider uppercase flex items-center gap-1">
-                  <Cloud className="w-2.5 h-2.5" />
+                  <Cloud className="w-2.5 h-2.5 shrink-0" />
                   Cloud Enterprise
                 </span>
               </div>
@@ -241,11 +247,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <X className="w-5 h-5" />
           </button>
 
-          {/* Desktop Collapse Toggle */}
+          {/* Desktop Collapse / Expand Toggle */}
           <button
+            type="button"
             onClick={onToggleCollapse}
-            className="hidden lg:flex p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            className={`hidden lg:flex items-center justify-center transition cursor-pointer ${
+              isOpen
+                ? 'p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 shrink-0'
+                : 'absolute -right-3.5 top-1/2 -translate-y-1/2 z-50 w-7 h-7 rounded-full bg-slate-900 text-emerald-300 hover:text-white hover:bg-emerald-600 border border-emerald-400/50 shadow-[0_4px_14px_rgba(0,0,0,0.65),0_0_12px_rgba(16,185,129,0.35)]'
+            }`}
             title={isOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
+            aria-label={isOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
           >
             {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
           </button>
