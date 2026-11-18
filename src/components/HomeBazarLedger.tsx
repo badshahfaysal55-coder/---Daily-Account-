@@ -19,7 +19,10 @@ import {
   ChevronDown,
   Check,
   Percent,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Camera,
+  Upload,
+  Lock
 } from 'lucide-react';
 import {
   HomeBazarEntry,
@@ -32,7 +35,9 @@ import {
   CurrencyCode
 } from '../types/accounting';
 import { ApiService } from '../services/api';
+import { firestoreSyncService, FirestoreSyncStatus } from '../services/firestoreSyncService';
 import { formatCurrency, getCurrencySymbol } from '../utils/formatters';
+import { ImageCropModal } from './ImageCropModal';
 
 interface HomeBazarLedgerProps {
   currentUser: UserAccount;
@@ -100,6 +105,10 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   onBackToInvoices,
 }) => {
   const isBn = currentLang === 'bn';
+  const isOwner = currentUser.role === 'owner';
+  const canManageBazar = isOwner || currentUser.canManageBazar !== false;
+  const canManageBuyers = isOwner || currentUser.canManageBuyers === true;
+  const canDeleteRecords = isOwner || currentUser.canDelete === true;
 
   const [entries, setEntries] = useState<HomeBazarEntry[]>([]);
   const [buyers, setBuyers] = useState<BazarBuyer[]>([]);
@@ -114,7 +123,11 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
   const [lastSyncedTime, setLastSyncedTime] = useState<Date>(new Date());
   const [syncStatus, setSyncStatus] = useState<'connected' | 'connecting' | 'idle'>('connecting');
-  const eventSourceRef = useRef<EventSource | null>(null);
+  const [cloudStatus, setCloudStatus] = useState<FirestoreSyncStatus>(() => firestoreSyncService.getStatus());
+
+  useEffect(() => {
+    return firestoreSyncService.subscribe(setCloudStatus);
+  }, []);
 
   // Modals
   const [showAddModal, setShowAddModal] = useState(false);
@@ -127,13 +140,24 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   const [showBuyersModal, setShowBuyersModal] = useState(false);
   const [showBuyerBreakdown, setShowBuyerBreakdown] = useState(true);
 
-  // New Buyer Form (Inside Manage Buyers Modal)
+  // Add / Edit Buyer Form (Inside Manage Buyers Modal)
+  const [editingBuyerTargetId, setEditingBuyerTargetId] = useState<string | null>(null);
   const [newBuyerIdInput, setNewBuyerIdInput] = useState('');
   const [newBuyerNameInput, setNewBuyerNameInput] = useState('');
   const [newBuyerPhoneInput, setNewBuyerPhoneInput] = useState('');
+  const [newBuyerRoleInput, setNewBuyerRoleInput] = useState('Buyer');
+  const [newBuyerAmountInput, setNewBuyerAmountInput] = useState<string>('');
+  const [newBuyerNotesInput, setNewBuyerNotesInput] = useState('');
+  const [buyerPhotoPreview, setBuyerPhotoPreview] = useState<string | null>(null);
+  const [buyerPhotoBase64, setBuyerPhotoBase64] = useState<string | null>(null);
+  const [buyerPhotoRemoved, setBuyerPhotoRemoved] = useState(false);
+  const [buyerCropOpen, setBuyerCropOpen] = useState(false);
+  const [buyerCropInitial, setBuyerCropInitial] = useState<string | null>(null);
   const [isAddingBuyer, setIsAddingBuyer] = useState(false);
+  const buyerPhotoFileRef = useRef<HTMLInputElement>(null);
+  const buyerPhotoCameraRef = useRef<HTMLInputElement>(null);
 
-  // Form states for Add/Edit
+  // Form states for Add/Edit Bazar Entry
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formItemName, setFormItemName] = useState('');
   const [formCategory, setFormCategory] = useState<HomeBazarCategory>('fish_meat');
@@ -145,6 +169,30 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   const [formPurchasedBy, setFormPurchasedBy] = useState<string>('');
   const [isCustomBuyerMode, setIsCustomBuyerMode] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const buyerProfileMap = useMemo(() => {
+    const map = new Map<string, BazarBuyer>();
+    buyers.forEach((b) => {
+      if (b.buyerId) map.set(b.buyerId.toLowerCase(), b);
+    });
+    return map;
+  }, [buyers]);
+
+  const getBuyerProfile = useCallback(
+    (bId?: string): BazarBuyer | undefined => {
+      if (!bId) return undefined;
+      return buyerProfileMap.get(bId.toLowerCase());
+    },
+    [buyerProfileMap]
+  );
+
+  const getBuyerPhoto = useCallback(
+    (bId?: string): string | undefined => {
+      const p = getBuyerProfile(bId);
+      return p?.photoUrl || p?.photoData;
+    },
+    [getBuyerProfile]
+  );
 
   // Load Data function
   const loadBazarData = useCallback(async (isSilent = false) => {
@@ -187,66 +235,55 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
     loadBazarData(false);
   }, [loadBazarData]);
 
-  // Real-time SSE listener for automatic sync
+  // Real-time SSE listener for automatic sync (shared singleton SSE + cross-tab BroadcastChannel)
   useEffect(() => {
-    const token = ApiService.getToken() || '';
-    const sseUrl = `/api/sync/events${token ? `?token=${encodeURIComponent(token)}` : ''}`;
-
-    let es: EventSource | null = null;
-    try {
-      es = new EventSource(sseUrl);
-      eventSourceRef.current = es;
-
-      es.onopen = () => {
+    const unsubscribe = ApiService.subscribeToEvents((event) => {
+      if (event === 'connected') {
         setSyncStatus('connected');
-      };
-
-      es.addEventListener('connected', () => {
+        return;
+      }
+      if (
+        event.startsWith('home_bazar_') ||
+        event === 'bazar_buyers_updated' ||
+        event === 'user_updated' ||
+        event === 'user_created' ||
+        event === 'user_deleted' ||
+        event === 'global_settings_updated' ||
+        event === 'database_restored'
+      ) {
         setSyncStatus('connected');
-      });
-
-      // Handle real-time bazar events
-      const handleSyncEvent = () => {
-        loadBazarData(true);
-      };
-
-      es.addEventListener('home_bazar_added', handleSyncEvent);
-      es.addEventListener('home_bazar_updated', handleSyncEvent);
-      es.addEventListener('home_bazar_deleted', handleSyncEvent);
-      es.addEventListener('home_bazar_budget_updated', handleSyncEvent);
-      es.addEventListener('bazar_buyers_updated', handleSyncEvent);
-      es.addEventListener('user_updated', handleSyncEvent);
-      es.addEventListener('user_created', handleSyncEvent);
-      es.addEventListener('user_deleted', handleSyncEvent);
-      es.addEventListener('database_restored', handleSyncEvent);
-
-      es.onerror = () => {
-        setSyncStatus('idle');
-      };
-    } catch (e) {
-      console.warn('SSE connection failed, relying on periodic sync:', e);
-      setSyncStatus('idle');
-    }
-
-    // Auto-sync polling heartbeat (every 8 seconds) & focus sync
-    const interval = setInterval(() => {
-      loadBazarData(true);
-    }, 8000);
-
-    const handleWindowFocus = () => {
-      loadBazarData(true);
-    };
-    window.addEventListener('focus', handleWindowFocus);
-    window.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') {
         loadBazarData(true);
       }
     });
 
+    const handleVaultRecovered = () => {
+      loadBazarData(true);
+    };
+    window.addEventListener('zara-vault-recovered', handleVaultRecovered);
+
+    // Auto-sync polling heartbeat (every 5 seconds) & focus/visibility/online sync
+    const interval = setInterval(() => {
+      loadBazarData(true);
+    }, 5000);
+
+    const handleWindowFocus = () => {
+      loadBazarData(true);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadBazarData(true);
+      }
+    };
+    window.addEventListener('focus', handleWindowFocus);
+    window.addEventListener('online', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
-      if (es) es.close();
+      unsubscribe();
       clearInterval(interval);
+      window.removeEventListener('zara-vault-recovered', handleVaultRecovered);
       window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loadBazarData]);
 
@@ -412,12 +449,16 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
     }
   };
 
-  // Save Bazar Item (Add or Update)
+  // Save Bazar Item (Add or Update — manual amount only, never auto-added to main ledger)
   const handleSaveBazarItem = async (e: React.FormEvent) => {
     e.preventDefault();
-    const numAmt = typeof formAmount === 'number' ? formAmount : parseFloat(String(formAmount));
-    if (isNaN(numAmt) || numAmt <= 0) {
-      setToastMessage({ text: 'Please enter a valid amount greater than 0', type: 'error' });
+    if (!canManageBazar) {
+      setToastMessage({ text: 'Permission denied: Ask Owner to enable Daily Bazar permission.', type: 'error' });
+      return;
+    }
+    const numAmt = formAmount === '' ? 0 : (typeof formAmount === 'number' ? formAmount : parseFloat(String(formAmount)));
+    if (isNaN(numAmt) || numAmt < 0) {
+      setToastMessage({ text: 'Please enter a valid non-negative amount', type: 'error' });
       return;
     }
 
@@ -462,8 +503,9 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
         });
       }
       setShowAddModal(false);
-      // Reload in background to refresh buyer summaries
+      // Reload & persist to Vault + Cloud Firestore immediately
       loadBazarData(true);
+      ApiService.syncVaultNow().catch(() => {});
     } catch (err: any) {
       setToastMessage({ text: err.message || 'Error saving item', type: 'error' });
     } finally {
@@ -481,6 +523,7 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
       setToastMessage({ text: isBn ? 'বাজার রেকর্ড মুছে ফেলা হয়েছে' : 'Bazar item deleted', type: 'success' });
       setEntryToDelete(null);
       loadBazarData(true);
+      ApiService.syncVaultNow().catch(() => {});
     } catch (err: any) {
       setToastMessage({ text: err.message || 'Error deleting item', type: 'error' });
     } finally {
@@ -500,37 +543,127 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
       setShowBudgetModal(false);
       setToastMessage({ text: isBn ? 'মাসিক বাজার বাজেট সংরক্ষিত হয়েছে' : 'Monthly bazar budget updated', type: 'success' });
       loadBazarData(true);
+      ApiService.syncVaultNow().catch(() => {});
     } catch (err: any) {
       setToastMessage({ text: err.message || 'Error updating budget', type: 'error' });
     }
   };
 
-  // Add new buyer ID in modal
-  const handleAddNewBuyer = async (e: React.FormEvent) => {
+  const resetBuyerForm = () => {
+    setEditingBuyerTargetId(null);
+    setNewBuyerIdInput('');
+    setNewBuyerNameInput('');
+    setNewBuyerPhoneInput('');
+    setNewBuyerRoleInput('Buyer');
+    setNewBuyerAmountInput('');
+    setNewBuyerNotesInput('');
+    setBuyerPhotoPreview(null);
+    setBuyerPhotoBase64(null);
+    setBuyerPhotoRemoved(false);
+  };
+
+  const startEditBuyer = (b: BazarBuyer) => {
+    setEditingBuyerTargetId(b.buyerId);
+    setNewBuyerIdInput(b.buyerId);
+    setNewBuyerNameInput(b.name || '');
+    setNewBuyerPhoneInput(b.phone || '');
+    setNewBuyerRoleInput(b.role || 'Buyer');
+    setNewBuyerAmountInput(b.amount !== undefined && b.amount !== null ? String(b.amount) : '');
+    setNewBuyerNotesInput(b.notes || '');
+    setBuyerPhotoPreview(b.photoUrl || b.photoData || null);
+    setBuyerPhotoBase64(null);
+    setBuyerPhotoRemoved(false);
+  };
+
+  const handleBuyerPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/') && !file.name.match(/\.(jpe?g|png|webp|gif|heic|heif|bmp|svg)$/i)) {
+      setToastMessage({ text: isBn ? 'অনুগ্রহ করে সঠিক ছবি ফাইল দিন' : 'Please select a valid image file', type: 'error' });
+      return;
+    }
+    if (file.size > 25 * 1024 * 1024) {
+      setToastMessage({ text: 'Image must be smaller than 25MB', type: 'error' });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      setBuyerCropInitial(dataUrl);
+      setBuyerCropOpen(true);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  };
+
+  // Add or Update Buyer ID (with Photo + Full Edit; preserves amount unless explicitly edited)
+  const handleSaveBuyer = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManageBuyers) {
+      setToastMessage({ text: 'Only Owner or permitted users can modify Buyer IDs & Photos.', type: 'error' });
+      return;
+    }
     if (!newBuyerIdInput.trim() || !newBuyerNameInput.trim()) {
       setToastMessage({ text: 'Buyer ID and Name are required', type: 'error' });
       return;
     }
 
+    const parsedManualAmount =
+      newBuyerAmountInput.trim() !== '' && !isNaN(Number(newBuyerAmountInput))
+        ? Math.max(0, Number(newBuyerAmountInput))
+        : undefined;
+
     setIsAddingBuyer(true);
     try {
-      const created = await ApiService.addBazarBuyer({
-        buyerId: newBuyerIdInput.trim(),
-        name: newBuyerNameInput.trim(),
-        phone: newBuyerPhoneInput.trim(),
-        role: 'Buyer',
-      });
-      setBuyers((prev) => {
-        const filtered = prev.filter((b) => b.buyerId.toLowerCase() !== created.buyerId.toLowerCase());
-        return [created, ...filtered];
-      });
-      setNewBuyerIdInput('');
-      setNewBuyerNameInput('');
-      setNewBuyerPhoneInput('');
-      setToastMessage({ text: isBn ? `ক্রেতার আইডি '${created.buyerId}' যুক্ত হয়েছে` : `Buyer ID '${created.buyerId}' registered`, type: 'success' });
+      if (editingBuyerTargetId) {
+        const { buyer: updated, renamedFrom } = await ApiService.updateBazarBuyer(editingBuyerTargetId, {
+          newBuyerId: newBuyerIdInput.trim(),
+          name: newBuyerNameInput.trim(),
+          phone: newBuyerPhoneInput.trim(),
+          role: newBuyerRoleInput.trim() || 'Buyer',
+          amount: newBuyerAmountInput.trim() === '' ? null : parsedManualAmount,
+          notes: newBuyerNotesInput.trim(),
+          photoBase64: buyerPhotoBase64 || undefined,
+          removePhoto: buyerPhotoRemoved,
+        });
+        setBuyers((prev) => {
+          const matchKey = (renamedFrom || updated.buyerId).toLowerCase();
+          const filtered = prev.filter(
+            (b) => b.buyerId.toLowerCase() !== matchKey && b.buyerId.toLowerCase() !== updated.buyerId.toLowerCase()
+          );
+          return [updated, ...filtered];
+        });
+        resetBuyerForm();
+        loadBazarData(true);
+        setToastMessage({
+          text: isBn ? `Buyer ID '${updated.buyerId}' আপডেট হয়েছে` : `Buyer ID '${updated.buyerId}' updated`,
+          type: 'success',
+        });
+      } else {
+        const created = await ApiService.addBazarBuyer({
+          buyerId: newBuyerIdInput.trim(),
+          name: newBuyerNameInput.trim(),
+          phone: newBuyerPhoneInput.trim(),
+          role: newBuyerRoleInput.trim() || 'Buyer',
+          amount: parsedManualAmount,
+          notes: newBuyerNotesInput.trim() || undefined,
+          photoBase64: buyerPhotoBase64 || undefined,
+          removePhoto: buyerPhotoRemoved,
+        });
+        setBuyers((prev) => {
+          const filtered = prev.filter((b) => b.buyerId.toLowerCase() !== created.buyerId.toLowerCase());
+          return [created, ...filtered];
+        });
+        resetBuyerForm();
+        loadBazarData(true);
+        ApiService.syncVaultNow().catch(() => {});
+        setToastMessage({
+          text: isBn ? `ক্রেতার আইডি '${created.buyerId}' যুক্ত হয়েছে` : `Buyer ID '${created.buyerId}' saved`,
+          type: 'success',
+        });
+      }
     } catch (err: any) {
-      setToastMessage({ text: err.message || 'Error adding buyer ID', type: 'error' });
+      setToastMessage({ text: err.message || 'Error saving buyer ID', type: 'error' });
     } finally {
       setIsAddingBuyer(false);
     }
@@ -538,9 +671,17 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
 
   // Delete buyer
   const handleDeleteBuyer = async (bId: string) => {
+    if (!canManageBuyers || !canDeleteRecords) {
+      setToastMessage({ text: 'Permission denied: Owner / Delete permission required.', type: 'error' });
+      return;
+    }
     try {
       await ApiService.deleteBazarBuyer(bId);
       setBuyers((prev) => prev.filter((b) => b.buyerId.toLowerCase() !== bId.toLowerCase()));
+      if (editingBuyerTargetId?.toLowerCase() === bId.toLowerCase()) {
+        resetBuyerForm();
+      }
+      ApiService.syncVaultNow().catch(() => {});
       setToastMessage({ text: `Buyer ID '${bId}' removed`, type: 'success' });
     } catch (err: any) {
       setToastMessage({ text: err.message || 'Error deleting buyer', type: 'error' });
@@ -590,13 +731,25 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                 {/* Auto-Sync Live Indicator Badge */}
                 <div
                   className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800"
-                  title="Real-time live synchronization active"
+                  title={
+                    cloudStatus.isVerifiedOwner
+                      ? 'Live real-time sync + Firebase Firestore Cloud Vault active'
+                      : 'Live real-time sync + IndexedDB Vault active'
+                  }
                 >
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  <span>{isBn ? 'অটো-সিঙ্ক সক্রিয়' : 'Auto-Sync Live'}</span>
+                  <span>
+                    {cloudStatus.isVerifiedOwner
+                      ? isBn
+                        ? 'ক্লাউড ও লাইভ অটো-সিঙ্ক চালু'
+                        : 'Cloud & Live Auto-Sync'
+                      : isBn
+                        ? 'অটো-সিঙ্ক সক্রিয়'
+                        : 'Auto-Sync Live'}
+                  </span>
                 </div>
               </div>
 
@@ -618,24 +771,34 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
             {/* Manual Sync Trigger Button */}
             <button
               type="button"
-              onClick={() => loadBazarData(false)}
+              onClick={async () => {
+                setIsSyncing(true);
+                try {
+                  if (isOwner && cloudStatus.isVerifiedOwner) {
+                    await ApiService.syncCloudFirestoreNow().catch(() => {});
+                  }
+                  await loadBazarData(false);
+                } finally {
+                  setIsSyncing(false);
+                }
+              }}
               disabled={isSyncing}
               className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              title="Manual Sync Now"
+              title="Sync Live & Cloud Now"
             >
               <RefreshCw className={`w-3.5 h-3.5 text-slate-500 ${isSyncing ? 'animate-spin text-amber-500' : ''}`} />
               <span>{isBn ? 'সিঙ্ক করুন' : 'Sync Now'}</span>
             </button>
 
-            {/* Manage Buyer IDs Button */}
+            {/* Manage Buyer IDs & Photos Button */}
             <button
               type="button"
               onClick={() => setShowBuyersModal(true)}
               className="px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/50 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
-              title="Manage Buyer IDs & Mess Members"
+              title="Manage Buyer IDs, Photos & Accounts"
             >
               <Users className="w-3.5 h-3.5" />
-              <span>{isBn ? 'ক্রেতার আইডি' : 'Buyer IDs'}</span>
+              <span>{isBn ? 'ক্রেতার আইডি ও ছবি' : 'Buyer IDs & Photos'}</span>
             </button>
 
             {onBackToInvoices && (
@@ -658,14 +821,16 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
               <span>{isBn ? 'রশিদ প্রিন্ট' : 'Print Slip'}</span>
             </button>
 
-            <button
-              type="button"
-              onClick={openAddModal}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition cursor-pointer"
-            >
-              <Plus className="w-4 h-4" />
-              <span>{isBn ? '+ নতুন বাজার এন্ট্রি' : '+ Add Bazar Item'}</span>
-            </button>
+            {canManageBazar && (
+              <button
+                type="button"
+                onClick={openAddModal}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-md shadow-emerald-500/20 transition cursor-pointer"
+              >
+                <Plus className="w-4 h-4" />
+                <span>{isBn ? '+ নতুন বাজার এন্ট্রি' : '+ Add Bazar Item'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -709,14 +874,16 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
               <span className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 block uppercase">
                 {isBn ? 'মাসিক বাজার বাজেট' : 'Monthly Budget'}
               </span>
-              <button
-                type="button"
-                onClick={() => setShowBudgetModal(true)}
-                className="text-[10px] text-amber-600 hover:text-amber-700 font-bold cursor-pointer"
-                title="Edit Budget"
-              >
-                Edit
-              </button>
+              {canManageBazar && (
+                <button
+                  type="button"
+                  onClick={() => setShowBudgetModal(true)}
+                  className="text-[10px] text-amber-600 hover:text-amber-700 font-bold cursor-pointer"
+                  title="Edit Budget"
+                >
+                  Edit
+                </button>
+              )}
             </div>
             <div className="mt-1 flex items-baseline gap-1">
               <span className="text-2xl font-black text-slate-900 dark:text-white font-mono">
@@ -777,6 +944,10 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
               <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5">
                 {buyerSummaries.map((bs) => {
                   const isSelected = selectedBuyerId.toLowerCase() === bs.buyerId.toLowerCase();
+                  const profile = getBuyerProfile(bs.buyerId);
+                  const photoSrc = profile?.photoUrl || profile?.photoData;
+                  const fixedBuyerAmount = typeof profile?.amount === 'number' ? profile.amount : null;
+
                   return (
                     <div
                       key={bs.buyerId}
@@ -787,34 +958,64 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                           : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 border-indigo-100 dark:border-slate-700 hover:border-indigo-300'
                       }`}
                     >
-                      <div className="flex items-center justify-between">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div
+                            className={`w-8 h-8 rounded-full overflow-hidden shrink-0 flex items-center justify-center font-bold text-[11px] border ${
+                              isSelected
+                                ? 'bg-white/20 border-white/40 text-white'
+                                : 'bg-indigo-50 dark:bg-indigo-950 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300'
+                            }`}
+                          >
+                            {photoSrc ? (
+                              <img src={photoSrc} alt={bs.buyerName} className="w-full h-full object-cover" />
+                            ) : (
+                              <span>{bs.buyerName.slice(0, 2).toUpperCase()}</span>
+                            )}
+                          </div>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold truncate ${
+                              isSelected
+                                ? 'bg-white/20 text-white'
+                                : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
+                            }`}
+                          >
+                            🆔 {bs.buyerId}
+                          </span>
+                        </div>
                         <span
-                          className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold ${
-                            isSelected
-                              ? 'bg-white/20 text-white'
-                              : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800'
-                          }`}
-                        >
-                          🆔 {bs.buyerId}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`}
+                          className={`text-[10px] font-bold shrink-0 ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`}
                         >
                           {bs.itemCount} {isBn ? 'টি এন্ট্রি' : 'items'}
                         </span>
                       </div>
                       <div className="mt-1.5 font-bold truncate text-xs" title={bs.buyerName}>
-                        {bs.buyerName}
+                        {profile?.name || bs.buyerName}
                       </div>
-                      <div className="mt-1 flex items-baseline justify-between">
-                        <span className="font-mono font-black text-sm">
-                          {formatCurrency(bs.totalSpent, currency, useBanglaNumerals)}
-                        </span>
-                        <span
-                          className={`text-[10px] font-bold ${isSelected ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`}
+                      {fixedBuyerAmount !== null && (
+                        <div
+                          className={`mt-1 text-[11px] font-mono font-bold flex items-center justify-between ${
+                            isSelected ? 'text-amber-200' : 'text-amber-700 dark:text-amber-400'
+                          }`}
                         >
-                          {bs.percentage}%
+                          <span>{isBn ? 'নির্ধারিত এমাউন্ট:' : 'Buyer Amount:'}</span>
+                          <span>{formatCurrency(fixedBuyerAmount, currency, useBanglaNumerals)}</span>
+                        </div>
+                      )}
+                      <div className="mt-1 flex items-baseline justify-between gap-2">
+                        <span className={`text-[10px] font-semibold ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`}>
+                          {isBn ? 'এন্ট্রি যোগফল:' : 'Entries Sum:'}
                         </span>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="font-mono font-black text-sm">
+                            {formatCurrency(bs.totalSpent, currency, useBanglaNumerals)}
+                          </span>
+                          <span
+                            className={`text-[10px] font-bold ${isSelected ? 'text-white' : 'text-indigo-600 dark:text-indigo-400'}`}
+                          >
+                            {bs.percentage}%
+                          </span>
+                        </div>
                       </div>
                     </div>
                   );
@@ -844,20 +1045,28 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
             {isBn ? 'সকল ক্রেতা (All)' : 'All Buyers'}
           </button>
 
-          {buyerSummaries.map((b) => (
-            <button
-              key={b.buyerId}
-              onClick={() => setSelectedBuyerId(b.buyerId)}
-              className={`px-2.5 py-1 rounded-xl transition cursor-pointer whitespace-nowrap font-bold flex items-center gap-1 ${
-                selectedBuyerId.toLowerCase() === b.buyerId.toLowerCase()
-                  ? 'bg-indigo-600 text-white shadow-xs'
-                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900'
-              }`}
-            >
-              <span className="font-mono text-[10px]">🆔 {b.buyerId}</span>
-              <span className="opacity-80 truncate max-w-[100px]">({b.buyerName.split(' ')[0]})</span>
-            </button>
-          ))}
+          {buyerSummaries.map((b) => {
+            const pPhoto = getBuyerPhoto(b.buyerId);
+            return (
+              <button
+                key={b.buyerId}
+                onClick={() => setSelectedBuyerId(b.buyerId)}
+                className={`px-2.5 py-1 rounded-xl transition cursor-pointer whitespace-nowrap font-bold flex items-center gap-1.5 ${
+                  selectedBuyerId.toLowerCase() === b.buyerId.toLowerCase()
+                    ? 'bg-indigo-600 text-white shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:text-slate-900'
+                }`}
+              >
+                {pPhoto ? (
+                  <img src={pPhoto} alt={b.buyerName} className="w-4 h-4 rounded-full object-cover shrink-0" />
+                ) : (
+                  <span className="text-[10px]">🆔</span>
+                )}
+                <span className="font-mono text-[10px]">{b.buyerId}</span>
+                <span className="opacity-80 truncate max-w-[100px]">({b.buyerName.split(' ')[0]})</span>
+              </button>
+            );
+          })}
         </div>
 
         {/* ============================================================== */}
@@ -940,26 +1149,28 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 max-w-md mx-auto">
               {isBn
-                ? 'আপনার মাছ, মাংস, শাকসবজি ও মুদি মালামাল হিসাব এন্ট্রি করুন। যে ব্যক্তি বাজার করবে তার আইডি (Buyer ID) লিখে দিলে কার কত খরচ হয়েছে তা স্বয়ংক্রিয়ভাবে হিসাব থাকবে।'
-                : 'Track daily grocery expenses and associate each purchase with a Buyer ID. As you enter items, remaining balances and buyer spending calculate automatically in real time.'}
+                ? 'আপনার মাছ, মাংস, শাকসবজি ও মুদি মালামাল হিসাব ম্যানুয়াল এমাউন্ট দিয়ে এন্ট্রি করুন। এটি মূল লেজার বা Buyer ID এমাউন্টে স্বয়ংক্রিয়ভাবে যোগ বা পরিবর্তন করবে না।'
+                : 'Track daily grocery purchases manually with Buyer IDs. Entries stay inside Daily Bazar and never automatically change Buyer ID amounts or main Dashboard expenses.'}
             </p>
-            <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
-              <button
-                type="button"
-                onClick={openAddModal}
-                className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{isBn ? '+ নতুন বাজার এন্ট্রি করুন' : '+ Add First Bazar Item'}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowBudgetModal(true)}
-                className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
-              >
-                <span>{isBn ? 'মাসিক বাজেট সেট করুন' : 'Set Monthly Budget'}</span>
-              </button>
-            </div>
+            {canManageBazar && (
+              <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+                <button
+                  type="button"
+                  onClick={openAddModal}
+                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-600 hover:to-teal-600 text-white text-xs font-bold flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isBn ? '+ নতুন বাজার এন্ট্রি করুন' : '+ Add First Bazar Item'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowBudgetModal(true)}
+                  className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition cursor-pointer"
+                >
+                  <span>{isBn ? 'মাসিক বাজেট সেট করুন' : 'Set Monthly Budget'}</span>
+                </button>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mt-6 space-y-5">
@@ -1012,16 +1223,30 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                                 <span>{isBn ? cat.labelBn : cat.labelEn}</span>
                               </span>
                             </td>
-                            {/* Buyer ID Column */}
+                            {/* Buyer ID Column with Photo */}
                             <td className="py-2.5 px-3">
-                              <div className="flex flex-col">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 w-fit">
-                                  <span>🆔</span>
-                                  <span>{buyerIdDisplay}</span>
-                                </span>
-                                <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium truncate max-w-[150px] mt-0.5">
-                                  {buyerNameDisplay}
-                                </span>
+                              <div className="flex items-center gap-2">
+                                {(() => {
+                                  const bPhoto = getBuyerPhoto(item.buyerId);
+                                  return (
+                                    <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center text-[10px] font-bold text-indigo-700 dark:text-indigo-300">
+                                      {bPhoto ? (
+                                        <img src={bPhoto} alt={buyerNameDisplay} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <span>{buyerNameDisplay.slice(0, 2).toUpperCase()}</span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                                <div className="flex flex-col min-w-0">
+                                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 w-fit">
+                                    <span>🆔</span>
+                                    <span>{buyerIdDisplay}</span>
+                                  </span>
+                                  <span className="text-[11px] text-slate-600 dark:text-slate-400 font-medium truncate max-w-[140px] mt-0.5">
+                                    {buyerNameDisplay}
+                                  </span>
+                                </div>
                               </div>
                             </td>
                             <td className="py-2.5 px-3 text-right font-mono text-slate-600 dark:text-slate-400">
@@ -1043,22 +1268,26 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                             </td>
                             <td className="py-2.5 px-3 text-right">
                               <div className="flex items-center justify-end gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() => openEditModal(item)}
-                                  className="p-1 text-slate-400 hover:text-amber-600 cursor-pointer"
-                                  title="Edit"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEntryToDelete(item)}
-                                  className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                                  title="Delete"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                {canManageBazar && (
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditModal(item)}
+                                    className="p-1 text-slate-400 hover:text-amber-600 cursor-pointer"
+                                    title="Edit"
+                                  >
+                                    <Edit2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                                {canDeleteRecords && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEntryToDelete(item)}
+                                    className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -1246,21 +1475,21 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
-                    {isBn ? `দাম / খরচ (${getCurrencySymbol(currency)}) *` : `Amount (${getCurrencySymbol(currency)}) *`}
-                  </label>
-                  <input
-                    type="number"
-                    required
-                    min="1"
-                    step="any"
-                    value={formAmount}
-                    onChange={(e) => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}
-                    placeholder="e.g. 150"
-                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono font-bold text-xs outline-none focus:border-amber-500"
-                  />
+                    <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                      {isBn ? `দাম / খরচ (${getCurrencySymbol(currency)}) — ম্যানুয়াল *` : `Amount (${getCurrencySymbol(currency)}) — Manual *`}
+                    </label>
+                    <input
+                      type="number"
+                      required
+                      min="0"
+                      step="any"
+                      value={formAmount}
+                      onChange={(e) => setFormAmount(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="0"
+                      className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl font-mono font-bold text-xs outline-none focus:border-amber-500"
+                    />
+                  </div>
                 </div>
-              </div>
 
               {/* Payment Method & Date */}
               <div className="grid grid-cols-2 gap-3">
@@ -1329,82 +1558,254 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
       )}
 
       {/* ============================================================== */}
-      {/* MODAL: MANAGE BUYER IDS & MESS MEMBERS                         */}
+      {/* MODAL: MANAGE BUYER IDS, PHOTOS & FULL EDIT                    */}
       {/* ============================================================== */}
       {showBuyersModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-xs my-auto">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-2xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-xs my-auto max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
               <div className="flex items-center gap-2">
-                <div className="w-8 h-8 rounded-xl bg-indigo-500/15 text-indigo-600 flex items-center justify-center text-base">
+                <div className="w-9 h-9 rounded-xl bg-indigo-500/15 text-indigo-600 flex items-center justify-center text-base">
                   <Users className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold text-slate-900 dark:text-white">
-                    {isBn ? 'ক্রেতার আইডি ও সদস্য ব্যবস্থাপনা' : 'Manage Buyer IDs & Accounts'}
-                  </h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                      {isBn ? 'ক্রেতার আইডি, ছবি ও সম্পূর্ণ ব্যবস্থাপনা' : 'Manage Buyer IDs, Photos & Accounts'}
+                    </h3>
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                      {canManageBuyers ? <ShieldCheck className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                      <span>{canManageBuyers ? (isOwner ? 'Owner Full Control' : 'Permitted') : 'View Only'}</span>
+                    </span>
+                  </div>
                   <p className="text-[10px] text-slate-500">
                     {isBn
-                      ? 'নতুন ক্রেতার আইডি যুক্ত করুন যাতে বাজার করার সময় তার আইডি সিলেক্ট করা যায়'
-                      : 'Add buyer IDs (e.g. BYR-01, roommates, employees) to log and split grocery expenses'}
+                      ? 'Buyer ID-তে ছবি যোগ করুন এবং ওনার বা অনুমতিপ্রাপ্ত ইউজার সবকিছু পরিবর্তন করতে পারবেন। বাজার এন্ট্রি Buyer ID এমাউন্ট অটো পরিবর্তন করবে না।'
+                      : 'Add Buyer ID photos and edit everything. Bazar entries never automatically change Buyer ID amounts.'}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowBuyersModal(false)}
+                onClick={() => {
+                  setShowBuyersModal(false);
+                  resetBuyerForm();
+                }}
                 className="p-1 text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            {/* Add New Buyer ID Form */}
-            <form onSubmit={handleAddNewBuyer} className="mt-4 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-2">
-              <span className="font-bold text-slate-800 dark:text-slate-200 block text-[11px]">
-                {isBn ? '+ নতুন ক্রেতার আইডি যোগ করুন' : '+ Register New Buyer ID'}
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <div>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Buyer ID (e.g. BYR-02)"
-                    value={newBuyerIdInput}
-                    onChange={(e) => setNewBuyerIdInput(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono font-bold text-xs outline-none"
-                  />
+            {/* Add / Edit Buyer ID Form */}
+            {canManageBuyers ? (
+              <form
+                onSubmit={handleSaveBuyer}
+                className="mt-4 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">
+                    {editingBuyerTargetId
+                      ? isBn
+                        ? `✎ Buyer ID সম্পাদনা: ${editingBuyerTargetId} (সবকিছু পরিবর্তনযোগ্য)`
+                        : `✎ Editing Buyer ID: ${editingBuyerTargetId} (Change Anything)`
+                      : isBn
+                      ? '+ নতুন ক্রেতার আইডি ও ছবি যোগ করুন'
+                      : '+ Register New Buyer ID & Photo'}
+                  </span>
+                  {editingBuyerTargetId && (
+                    <button
+                      type="button"
+                      onClick={resetBuyerForm}
+                      className="text-[10px] font-bold text-slate-500 hover:text-slate-800 dark:hover:text-white underline cursor-pointer"
+                    >
+                      {isBn ? 'নতুন যোগ করুন' : 'Cancel Edit'}
+                    </button>
+                  )}
                 </div>
-                <div>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Buyer Name"
-                    value={newBuyerNameInput}
-                    onChange={(e) => setNewBuyerNameInput(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs outline-none"
-                  />
+
+                {/* Buyer Photo Picker Row */}
+                <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center gap-3 flex-wrap">
+                  <div className="w-14 h-14 rounded-full bg-indigo-100 dark:bg-indigo-950 border-2 border-indigo-400/60 overflow-hidden flex items-center justify-center shrink-0">
+                    {buyerPhotoPreview ? (
+                      <img src={buyerPhotoPreview} alt="Buyer Preview" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-sm font-black text-indigo-700 dark:text-indigo-300">
+                        {(newBuyerNameInput || newBuyerIdInput || 'BY').slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-[180px] space-y-1.5">
+                    <div className="font-bold text-slate-800 dark:text-slate-200 text-[11px]">
+                      {isBn ? 'Buyer ID ছবি (Photo)' : 'Buyer ID Photo'}
+                    </div>
+                    <input
+                      ref={buyerPhotoFileRef}
+                      type="file"
+                      accept="image/*,.heic,.heif"
+                      onChange={handleBuyerPhotoSelect}
+                      className="hidden"
+                    />
+                    <input
+                      ref={buyerPhotoCameraRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleBuyerPhotoSelect}
+                      className="hidden"
+                    />
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => buyerPhotoFileRef.current?.click()}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-[11px] cursor-pointer"
+                      >
+                        <Upload className="w-3 h-3" />
+                        <span>{buyerPhotoPreview ? (isBn ? 'ছবি পরিবর্তন' : 'Change Photo') : (isBn ? 'ছবি যোগ করুন' : 'Add Photo')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => buyerPhotoCameraRef.current?.click()}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 font-semibold text-[11px] cursor-pointer"
+                      >
+                        <Camera className="w-3 h-3 text-blue-500" />
+                        <span>{isBn ? 'ক্যামেরা' : 'Camera'}</span>
+                      </button>
+                      {buyerPhotoPreview && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBuyerCropInitial(buyerPhotoPreview);
+                              setBuyerCropOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 dark:bg-amber-950/50 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 font-semibold text-[11px] cursor-pointer"
+                          >
+                            <span>{isBn ? 'ক্রপ' : 'Crop'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setBuyerPhotoPreview(null);
+                              setBuyerPhotoBase64(null);
+                              setBuyerPhotoRemoved(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-rose-200 dark:border-rose-900 text-rose-600 dark:text-rose-400 font-semibold text-[11px] cursor-pointer"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>{isBn ? 'মুছুন' : 'Remove'}</span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <input
-                    type="text"
-                    placeholder="Mobile (Optional)"
-                    value={newBuyerPhoneInput}
-                    onChange={(e) => setNewBuyerPhoneInput(e.target.value)}
-                    className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs outline-none"
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Buyer ID *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. BYR-02"
+                      value={newBuyerIdInput}
+                      onChange={(e) => setNewBuyerIdInput(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono font-bold text-xs outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Buyer Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Full Name"
+                      value={newBuyerNameInput}
+                      onChange={(e) => setNewBuyerNameInput(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Mobile (Optional)</label>
+                    <input
+                      type="text"
+                      placeholder="Mobile"
+                      value={newBuyerPhoneInput}
+                      onChange={(e) => setNewBuyerPhoneInput(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs outline-none"
+                    />
+                  </div>
                 </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Role / Title</label>
+                    <input
+                      type="text"
+                      placeholder="Buyer / Staff / Member"
+                      value={newBuyerRoleInput}
+                      onChange={(e) => setNewBuyerRoleInput(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">
+                      {isBn ? `Buyer Amount (${getCurrencySymbol(currency)}) — স্থির` : `Buyer Amount (${getCurrencySymbol(currency)}) — Fixed`}
+                    </label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="any"
+                      placeholder="Leave blank to keep unchanged"
+                      value={newBuyerAmountInput}
+                      onChange={(e) => setNewBuyerAmountInput(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl font-mono font-bold text-xs outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 mb-0.5">Notes</label>
+                    <input
+                      type="text"
+                      placeholder="Optional note"
+                      value={newBuyerNotesInput}
+                      onChange={(e) => setNewBuyerNotesInput(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-xs outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-2 pt-1">
+                  <span className="text-[10px] text-slate-500">
+                    {isBn
+                      ? 'নোট: বাজার আইটেম যোগ করলে Buyer Amount অটো পরিবর্তন হবে না।'
+                      : 'Note: Adding bazar items never changes a Buyer ID amount automatically.'}
+                  </span>
+                  <button
+                    type="submit"
+                    disabled={isAddingBuyer}
+                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-sm transition shrink-0"
+                  >
+                    {isAddingBuyer
+                      ? 'Saving...'
+                      : editingBuyerTargetId
+                      ? isBn
+                        ? '✓ পরিবর্তন সেভ করুন'
+                        : '✓ Save Buyer Changes'
+                      : isBn
+                      ? '+ আইডি সংরক্ষণ করুন'
+                      : '+ Add Buyer ID'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="mt-4 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 flex items-center gap-2 text-xs font-semibold">
+                <Lock className="w-4 h-4 shrink-0" />
+                <span>
+                  {isBn
+                    ? 'শুধুমাত্র ওনার (Owner) বা অনুমোদিত ইউজার Buyer ID, ছবি ও তথ্য পরিবর্তন করতে পারবেন।'
+                    : 'Only the Owner (or users granted Buyer ID & Photo permission by the Owner) can add or edit Buyer IDs and photos.'}
+                </span>
               </div>
-              <div className="text-right">
-                <button
-                  type="submit"
-                  disabled={isAddingBuyer}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-sm transition"
-                >
-                  {isAddingBuyer ? 'Adding...' : isBn ? '+ আইডি সংরক্ষণ করুন' : '+ Add Buyer ID'}
-                </button>
-              </div>
-            </form>
+            )}
 
             {/* Registered Buyers List */}
             <div className="mt-4 space-y-2">
@@ -1412,46 +1813,86 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                 {isBn ? 'নিবন্ধিত ক্রেতা আইডি তালিকা' : 'Registered Buyer Accounts'} ({buyers.length})
               </span>
 
-              <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
-                {buyers.map((b) => (
-                  <div
-                    key={b.buyerId}
-                    className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60 flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
-                        🆔 {b.buyerId}
-                      </span>
-                      <div>
-                        <div className="font-bold text-slate-900 dark:text-white text-xs">{b.name}</div>
-                        {b.phone && <div className="text-[10px] text-slate-400 font-mono">{b.phone}</div>}
+              <div className="max-h-64 overflow-y-auto space-y-1.5 pr-1">
+                {buyers.map((b) => {
+                  const photoSrc = b.photoUrl || b.photoData;
+                  const isBeingEdited = editingBuyerTargetId?.toLowerCase() === b.buyerId.toLowerCase();
+                  return (
+                    <div
+                      key={b.buyerId}
+                      className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 ${
+                        isBeingEdited
+                          ? 'border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/30'
+                          : 'border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-800/60'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-10 h-10 rounded-full overflow-hidden shrink-0 bg-indigo-50 dark:bg-indigo-950 border border-indigo-200 dark:border-indigo-800 flex items-center justify-center font-bold text-xs text-indigo-700 dark:text-indigo-300">
+                          {photoSrc ? (
+                            <img src={photoSrc} alt={b.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{(b.name || b.buyerId).slice(0, 2).toUpperCase()}</span>
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                              🆔 {b.buyerId}
+                            </span>
+                            <span className="font-bold text-slate-900 dark:text-white text-xs truncate">{b.name}</span>
+                            {typeof b.amount === 'number' && (
+                              <span className="px-1.5 py-0.5 rounded-md text-[10px] font-mono font-bold bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
+                                {formatCurrency(b.amount, currency, useBanglaNumerals)}
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 mt-0.5 flex-wrap">
+                            {b.phone && <span className="font-mono">{b.phone}</span>}
+                            {b.notes && <span className="truncate max-w-[200px]">• {b.notes}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {b.role && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500 dark:text-slate-300">
+                            {b.role}
+                          </span>
+                        )}
+                        {canManageBuyers && (
+                          <button
+                            type="button"
+                            onClick={() => startEditBuyer(b)}
+                            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer"
+                            title={isBn ? 'সব তথ্য ও ছবি পরিবর্তন করুন' : 'Edit Buyer ID, Photo & Everything'}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canManageBuyers && canDeleteRecords && (
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteBuyer(b.buyerId)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                            title="Remove Buyer"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-2">
-                      {b.role && (
-                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-500">
-                          {b.role}
-                        </span>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteBuyer(b.buyerId)}
-                        className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
-                        title="Remove Buyer"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
             <div className="mt-5 text-right">
               <button
                 type="button"
-                onClick={() => setShowBuyersModal(false)}
+                onClick={() => {
+                  setShowBuyersModal(false);
+                  resetBuyerForm();
+                }}
                 className="px-4 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl cursor-pointer"
               >
                 Close
@@ -1460,6 +1901,22 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Buyer Photo Crop Modal */}
+      <ImageCropModal
+        isOpen={buyerCropOpen}
+        onClose={() => setBuyerCropOpen(false)}
+        initialImage={buyerCropInitial}
+        cropShape="round"
+        aspectRatioPreset="1:1"
+        title={isBn ? 'Buyer ID ছবি ক্রপ ও সেট করুন' : 'Crop & Adjust Buyer Photo'}
+        onImageCropped={(croppedDataUrl) => {
+          setBuyerPhotoPreview(croppedDataUrl);
+          setBuyerPhotoBase64(croppedDataUrl);
+          setBuyerPhotoRemoved(false);
+          setBuyerCropOpen(false);
+        }}
+      />
 
       {/* ============================================================== */}
       {/* MODAL 2: EDIT MONTHLY BUDGET MODAL                             */}

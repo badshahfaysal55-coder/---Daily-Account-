@@ -1,11 +1,212 @@
-import { Transaction, UserAccount, GlobalAppSettings, Customer, Invoice, InvoicePayment, CustomerStatement, CommissionEntry, CommissionPersonAccount, CommissionStatementSummary, HomeBazarEntry, HomeBazarSummary, BazarBuyer } from '../types/accounting';
+import { Transaction, UserAccount, GlobalAppSettings, Customer, Invoice, InvoicePayment, CustomerStatement, CommissionEntry, CommissionPersonAccount, CommissionStatementSummary, HomeBazarEntry, HomeBazarSummary, BazarBuyer, AppVersionInfo } from '../types/accounting';
 import { VaultStorage, PersistentVaultSnapshot } from './vaultStorage';
 import { googleDriveService } from './googleDriveService';
+import { firestoreSyncService } from './firestoreSyncService';
 
 const TOKEN_KEY = 'zara_auth_token_v1';
 const CACHED_USER_KEY = 'zara_cached_user_v1';
+const CROSS_TAB_STORAGE_KEY = 'zara_cross_tab_sync_v1';
 let vaultSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let isSyncingVaultNow = false;
+
+type SyncEventListener = (event: string, data: any) => void;
+const SSE_EVENT_NAMES = [
+  'connected',
+  'app_update_available',
+  // Transactions
+  'transaction_created',
+  'transaction_updated',
+  'transaction_deleted',
+  // Customers
+  'customer_created',
+  'customer_updated',
+  'customer_deleted',
+  // Invoices
+  'invoice_created',
+  'invoice_updated',
+  'invoice_deleted',
+  'invoice_payment_recorded',
+  // Commissions
+  'commission_added',
+  'commission_updated',
+  'commission_deleted',
+  'commissions_batch_updated',
+  'commissions_payout_processed',
+  'commission_person_updated',
+  'commission_month_updated',
+  // Daily Home Bazar
+  'home_bazar_added',
+  'home_bazar_updated',
+  'home_bazar_deleted',
+  'home_bazar_budget_updated',
+  'bazar_buyers_updated',
+  // Users & Settings
+  'user_created',
+  'user_updated',
+  'user_deleted',
+  'global_settings_updated',
+  'database_restored',
+];
+
+const sseListeners = new Set<SyncEventListener>();
+let sharedEventSource: EventSource | null = null;
+let sharedEventToken: string | null = null;
+let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let broadcastChannel: BroadcastChannel | null = null;
+let crossTabBound = false;
+
+function dispatchToListeners(eventName: string, data: any) {
+  sseListeners.forEach((cb) => {
+    try {
+      cb(eventName, data);
+    } catch {
+      // keep dispatching to remaining listeners
+    }
+  });
+}
+
+function broadcastCrossTab(eventName: string, data: any) {
+  if (typeof window === 'undefined') return;
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      if (!broadcastChannel) {
+        broadcastChannel = new BroadcastChannel('zara_realtime_sync');
+      }
+      broadcastChannel.postMessage({ event: eventName, data, at: Date.now() });
+      return;
+    }
+  } catch {
+    // fallback to storage event
+  }
+  try {
+    localStorage.setItem(CROSS_TAB_STORAGE_KEY, JSON.stringify({ event: eventName, data, at: Date.now() }));
+  } catch {}
+}
+
+function ensureCrossTabListeners() {
+  if (typeof window === 'undefined' || crossTabBound) return;
+  crossTabBound = true;
+
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      if (!broadcastChannel) {
+        broadcastChannel = new BroadcastChannel('zara_realtime_sync');
+      }
+      broadcastChannel.addEventListener('message', (msg) => {
+        const payload = msg?.data;
+        if (payload?.event) {
+          dispatchToListeners(payload.event, payload.data ?? {});
+        }
+      });
+    }
+  } catch {}
+
+  window.addEventListener('storage', (e) => {
+    if (e.key === CROSS_TAB_STORAGE_KEY && e.newValue) {
+      try {
+        const payload = JSON.parse(e.newValue);
+        if (payload?.event) {
+          dispatchToListeners(payload.event, payload.data ?? {});
+        }
+      } catch {}
+    }
+  });
+
+  window.addEventListener('online', () => {
+    if (sseListeners.size > 0) {
+      ensureSharedEventSource(true);
+    }
+  });
+}
+
+function teardownSharedEventSource() {
+  if (sseReconnectTimer) {
+    clearTimeout(sseReconnectTimer);
+    sseReconnectTimer = null;
+  }
+  if (sharedEventSource) {
+    sharedEventSource.close();
+    sharedEventSource = null;
+  }
+  sharedEventToken = null;
+}
+
+function ensureSharedEventSource(forceRestart = false) {
+  if (typeof window === 'undefined' || typeof EventSource === 'undefined') return;
+  ensureCrossTabListeners();
+
+  const currentToken = localStorage.getItem(TOKEN_KEY) || '';
+  if (!forceRestart && sharedEventSource && sharedEventToken === currentToken && sharedEventSource.readyState !== EventSource.CLOSED) {
+    return;
+  }
+
+  teardownSharedEventSource();
+  sharedEventToken = currentToken;
+
+  const sseUrl = `/api/sync/events${currentToken ? `?token=${encodeURIComponent(currentToken)}` : ''}`;
+  const es = new EventSource(sseUrl);
+  sharedEventSource = es;
+
+  SSE_EVENT_NAMES.forEach((name) => {
+    es.addEventListener(name, (event: Event) => {
+      const msgEvent = event as MessageEvent;
+      let parsed: any = {};
+      try {
+        parsed = msgEvent.data ? JSON.parse(msgEvent.data) : {};
+      } catch {
+        parsed = {};
+      }
+      dispatchToListeners(name, parsed);
+    });
+  });
+
+  es.onerror = () => {
+    if (sharedEventSource !== es) return;
+    if (es.readyState === EventSource.CLOSED || navigator.onLine) {
+      teardownSharedEventSource();
+      if (sseListeners.size > 0 && !sseReconnectTimer) {
+        sseReconnectTimer = setTimeout(() => {
+          sseReconnectTimer = null;
+          if (sseListeners.size > 0) {
+            ensureSharedEventSource(true);
+          }
+        }, 2500);
+      }
+    }
+  };
+}
+
+let isPageUnloading = false;
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    isPageUnloading = true;
+  });
+  window.addEventListener('pagehide', () => {
+    isPageUnloading = true;
+  });
+  window.addEventListener('pageshow', () => {
+    isPageUnloading = false;
+  });
+}
+
+export function isTransientFetchError(err: any): boolean {
+  const msg = String(err?.message || err || '').toLowerCase();
+  return (
+    msg.includes('load failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('networkerror') ||
+    msg.includes('network request failed') ||
+    msg.includes('the internet connection appears to be offline') ||
+    msg.includes('aborted') ||
+    err?.name === 'AbortError'
+  );
+}
+
+export function isAppUnloading(): boolean {
+  return isPageUnloading || Boolean(typeof window !== 'undefined' && (window as any).__zaraPageUnloading);
+}
+
+const delayMs = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 export const ApiService = {
   getToken(): string | null {
@@ -13,12 +214,19 @@ export const ApiService = {
   },
 
   setToken(token: string) {
+    const prev = localStorage.getItem(TOKEN_KEY);
     localStorage.setItem(TOKEN_KEY, token);
+    if (prev !== token && sseListeners.size > 0) {
+      ensureSharedEventSource(true);
+    }
   },
 
   clearToken() {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(CACHED_USER_KEY);
+    if (sseListeners.size > 0) {
+      ensureSharedEventSource(true);
+    }
   },
 
   getCachedUser(): UserAccount | null {
@@ -37,18 +245,32 @@ export const ApiService = {
 
   async ensureSession(): Promise<{ user: UserAccount; token: string }> {
     const existingToken = this.getToken();
-    const res = await fetch('/api/auth/session', {
-      headers: existingToken ? { Authorization: `Bearer ${existingToken}` } : {},
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.token) {
-        this.setToken(data.token);
-        if (data.user) this.setCachedUser(data.user);
-        return data;
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await fetch('/api/auth/session', {
+          cache: 'no-store',
+          headers: existingToken ? { Authorization: `Bearer ${existingToken}` } : {},
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.token) {
+            this.setToken(data.token);
+            if (data.user) this.setCachedUser(data.user);
+            return data;
+          }
+        }
+        break;
+      } catch (err) {
+        lastErr = err;
+        if (attempt === 0 && isTransientFetchError(err) && !isAppUnloading()) {
+          await delayMs(300);
+          continue;
+        }
+        break;
       }
     }
-    throw new Error('Unable to initialize session');
+    throw lastErr || new Error('Unable to initialize session');
   },
 
   async request<T>(endpoint: string, options: RequestInit = {}, isRetry = false): Promise<T> {
@@ -71,10 +293,33 @@ export const ApiService = {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await fetch(endpoint, {
-      ...options,
-      headers,
-    });
+    const method = (options.method || 'GET').toUpperCase();
+    const maxAttempts = method === 'GET' && !isRetry ? 3 : 1;
+    let response: Response | null = null;
+    let lastFetchErr: any = null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        response = await fetch(endpoint, {
+          cache: 'no-store',
+          ...options,
+          headers,
+        });
+        lastFetchErr = null;
+        break;
+      } catch (err) {
+        lastFetchErr = err;
+        if (attempt < maxAttempts - 1 && isTransientFetchError(err) && !isAppUnloading()) {
+          await delayMs(attempt === 0 ? 350 : 750);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!response) {
+      throw lastFetchErr || new Error('Network request failed');
+    }
 
     // Auto-save refreshed or auto-issued token from server response header
     const returnedToken = response.headers.get('x-auth-token');
@@ -117,7 +362,6 @@ export const ApiService = {
     }
 
     const data = await response.json();
-    const method = (options.method || 'GET').toUpperCase();
     if (
       method !== 'GET' &&
       !endpoint.startsWith('/api/auth/') &&
@@ -125,6 +369,7 @@ export const ApiService = {
       endpoint !== '/api/sync/recover-if-empty'
     ) {
       this.scheduleVaultSync();
+      broadcastCrossTab('database_restored', { endpoint, timestamp: Date.now() });
     }
     return data as T;
   },
@@ -140,27 +385,128 @@ export const ApiService = {
     if (isSyncingVaultNow) return;
     isSyncingVaultNow = true;
     try {
+      const existingVault = await VaultStorage.loadVault().catch(() => null);
+      const mergeCollectionSafe = (
+        existingArr: any[] | undefined,
+        serverArr: any[] | undefined,
+        deletedMap: Record<string, number>
+      ): { merged: any[]; vaultHadMissingOnServer: boolean } => {
+        const byId = new Map<string, any>();
+        const serverIds = new Set<string>();
+        let vaultHadMissingOnServer = false;
+
+        (serverArr || []).forEach((item) => {
+          if (item?.id) {
+            serverIds.add(item.id);
+            byId.set(item.id, item);
+          }
+        });
+
+        (existingArr || []).forEach((oldItem) => {
+          if (!oldItem?.id) return;
+          const delTs = deletedMap[oldItem.id] || 0;
+          const oldTs = Number(oldItem.updatedAt) || Number(oldItem.createdAt) || Number(oldItem.timestamp) || 0;
+          if (delTs && oldTs <= delTs) return; // Explicitly deleted
+
+          const srvItem = byId.get(oldItem.id);
+          if (!srvItem) {
+            byId.set(oldItem.id, oldItem);
+            vaultHadMissingOnServer = true;
+          } else {
+            const srvTs = Number(srvItem.updatedAt) || Number(srvItem.createdAt) || Number(srvItem.timestamp) || 0;
+            if (oldTs > srvTs) {
+              byId.set(oldItem.id, { ...srvItem, ...oldItem, photoData: oldItem.photoData || srvItem.photoData });
+              vaultHadMissingOnServer = true;
+            }
+          }
+        });
+
+        return { merged: Array.from(byId.values()), vaultHadMissingOnServer };
+      };
+
       const cached = this.getCachedUser();
       if (cached?.role === 'owner') {
         const bk = await this.downloadBackup();
         if (bk?.database) {
-          const userPhotos: Record<string, string> = {};
-          (bk.database.users || []).forEach((u: any) => {
+          const mergedDeleted: Record<string, number> = {
+            ...(existingVault?.deletedRecordIds || {}),
+            ...(bk.database.deletedRecordIds || {}),
+          };
+
+          const mergedUsersRes = mergeCollectionSafe(existingVault?.users, bk.database.users, mergedDeleted);
+          const mergedTxRes = mergeCollectionSafe(existingVault?.transactions, bk.database.transactions, mergedDeleted);
+          const mergedCustRes = mergeCollectionSafe(existingVault?.customers, bk.database.customers, mergedDeleted);
+          const mergedInvRes = mergeCollectionSafe(existingVault?.invoices, bk.database.invoices, mergedDeleted);
+          const mergedCommRes = mergeCollectionSafe(existingVault?.commissionEntries, bk.database.commissionEntries, mergedDeleted);
+          const mergedPersonsRes = mergeCollectionSafe(existingVault?.commissionPersons, bk.database.commissionPersons, mergedDeleted);
+          const mergedBazarRes = mergeCollectionSafe(existingVault?.homeBazarEntries, bk.database.homeBazarEntries, mergedDeleted);
+
+          const monthSet = new Set<string>([
+            ...(existingVault?.commissionMonths || []),
+            ...(bk.database.commissionMonths || []),
+          ]);
+
+          const userPhotos: Record<string, string> = { ...(existingVault?.userPhotos || {}) };
+          mergedUsersRes.merged.forEach((u: any) => {
             if (u?.id && u?.photoData) userPhotos[u.id] = u.photoData;
           });
+
+          const extSettingsTs = Number(existingVault?.globalSettings?.updatedAt) || 0;
+          const srvSettingsTs = Number(bk.database.globalSettings?.updatedAt) || 0;
+          const mergedSettings =
+            extSettingsTs > srvSettingsTs
+              ? { ...bk.database.globalSettings, ...existingVault?.globalSettings }
+              : bk.database.globalSettings;
+
           const snap: PersistentVaultSnapshot = {
             savedAt: Date.now(),
-            transactions: bk.database.transactions || [],
-            customers: bk.database.customers || [],
-            invoices: bk.database.invoices || [],
-            commissionEntries: bk.database.commissionEntries || [],
-            commissionPersons: bk.database.commissionPersons || [],
-            commissionMonths: bk.database.commissionMonths || [],
-            homeBazarEntries: bk.database.homeBazarEntries || [],
-            deletedRecordIds: bk.database.deletedRecordIds || {},
+            users: mergedUsersRes.merged,
+            globalSettings: mergedSettings,
+            transactions: mergedTxRes.merged,
+            customers: mergedCustRes.merged,
+            invoices: mergedInvRes.merged,
+            commissionEntries: mergedCommRes.merged,
+            commissionPersons: mergedPersonsRes.merged,
+            commissionMonths: Array.from(monthSet).sort(),
+            homeBazarEntries: mergedBazarRes.merged,
+            deletedRecordIds: mergedDeleted,
             userPhotos,
           };
           await VaultStorage.saveVault(snap);
+
+          const needsRecoveryPush =
+            mergedUsersRes.vaultHadMissingOnServer ||
+            mergedTxRes.vaultHadMissingOnServer ||
+            mergedCustRes.vaultHadMissingOnServer ||
+            mergedInvRes.vaultHadMissingOnServer ||
+            mergedCommRes.vaultHadMissingOnServer ||
+            mergedPersonsRes.vaultHadMissingOnServer ||
+            mergedBazarRes.vaultHadMissingOnServer;
+
+          if (needsRecoveryPush) {
+            await this.recoverIfEmpty({
+              userPhotos,
+              snapshot: snap,
+            }).catch(() => {});
+          }
+
+          firestoreSyncService
+            .pushDatabase({
+              ...bk.database,
+              users: snap.users,
+              globalSettings: snap.globalSettings,
+              transactions: snap.transactions,
+              customers: snap.customers,
+              invoices: snap.invoices,
+              commissionEntries: snap.commissionEntries,
+              commissionPersons: snap.commissionPersons,
+              commissionMonths: snap.commissionMonths,
+              homeBazarEntries: snap.homeBazarEntries,
+              deletedRecordIds: snap.deletedRecordIds,
+            })
+            .catch((err) => {
+              console.warn('Cloud Firestore sync deferred:', err?.message || err);
+            });
           const driveStatus = googleDriveService.getStatus();
           if (driveStatus.isConnected && driveStatus.autoSyncEnabled) {
             googleDriveService.triggerDebouncedAutoSync(async () => ({
@@ -170,7 +516,7 @@ export const ApiService = {
               homeBazar: snap.homeBazarEntries || [],
               commissionEntries: snap.commissionEntries || [],
               commissionPersons: snap.commissionPersons || [],
-              globalSettings: bk.database.globalSettings,
+              globalSettings: snap.globalSettings,
             }));
           }
         }
@@ -182,23 +528,42 @@ export const ApiService = {
           this.getCommissions().catch(() => null),
           this.getHomeBazar().catch(() => null),
         ]);
-        const existing = (await VaultStorage.loadVault()) || { savedAt: Date.now() };
+        const existing = existingVault || { savedAt: Date.now() };
+        const deletedMap = existing.deletedRecordIds || {};
+        const mergedTx = txs ? mergeCollectionSafe(existing.transactions, txs, deletedMap) : { merged: existing.transactions || [], vaultHadMissingOnServer: false };
+        const mergedCust = custs ? mergeCollectionSafe(existing.customers, custs, deletedMap) : { merged: existing.customers || [], vaultHadMissingOnServer: false };
+        const mergedInv = invs ? mergeCollectionSafe(existing.invoices, invs, deletedMap) : { merged: existing.invoices || [], vaultHadMissingOnServer: false };
+        const mergedComm = comms ? mergeCollectionSafe(existing.commissionEntries, comms.entries, deletedMap) : { merged: existing.commissionEntries || [], vaultHadMissingOnServer: false };
+        const mergedPersons = comms?.persons ? mergeCollectionSafe(existing.commissionPersons, comms.persons, deletedMap) : { merged: existing.commissionPersons || [], vaultHadMissingOnServer: false };
+        const mergedBazar = bazarRes ? mergeCollectionSafe(existing.homeBazarEntries, bazarRes.entries, deletedMap) : { merged: existing.homeBazarEntries || [], vaultHadMissingOnServer: false };
+
         const snap: PersistentVaultSnapshot = {
           ...existing,
           savedAt: Date.now(),
-          ...(txs ? { transactions: txs } : {}),
-          ...(custs ? { customers: custs } : {}),
-          ...(invs ? { invoices: invs } : {}),
-          ...(comms
-            ? {
-                commissionEntries: comms.entries || [],
-                commissionPersons: comms.persons || existing.commissionPersons || [],
-                commissionMonths: comms.months || existing.commissionMonths || [],
-              }
-            : {}),
-          ...(bazarRes ? { homeBazarEntries: bazarRes.entries || [] } : {}),
+          transactions: mergedTx.merged,
+          customers: mergedCust.merged,
+          invoices: mergedInv.merged,
+          commissionEntries: mergedComm.merged,
+          commissionPersons: mergedPersons.merged,
+          commissionMonths: comms?.months
+            ? Array.from(new Set([...(existing.commissionMonths || []), ...comms.months])).sort()
+            : existing.commissionMonths || [],
+          homeBazarEntries: mergedBazar.merged,
         };
         await VaultStorage.saveVault(snap);
+
+        if (
+          mergedTx.vaultHadMissingOnServer ||
+          mergedCust.vaultHadMissingOnServer ||
+          mergedInv.vaultHadMissingOnServer ||
+          mergedComm.vaultHadMissingOnServer ||
+          mergedBazar.vaultHadMissingOnServer
+        ) {
+          await this.recoverIfEmpty({
+            userPhotos: snap.userPhotos,
+            snapshot: snap,
+          }).catch(() => {});
+        }
       }
     } catch {
       // ignore transient sync failure
@@ -273,6 +638,7 @@ export const ApiService = {
     await this.request(`/api/transactions/${id}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletion(id);
     return true;
   },
 
@@ -308,7 +674,10 @@ export const ApiService = {
     canEditCustomers?: boolean;
     canApproveInvoices?: boolean;
     canManageCommissions?: boolean;
+    canManageBazar?: boolean;
+    canManageBuyers?: boolean;
     isCommissionOnly?: boolean;
+    isCommissionBazarOnly?: boolean;
   }): Promise<UserAccount> {
     const res = await this.request<{ user: UserAccount }>('/api/users', {
       method: 'POST',
@@ -329,6 +698,7 @@ export const ApiService = {
     await this.request(`/api/users/${id}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletion(id);
     return true;
   },
 
@@ -395,8 +765,18 @@ export const ApiService = {
 
   // Customers & Vendors (CRM Ledger)
   async getCustomers(): Promise<Customer[]> {
-    const res = await this.request<{ customers: Customer[] }>('/api/customers');
-    return res.customers;
+    try {
+      const res = await this.request<{ customers: Customer[] }>('/api/customers');
+      return res.customers;
+    } catch (err) {
+      if (isTransientFetchError(err) || isAppUnloading()) {
+        const vault = await VaultStorage.loadVault().catch(() => null);
+        if (vault && Array.isArray(vault.customers)) {
+          return vault.customers as Customer[];
+        }
+      }
+      throw err;
+    }
   },
 
   async createCustomer(payload: Partial<Customer> & { photoBase64?: string }): Promise<Customer> {
@@ -419,6 +799,7 @@ export const ApiService = {
     const res = await this.request<{ success: boolean }>(`/api/customers/${id}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletion(id);
     return res.success;
   },
 
@@ -433,8 +814,19 @@ export const ApiService = {
   // Invoices, Partial Payments & Customer Statements
   async getInvoices(customerId?: string): Promise<Invoice[]> {
     const url = customerId ? `/api/invoices?customerId=${encodeURIComponent(customerId)}` : '/api/invoices';
-    const res = await this.request<{ invoices: Invoice[] }>(url);
-    return res.invoices;
+    try {
+      const res = await this.request<{ invoices: Invoice[] }>(url);
+      return res.invoices || [];
+    } catch (err) {
+      if (isTransientFetchError(err) || isAppUnloading()) {
+        const vault = await VaultStorage.loadVault().catch(() => null);
+        if (vault && Array.isArray(vault.invoices)) {
+          const cached = vault.invoices as Invoice[];
+          return customerId ? cached.filter((inv) => inv.customerId === customerId) : cached;
+        }
+      }
+      throw err;
+    }
   },
 
   async getInvoice(id: string): Promise<Invoice> {
@@ -521,6 +913,7 @@ export const ApiService = {
     const res = await this.request<{ success: boolean; customer?: Customer }>(`/api/invoices/${id}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletion(id);
     return res.success;
   },
 
@@ -578,6 +971,7 @@ export const ApiService = {
     const res = await this.request<{ success: boolean; deletedId: string }>(`/api/home-bazar/${id}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletion(id);
     return res.success;
   },
 
@@ -594,7 +988,16 @@ export const ApiService = {
     return res.buyers || [];
   },
 
-  async addBazarBuyer(data: { buyerId: string; name: string; phone?: string; role?: string }): Promise<BazarBuyer> {
+  async addBazarBuyer(data: {
+    buyerId: string;
+    name: string;
+    phone?: string;
+    role?: string;
+    amount?: number;
+    notes?: string;
+    photoBase64?: string;
+    removePhoto?: boolean;
+  }): Promise<BazarBuyer> {
     const res = await this.request<{ success: boolean; buyer: BazarBuyer }>('/api/home-bazar/buyers', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -602,11 +1005,54 @@ export const ApiService = {
     return res.buyer;
   },
 
+  async updateBazarBuyer(
+    targetBuyerId: string,
+    data: {
+      newBuyerId?: string;
+      name?: string;
+      phone?: string;
+      role?: string;
+      amount?: number | null;
+      notes?: string;
+      photoBase64?: string;
+      removePhoto?: boolean;
+    }
+  ): Promise<{ buyer: BazarBuyer; renamedFrom?: string }> {
+    const res = await this.request<{ success: boolean; buyer: BazarBuyer; renamedFrom?: string }>(
+      `/api/home-bazar/buyers/${encodeURIComponent(targetBuyerId)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      }
+    );
+    return { buyer: res.buyer, renamedFrom: res.renamedFrom };
+  },
+
   async deleteBazarBuyer(buyerId: string): Promise<boolean> {
     const res = await this.request<{ success: boolean; deletedBuyerId: string }>(`/api/home-bazar/buyers/${encodeURIComponent(buyerId)}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletion(`buyer:${String(buyerId).trim().toLowerCase()}`);
     return res.success;
+  },
+
+  // App Version & Auto-Update Push
+  async getAppVersion(): Promise<AppVersionInfo> {
+    const res = await fetch('/api/app-version', { cache: 'no-store' });
+    if (!res.ok) {
+      throw new Error(`Version check failed: ${res.status}`);
+    }
+    return res.json();
+  },
+
+  async pushAppUpdate(version?: string): Promise<{ success: boolean; globalSettings: GlobalAppSettings; versionInfo: AppVersionInfo }> {
+    return this.request<{ success: boolean; globalSettings: GlobalAppSettings; versionInfo: AppVersionInfo }>(
+      '/api/app-version/push-update',
+      {
+        method: 'POST',
+        body: JSON.stringify(version ? { version } : {}),
+      }
+    );
   },
 
   // Global Settings (Owner Only)
@@ -615,7 +1061,7 @@ export const ApiService = {
     return res.globalSettings;
   },
 
-  async updateGlobalSettings(settings: Partial<GlobalAppSettings>): Promise<GlobalAppSettings> {
+  async updateGlobalSettings(settings: Partial<GlobalAppSettings> & { forceRefreshClients?: boolean }): Promise<GlobalAppSettings> {
     const res = await this.request<{ globalSettings: GlobalAppSettings }>('/api/global-settings', {
       method: 'PUT',
       body: JSON.stringify(settings),
@@ -719,6 +1165,7 @@ export const ApiService = {
     const res = await this.request<{ success: boolean }>(`/api/commissions/${id}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletion(id);
     return res.success;
   },
 
@@ -763,62 +1210,71 @@ export const ApiService = {
     });
   },
 
-  // Real-Time Push Events Listener (Global Event Stream)
+  async syncCloudFirestoreNow(): Promise<{ pulled: boolean; recovered: boolean; pushed: boolean }> {
+    const cached = this.getCachedUser();
+    if (cached?.role !== 'owner') {
+      return { pulled: false, recovered: false, pushed: false };
+    }
+    const cloudSnap = await firestoreSyncService.pullSnapshot();
+    let recovered = false;
+    if (cloudSnap) {
+      const localVault = await VaultStorage.loadVault().catch(() => null);
+      const userPhotos: Record<string, string> = { ...(localVault?.userPhotos || {}) };
+      const mergedSnap: PersistentVaultSnapshot = {
+        ...cloudSnap,
+        userPhotos,
+      };
+      const recRes = await this.recoverIfEmpty({
+        userPhotos,
+        snapshot: mergedSnap,
+      }).catch(() => ({ success: false, recovered: false }));
+      recovered = Boolean(recRes?.recovered);
+    }
+
+    const bk = await this.downloadBackup().catch(() => null);
+    let pushed = false;
+    if (bk?.database) {
+      pushed = await firestoreSyncService.pushDatabase(bk.database).catch(() => false);
+      const existingVault = await VaultStorage.loadVault().catch(() => null);
+      const userPhotos: Record<string, string> = { ...(existingVault?.userPhotos || {}) };
+      (bk.database.users || []).forEach((u: any) => {
+        if (u?.id && u?.photoData) userPhotos[u.id] = u.photoData;
+      });
+      await VaultStorage.saveVault({
+        savedAt: Date.now(),
+        users: bk.database.users || [],
+        globalSettings: bk.database.globalSettings,
+        transactions: bk.database.transactions || [],
+        customers: bk.database.customers || [],
+        invoices: bk.database.invoices || [],
+        commissionEntries: bk.database.commissionEntries || [],
+        commissionPersons: bk.database.commissionPersons || [],
+        commissionMonths: bk.database.commissionMonths || [],
+        homeBazarEntries: bk.database.homeBazarEntries || [],
+        deletedRecordIds: bk.database.deletedRecordIds || {},
+        userPhotos,
+      }).catch(() => {});
+    }
+
+    return { pulled: Boolean(cloudSnap), recovered, pushed };
+  },
+
+  // Real-Time Push Events Listener (Shared Singleton SSE + Cross-Tab BroadcastChannel)
   subscribeToEvents(onEvent: (event: string, data: any) => void): () => void {
-    const token = this.getToken();
-    const eventSource = new EventSource(`/api/sync/events?token=${token || ''}`);
+    sseListeners.add(onEvent);
+    ensureSharedEventSource(false);
 
-    const handleEvent = (event: MessageEvent) => {
+    if (sharedEventSource && sharedEventSource.readyState === EventSource.OPEN) {
       try {
-        const parsed = JSON.parse(event.data);
-        onEvent(event.type, parsed);
-      } catch {
-        // ignore
-      }
-    };
-
-    const eventNames = [
-      // Transactions
-      'transaction_created',
-      'transaction_updated',
-      'transaction_deleted',
-      // Customers
-      'customer_created',
-      'customer_updated',
-      'customer_deleted',
-      // Invoices
-      'invoice_created',
-      'invoice_updated',
-      'invoice_deleted',
-      'invoice_payment_recorded',
-      // Commissions
-      'commission_added',
-      'commission_updated',
-      'commission_deleted',
-      'commissions_batch_updated',
-      'commissions_payout_processed',
-      'commission_person_updated',
-      'commission_month_updated',
-      // Daily Home Bazar
-      'home_bazar_added',
-      'home_bazar_updated',
-      'home_bazar_deleted',
-      'home_bazar_budget_updated',
-      'bazar_buyers_updated',
-      // Users & Settings
-      'user_created',
-      'user_updated',
-      'user_deleted',
-      'global_settings_updated',
-      'database_restored',
-    ];
-
-    eventNames.forEach((name) => {
-      eventSource.addEventListener(name, handleEvent as any);
-    });
+        onEvent('connected', { time: Date.now(), reused: true });
+      } catch {}
+    }
 
     return () => {
-      eventSource.close();
+      sseListeners.delete(onEvent);
+      if (sseListeners.size === 0) {
+        teardownSharedEventSource();
+      }
     };
   },
 };

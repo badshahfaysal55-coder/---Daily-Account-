@@ -20,6 +20,9 @@ import { usePWAInstall, useOnlineStatus } from '../hooks/usePWAInstall';
 
 interface PWAInstallButtonProps {
   isBn?: boolean;
+  variant?: 'header' | 'sidebar';
+  collapsed?: boolean;
+  onTriggered?: () => void;
 }
 
 export const DEV_APP_URL =
@@ -120,7 +123,7 @@ export const PWAInstallModal: React.FC<{
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-4 overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/75 backdrop-blur-xs p-3 sm:p-4 safe-area-top safe-area-bottom overflow-y-auto"
       onClick={onClose}
     >
       <div
@@ -128,33 +131,33 @@ export const PWAInstallModal: React.FC<{
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700/80 bg-slate-900/70">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center">
+        <div className="flex items-center justify-between px-4 sm:px-5 py-3.5 border-b border-slate-700/80 bg-slate-900/70">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-9 h-9 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
               <Smartphone className="w-5 h-5 text-emerald-400" />
             </div>
-            <div>
-              <h3 className="text-sm font-bold font-heading">
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold font-heading truncate">
                 {isBn ? 'iOS ও Android ফোনে অ্যাপ ডাউনলোড' : 'Download & Install on iOS & Android'}
               </h3>
-              <p className="text-[11px] text-slate-400">
+              <p className="text-[11px] text-slate-400 truncate">
                 {isBn
                   ? 'ক্যামেরা দিয়ে QR কোড স্ক্যান করুন অথবা লিংক কপি করুন'
-                  : 'Scan the QR code with your phone camera or copy the link'}
+                  : 'Scan QR with phone camera or install directly'}
               </p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition cursor-pointer shrink-0"
             aria-label="Close install guide"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-4 sm:p-5 space-y-4 max-h-[82vh] overflow-y-auto">
+        <div className="p-4 sm:p-5 space-y-4 max-h-[78dvh] overflow-y-auto">
           {/* Native Android/Chrome 1-Tap Install CTA if ready */}
           {isInstallable && (
             <button
@@ -447,7 +450,12 @@ export const PWAInstallModal: React.FC<{
   );
 };
 
-export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ isBn = false }) => {
+export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
+  isBn = false,
+  variant = 'header',
+  collapsed = false,
+  onTriggered,
+}) => {
   const { isInstallable, isInstalled, install } = usePWAInstall();
   const [showGuide, setShowGuide] = useState(false);
 
@@ -457,12 +465,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ isBn = false
     return () => window.removeEventListener('zara-open-install-guide', handler);
   }, []);
 
-  // Hide completely when already running as an installed standalone PWA
-  if (isInstalled) {
-    return null;
-  }
-
   const handleInstallClick = async () => {
+    onTriggered?.();
     if (isInstallable) {
       const accepted = await install();
       if (!accepted) {
@@ -473,15 +477,54 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ isBn = false
     setShowGuide(true);
   };
 
+  // Hide trigger button when already running as an installed standalone PWA,
+  // but keep PWAInstallModal mounted for manual triggers.
+  if (isInstalled) {
+    return <PWAInstallModal isOpen={showGuide} onClose={() => setShowGuide(false)} isBn={isBn} />;
+  }
+
+  if (variant === 'sidebar') {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={handleInstallClick}
+          title={isBn ? 'iOS এবং Android ফোনে অ্যাপ ডাউনলোড ও ইনস্টল করুন' : 'Get App (iOS & Android)'}
+          className={`w-full flex items-center gap-2 px-2.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/40 text-xs font-bold text-white transition shadow-sm cursor-pointer active:scale-95 ${
+            collapsed ? 'justify-center px-0' : ''
+          }`}
+        >
+          <Download className="w-4 h-4 shrink-0" />
+          {!collapsed && (
+            <span className="truncate">
+              {isInstallable
+                ? isBn
+                  ? 'অ্যাপ ইনস্টল'
+                  : 'Install App'
+                : isBn
+                ? 'অ্যাপ ডাউনলোড (Get App)'
+                : 'Get App'}
+            </span>
+          )}
+        </button>
+
+        <PWAInstallModal isOpen={showGuide} onClose={() => setShowGuide(false)} isBn={isBn} />
+      </>
+    );
+  }
+
   return (
     <>
       <button
         type="button"
         onClick={handleInstallClick}
         title={isBn ? 'iOS এবং Android ফোনে অ্যাপ ডাউনলোড ও ইনস্টল করুন' : 'Install App on iOS & Android'}
-        className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/40 text-[11px] font-bold text-white transition shadow-xs cursor-pointer active:scale-95"
+        className="flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 border border-emerald-400/40 text-[10px] sm:text-[11px] font-bold text-white transition shadow-xs cursor-pointer active:scale-95 shrink-0"
       >
         <Download className="w-3.5 h-3.5 shrink-0" />
+        <span className="sm:hidden">
+          {isInstallable ? (isBn ? 'ইনস্টল' : 'Install') : (isBn ? 'অ্যাপ' : 'App')}
+        </span>
         <span className="hidden sm:inline">
           {isInstallable
             ? isBn
@@ -562,7 +605,7 @@ export const OfflineIndicator: React.FC<{ isBn?: boolean }> = ({ isBn = false })
   if (isOnline) return null;
 
   return (
-    <div className="fixed bottom-20 sm:bottom-4 left-4 z-50 flex items-center gap-2 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-xl border border-amber-300">
+    <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] sm:bottom-4 left-4 right-4 sm:right-auto z-50 flex items-center gap-2 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-xl border border-amber-300">
       <WifiOff className="w-4 h-4 shrink-0" />
       <span>
         {isBn

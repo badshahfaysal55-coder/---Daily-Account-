@@ -25,7 +25,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { Invoice, InvoicePayment, Customer, UserAccount, GlobalAppSettings, CurrencyCode } from '../types/accounting';
-import { ApiService } from '../services/api';
+import { ApiService, isAppUnloading, isTransientFetchError } from '../services/api';
 import { CreateInvoiceModal } from './CreateInvoiceModal';
 import { EditInvoiceModal } from './EditInvoiceModal';
 import { DepositPaymentModal } from './DepositPaymentModal';
@@ -72,21 +72,26 @@ export const DailyInvoicesView: React.FC<DailyInvoicesViewProps> = ({
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' } | null>(null);
 
   // Load Invoices
-  const loadInvoices = async () => {
+  const loadInvoices = async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const res = await ApiService.getInvoices();
       setInvoices(res || []);
     } catch (err: any) {
+      if (isAppUnloading() || isTransientFetchError(err)) {
+        return;
+      }
       console.error('Failed to load invoices:', err);
-      setToastMessage({ text: err.message || 'Error loading invoices', type: 'error' });
+      if (!isSilent) {
+        setToastMessage({ text: err.message || 'Error loading invoices', type: 'error' });
+      }
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadInvoices();
+    loadInvoices(false);
     const unsubscribe = ApiService.subscribeToEvents((event) => {
       if (
         event.startsWith('invoice_') ||
@@ -94,11 +99,22 @@ export const DailyInvoicesView: React.FC<DailyInvoicesViewProps> = ({
         event === 'global_settings_updated' ||
         event === 'database_restored'
       ) {
-        loadInvoices();
+        loadInvoices(true);
       }
     });
+
+    const handleRefresh = () => {
+      loadInvoices(true);
+    };
+    window.addEventListener('focus', handleRefresh);
+    window.addEventListener('online', handleRefresh);
+    window.addEventListener('zara-vault-recovered', handleRefresh);
+
     return () => {
       unsubscribe();
+      window.removeEventListener('focus', handleRefresh);
+      window.removeEventListener('online', handleRefresh);
+      window.removeEventListener('zara-vault-recovered', handleRefresh);
     };
   }, []);
 

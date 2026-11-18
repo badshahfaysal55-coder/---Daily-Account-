@@ -28,7 +28,7 @@ export const ZaraLogo: React.FC<ZaraLogoProps> = ({
   return (
     <div className={`inline-flex items-center gap-3.5 select-none ${className}`}>
       <div
-        className={`relative ${sizeMap[size]} shrink-0 ${roundedMap[size]} overflow-hidden bg-white p-0.5 shadow-lg shadow-black/30 transition-transform duration-200 hover:scale-[1.03] border border-slate-200/40 dark:border-white/20`}
+        className={`relative ${sizeMap[size]} shrink-0 ${roundedMap[size]} overflow-hidden bg-white p-0.5 shadow-[0_8px_22px_rgba(0,0,0,0.48),0_2px_6px_rgba(212,175,55,0.22)] ring-1 ring-white/25 transition-transform duration-200 hover:scale-[1.03] border border-slate-200/40 dark:border-white/20`}
       >
         <img
           src="/assets/aistudio/WhatsApp_Image_2026-11-06_at_9.38.17_AM_2058b80b.jpeg"

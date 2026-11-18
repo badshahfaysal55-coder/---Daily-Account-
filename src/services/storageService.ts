@@ -5,72 +5,8 @@ const DRAFT_STORAGE_KEY = 'accounting_draft_v1';
 const CLOUD_SYNC_LOG_KEY = 'accounting_cloud_sync_log';
 const TRANSACTIONS_KEY = 'accounting_transactions_v1';
 
-// Seed sample transactions if first time
-const INITIAL_TRANSACTIONS: Transaction[] = [
-  {
-    id: 'tx-1',
-    userId: 'user_faisal_123',
-    workspaceUserId: 'user_faisal_123',
-    description: 'সাপ্তাহিক কাঁচাবাজার ও মাছ-মাংস',
-    amount: 1450,
-    type: 'expense',
-    category: 'bazaar',
-    paymentMethod: 'cash',
-    timestamp: Date.now() - 3600000 * 2,
-    syncedToCloud: true,
-    notes: 'কারওয়ান বাজার থেকে কেনা হয়েছে',
-  },
-  {
-    id: 'tx-2',
-    userId: 'user_faisal_123',
-    workspaceUserId: 'user_faisal_123',
-    description: 'অফিস প্রজেক্ট ফ্রিল্যান্সিং পেমেন্ট',
-    amount: 18500,
-    type: 'income',
-    category: 'freelance',
-    paymentMethod: 'bank',
-    timestamp: Date.now() - 3600000 * 14,
-    syncedToCloud: true,
-    notes: 'ক্লায়েন্ট রিঅ্যাক্ট নেটিভ মোবাইল অ্যাপ মাইলস্টোন',
-  },
-  {
-    id: 'tx-3',
-    userId: 'user_faisal_123',
-    workspaceUserId: 'user_faisal_123',
-    description: 'পল্লী বিদ্যুৎ ও ইন্টারনেট বিল',
-    amount: 1820,
-    type: 'expense',
-    category: 'bills',
-    paymentMethod: 'bkash',
-    timestamp: Date.now() - 86400000,
-    syncedToCloud: true,
-    notes: 'অনলাইন বিকাশ পে',
-  },
-  {
-    id: 'tx-4',
-    userId: 'user_faisal_123',
-    workspaceUserId: 'user_faisal_123',
-    description: 'সকালের নাস্তা ও চা-কফি',
-    amount: 120,
-    type: 'expense',
-    category: 'dining',
-    paymentMethod: 'cash',
-    timestamp: Date.now() - 86400000 * 1.5,
-    syncedToCloud: true,
-  },
-  {
-    id: 'tx-5',
-    userId: 'user_faisal_123',
-    workspaceUserId: 'user_faisal_123',
-    description: 'মাসিক বেতনের কিস্তি',
-    amount: 45000,
-    type: 'income',
-    category: 'salary',
-    paymentMethod: 'bank',
-    timestamp: Date.now() - 86400000 * 4,
-    syncedToCloud: true,
-  },
-];
+// No hardcoded sample/auto transactions (transactions are strictly user-entered)
+const INITIAL_TRANSACTIONS: Transaction[] = [];
 
 export interface StorageLogEntry {
   id: string;

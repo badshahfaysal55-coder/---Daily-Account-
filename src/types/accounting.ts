@@ -138,6 +138,11 @@ export interface BazarBuyer {
   name: string;
   phone?: string;
   role?: string;
+  amount?: number;
+  notes?: string;
+  photoUrl?: string;
+  photoData?: string;
+  updatedAt?: number;
 }
 
 export interface BuyerSpendingSummary {
@@ -209,7 +214,10 @@ export interface UserAccount {
   canEditCustomers?: boolean;      // Permission: Add / edit customers & CRM
   canApproveInvoices?: boolean;    // Permission: Create invoices & record payments
   canManageCommissions?: boolean;  // Permission: View & edit commission sheet
+  canManageBazar?: boolean;        // Permission: Access & manage Daily Bazar ledger
+  canManageBuyers?: boolean;       // Permission: Add/edit Buyer IDs & Buyer photos
   isCommissionOnly?: boolean;      // Permission: Restricted exclusively to Commission Sheet
+  isCommissionBazarOnly?: boolean; // Permission: Restricted exclusively to Commission Sheet & Daily Bazar
   theme?: AppTheme;
   displayMode?: DisplayMode;
   language?: 'bn' | 'en';
@@ -291,8 +299,17 @@ export interface GlobalAppSettings {
   defaultTheme?: AppTheme;
   headerBgColor?: string;
   sidebarBgColor?: string;
+  forceRefreshAt?: number;
   updatedAt: number;
   lastUpdatedBy: string;
+}
+
+export interface AppVersionInfo {
+  buildId: string;
+  version: string;
+  settingsUpdatedAt: number;
+  forceRefreshAt: number;
+  serverTime: number;
 }
 
 export interface UserProfile {

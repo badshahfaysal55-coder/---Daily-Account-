@@ -27,9 +27,11 @@ import { googleDriveService } from './services/googleDriveService';
 import { StorageService } from './services/storageService';
 import { ApiService } from './services/api';
 import { VaultStorage } from './services/vaultStorage';
+import { firestoreSyncService } from './services/firestoreSyncService';
 import { testSupabaseConnection, isSupabaseConfigured, SupabaseConnectionStatus } from './services/supabaseClient';
-import { Transaction, UserProfile, UserAccount, GlobalAppSettings, AppTheme, DisplayMode, Customer, CurrencyCode } from './types/accounting';
+import { Transaction, UserProfile, UserAccount, GlobalAppSettings, AppTheme, DisplayMode, Customer, CurrencyCode, AppVersionInfo } from './types/accounting';
 import { t, Language } from './utils/translations';
+import { getUserPagePermissions, canAccessNavTab, getDefaultNavTab, getDefaultEntrySubTab } from './utils/permissions';
 import { 
   Cloud, 
   Database, 
@@ -38,7 +40,10 @@ import {
   Palette,
   ShieldCheck,
   CheckCircle2,
-  Lock
+  Lock,
+  RefreshCw,
+  Radio,
+  X
 } from 'lucide-react';
 
 export default function App() {
@@ -207,9 +212,16 @@ export default function App() {
   const [supabaseStatus, setSupabaseStatus] = useState<SupabaseConnectionStatus | null>(null);
   const [checkingSupabase, setCheckingSupabase] = useState(false);
 
-  // App-Wide Real-Time Auto-Sync State
+  // App-Wide Real-Time Auto-Sync & Auto-Update State
   const [isAppSyncing, setIsAppSyncing] = useState<boolean>(false);
   const [lastAppSyncedAt, setLastAppSyncedAt] = useState<Date>(new Date());
+  const [isApplyingAppUpdate, setIsApplyingAppUpdate] = useState<boolean>(false);
+  const [broadcastDismissedAt, setBroadcastDismissedAt] = useState<number>(0);
+  const baselineVersionRef = useRef<{ buildId: string | null; forceRefreshAt: number | null }>({
+    buildId: null,
+    forceRefreshAt: null,
+  });
+  const isReloadingForUpdateRef = useRef<boolean>(false);
 
   // Sync DOM with theme & mode
   useEffect(() => {
@@ -222,22 +234,20 @@ export default function App() {
     }
   }, [currentTheme, currentMode]);
 
-  // Restrict Commission-Only users to the Commission Sheet and Themes
+  // Enforce strict per-page & sub-tab permissions (e.g. Commission Only, Commission + Bazar Only, Bazar Only)
   useEffect(() => {
-    const isCommOnly = Boolean(
-      currentUserAccount.isCommissionOnly ||
-      (currentUserAccount.canManageCommissions &&
-        !currentUserAccount.canViewLedger &&
-        !currentUserAccount.canAddTransactions &&
-        !currentUserAccount.canEditCustomers &&
-        !currentUserAccount.canApproveInvoices &&
-        currentUserAccount.role !== 'owner' &&
-        currentUserAccount.role !== 'admin')
-    );
-    if (isCommOnly && activeTab !== 'commission' && activeTab !== 'appearance') {
-      setActiveTab('commission');
+    const perms = getUserPagePermissions(currentUserAccount);
+    if (!canAccessNavTab(currentUserAccount, activeTab)) {
+      setActiveTab(getDefaultNavTab(currentUserAccount));
     }
-  }, [currentUserAccount, activeTab]);
+    if (entrySubTab === 'invoices' && !perms.canAccessInvoices) {
+      setEntrySubTab(getDefaultEntrySubTab(currentUserAccount));
+    } else if (entrySubTab === 'bazar' && !perms.canAccessBazar) {
+      setEntrySubTab(getDefaultEntrySubTab(currentUserAccount));
+    } else if (entrySubTab === 'quick' && !perms.canAccessQuickCash) {
+      setEntrySubTab(getDefaultEntrySubTab(currentUserAccount));
+    }
+  }, [currentUserAccount, activeTab, entrySubTab]);
 
   // Apply authoritative user & global settings without overwriting saved preferences
   const applyAuthoritativeState = (authoritativeUser?: UserAccount | null, settingsRes?: GlobalAppSettings | null) => {
@@ -320,11 +330,18 @@ export default function App() {
       if (settingsRes.currency) {
         setUser((prev) => ({ ...prev, currency: settingsRes.currency }));
       }
+      if (settingsRes.defaultTheme && !localStorage.getItem('zara_preferred_theme')) {
+        setCurrentTheme(settingsRes.defaultTheme);
+      }
       if (settingsRes.headerBgColor !== undefined && !currentUserRef.current.headerBgColor) {
         setHeaderBgColor(settingsRes.headerBgColor || '');
+        if (settingsRes.headerBgColor) localStorage.setItem('zara_header_color', settingsRes.headerBgColor);
+        else localStorage.removeItem('zara_header_color');
       }
       if (settingsRes.sidebarBgColor !== undefined && !currentUserRef.current.sidebarBgColor) {
         setSidebarBgColor(settingsRes.sidebarBgColor || '');
+        if (settingsRes.sidebarBgColor) localStorage.setItem('zara_sidebar_color', settingsRes.sidebarBgColor);
+        else localStorage.removeItem('zara_sidebar_color');
       }
     }
   };
@@ -371,7 +388,9 @@ export default function App() {
         };
         const hasVaultData = Boolean(
           savedVault &&
-            ((savedVault.transactions?.length || 0) > 0 ||
+            ((savedVault.users?.length || 0) > 1 ||
+              Boolean(savedVault.globalSettings) ||
+              (savedVault.transactions?.length || 0) > 0 ||
               (savedVault.customers?.length || 0) > 0 ||
               (savedVault.invoices?.length || 0) > 0 ||
               (savedVault.commissionEntries?.length || 0) > 0 ||
@@ -392,13 +411,17 @@ export default function App() {
             });
             if (recRes?.recovered) {
               if (recRes.user) authoritativeUser = recRes.user;
-              const [refreshedTx, refreshedCust] = await Promise.all([
+              const [refreshedSettings, refreshedUsers, refreshedTx, refreshedCust] = await Promise.all([
+                ApiService.getGlobalSettings().catch(() => settingsRes),
+                ApiService.getUsers().catch(() => usersRes),
                 ApiService.getTransactions(
                   selectedWorkspaceUserId || undefined,
                   selectedWorkspaceUserId === null
                 ).catch(() => txRes),
                 ApiService.getCustomers().catch(() => custRes),
               ]);
+              if (refreshedSettings) settingsRes && Object.assign(settingsRes, refreshedSettings);
+              if (refreshedUsers) setAllUsersList(refreshedUsers);
               if (refreshedTx) setTransactions(refreshedTx);
               if (refreshedCust) setCustomers(refreshedCust);
               window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
@@ -423,14 +446,126 @@ export default function App() {
     }
   };
 
+  const handleIncomingVersionInfo = async (info?: Partial<AppVersionInfo> | null) => {
+    if (!info || !info.buildId || isReloadingForUpdateRef.current) return;
+
+    const incomingBuildId = String(info.buildId);
+    const incomingForceAt = Number(info.forceRefreshAt) || 0;
+
+    if (baselineVersionRef.current.buildId === null) {
+      baselineVersionRef.current = {
+        buildId: incomingBuildId,
+        forceRefreshAt: incomingForceAt,
+      };
+      try {
+        sessionStorage.setItem('zara_applied_build_id', incomingBuildId);
+        sessionStorage.setItem('zara_applied_force_refresh', String(incomingForceAt));
+      } catch {}
+      return;
+    }
+
+    const buildChanged = incomingBuildId !== baselineVersionRef.current.buildId;
+    const ownerPushedUpdate =
+      baselineVersionRef.current.forceRefreshAt !== null &&
+      incomingForceAt > baselineVersionRef.current.forceRefreshAt;
+
+    if (!buildChanged && !ownerPushedUpdate) return;
+
+    // Guard against reload loops on mobile Safari / PWA / slow connections
+    try {
+      const lastReloadAt = Number(sessionStorage.getItem('zara_last_app_update_reload_at') || '0');
+      const appliedBuild = sessionStorage.getItem('zara_applied_build_id');
+      const appliedForce = Number(sessionStorage.getItem('zara_applied_force_refresh') || '0');
+      if (
+        Date.now() - lastReloadAt < 10000 ||
+        (appliedBuild === incomingBuildId && incomingForceAt <= appliedForce)
+      ) {
+        baselineVersionRef.current = { buildId: incomingBuildId, forceRefreshAt: incomingForceAt };
+        return;
+      }
+      sessionStorage.setItem('zara_last_app_update_reload_at', String(Date.now()));
+      sessionStorage.setItem('zara_applied_build_id', incomingBuildId);
+      sessionStorage.setItem('zara_applied_force_refresh', String(incomingForceAt));
+    } catch {}
+
+    isReloadingForUpdateRef.current = true;
+    setIsApplyingAppUpdate(true);
+
+    try {
+      await ApiService.syncVaultNow().catch(() => {});
+      if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+        const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
+        if (reg) {
+          await reg.update().catch(() => {});
+        }
+      }
+    } catch {}
+
+    setTimeout(() => {
+      (window as any).__zaraPageUnloading = true;
+      window.location.reload();
+    }, 650);
+  };
+
+  const checkAppVersionNow = async () => {
+    try {
+      const info = await ApiService.getAppVersion();
+      await handleIncomingVersionInfo(info);
+    } catch {
+      // ignore transient network check failures
+    }
+  };
+
+  const hasSyncedCloudOnAuthRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const unsubFirestore = firestoreSyncService.subscribe((fsStatus) => {
+      if (
+        fsStatus.isVerifiedOwner &&
+        fsStatus.uid &&
+        currentUserRef.current.role === 'owner' &&
+        hasSyncedCloudOnAuthRef.current !== fsStatus.uid
+      ) {
+        hasSyncedCloudOnAuthRef.current = fsStatus.uid;
+        ApiService.syncCloudFirestoreNow()
+          .then((res) => {
+            if (res.recovered) {
+              loadInitialData();
+              window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
+            }
+          })
+          .catch((err) => {
+            console.warn('Initial Firestore cloud sync error:', err?.message || err);
+          });
+      } else if (!fsStatus.isAuthenticated) {
+        hasSyncedCloudOnAuthRef.current = null;
+      }
+    });
+    return () => {
+      unsubFirestore();
+    };
+  }, [currentUserAccount.id]);
+
   useEffect(() => {
     loadInitialData();
+    checkAppVersionNow();
     checkSupabase();
 
-    // Global real-time event subscription for all modules & all User IDs
+    // Global real-time event subscription for all modules, all User IDs & app updates
     const unsubscribe = ApiService.subscribeToEvents((event, data) => {
+      if ((event === 'connected' || event === 'app_update_available') && data?.buildId) {
+        handleIncomingVersionInfo(data);
+        if (event === 'connected' && data?.reused) return;
+      }
+
       if (event === 'global_settings_updated' && data?.globalSettings) {
         applyAuthoritativeState(null, data.globalSettings);
+        if (data.globalSettings.forceRefreshAt) {
+          handleIncomingVersionInfo({
+            buildId: baselineVersionRef.current.buildId || 'push',
+            forceRefreshAt: data.globalSettings.forceRefreshAt,
+          });
+        }
       }
 
       if (event === 'user_updated' && data) {
@@ -462,22 +597,34 @@ export default function App() {
       }
 
       // Any data change across invoices, transactions, commissions, customers, bazar, or workspaces triggers instant state synchronization
-      loadInitialData();
+      if (event !== 'connected') {
+        loadInitialData();
+        if (currentUserRef.current.role === 'owner' && event !== 'app_update_available') {
+          ApiService.scheduleVaultSync();
+        }
+      }
     });
 
-    // Background heartbeat sync every 10 seconds for fail-safe multi-client synchronization
+    // Background heartbeat sync every 10 seconds + version check every 10 seconds
     const syncInterval = setInterval(() => {
       loadInitialData();
     }, 10000);
 
-    // Auto-sync when window / browser tab gains focus or visibility
+    const versionInterval = setInterval(() => {
+      checkAppVersionNow();
+    }, 10000);
+
+    // Auto-sync & auto-update check when window / browser tab gains focus, visibility, or reconnects online
     const handleFocusSync = () => {
       loadInitialData();
+      checkAppVersionNow();
     };
     window.addEventListener('focus', handleFocusSync);
+    window.addEventListener('online', handleFocusSync);
     const handleVisibilitySync = () => {
       if (document.visibilityState === 'visible') {
         loadInitialData();
+        checkAppVersionNow();
       } else {
         ApiService.syncVaultNow().catch(() => {});
       }
@@ -491,7 +638,9 @@ export default function App() {
     return () => {
       unsubscribe();
       clearInterval(syncInterval);
+      clearInterval(versionInterval);
       window.removeEventListener('focus', handleFocusSync);
+      window.removeEventListener('online', handleFocusSync);
       document.removeEventListener('visibilitychange', handleVisibilitySync);
       window.removeEventListener('pagehide', handlePageHide);
     };
@@ -655,19 +804,15 @@ export default function App() {
 
     if (account.role !== 'owner') {
       setSelectedWorkspaceUserId(account.id);
-      const isCommOnly = Boolean(
-        account.isCommissionOnly ||
-        (account.canManageCommissions &&
-          !account.canViewLedger &&
-          !account.canAddTransactions &&
-          !account.canEditCustomers &&
-          !account.canApproveInvoices &&
-          account.role !== 'admin')
-      );
-      if (isCommOnly) {
-        setActiveTab('commission');
-      } else if (activeTab === 'owner_control') {
-        setActiveTab('dashboard');
+      const nextSub = getDefaultEntrySubTab(account);
+      setEntrySubTab(nextSub);
+      if (!canAccessNavTab(account, activeTab)) {
+        setActiveTab(getDefaultNavTab(account));
+      } else {
+        const perms = getUserPagePermissions(account);
+        if (perms.isCommissionOnly || perms.isCommissionBazarOnly || perms.isBazarOnly) {
+          setActiveTab(getDefaultNavTab(account));
+        }
       }
     } else {
       setSelectedWorkspaceUserId(null);
@@ -704,6 +849,7 @@ export default function App() {
   };
 
   const isBn = currentLang === 'bn';
+  const userPerms = getUserPagePermissions(currentUserAccount);
 
   return (
     <div
@@ -711,7 +857,7 @@ export default function App() {
         backgroundColor: 'var(--theme-bg)',
         color: 'var(--theme-text-main)',
       }}
-      className="min-h-screen flex font-sans transition-colors duration-200"
+      className="min-h-[100dvh] w-full overflow-x-hidden flex font-sans transition-colors duration-200"
     >
       {/* 1. Collapsible Sidebar Navigation */}
       <Sidebar
@@ -733,11 +879,16 @@ export default function App() {
         onOpenPhotoModal={() => setPhotoModalOpen(true)}
         onOpenAuthModal={() => setAuthModalOpen(true)}
         sidebarBgColor={sidebarBgColor}
+        onApplyTheme={handleApplyTheme}
+        isSyncing={isAppSyncing}
+        lastSyncedAt={lastAppSyncedAt}
+        onManualSync={loadInitialData}
+        onOpenGoogleDriveModal={() => setDriveModalOpen(true)}
       />
 
       {/* 2. Main Content Canvas with dynamic left padding for Sidebar */}
       <div
-        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 pb-16 lg:pb-0 ${
+        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))] lg:pb-0 ${
           sidebarOpen ? 'lg:pl-64' : 'lg:pl-20'
         }`}
       >
@@ -804,16 +955,60 @@ export default function App() {
           )}
 
           <main
-            className={`relative z-10 flex-1 w-full mx-auto py-4 sm:py-6 space-y-6 transition-all duration-200 ${
+            className={`relative z-10 flex-1 w-full mx-auto py-3 sm:py-6 space-y-4 sm:space-y-6 transition-all duration-200 ${
               activeTab === 'commission'
                 ? 'max-w-none px-2 sm:px-4 lg:px-6 xl:px-8 2xl:px-10'
-                : 'max-w-7xl px-4 sm:px-6'
+                : 'max-w-7xl px-3 sm:px-6'
             }`}
           >
             <MobileInstallBanner isBn={isBn} />
 
+            {/* Auto-Updating App Banner (shown momentarily before smooth reload on new deployments/Owner push) */}
+            {isApplyingAppUpdate && (
+              <div className="rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white px-4 py-3 shadow-lg border border-emerald-400/50 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5 text-xs font-bold">
+                  <RefreshCw className="w-4 h-4 animate-spin shrink-0" />
+                  <span>
+                    {isBn
+                      ? 'নতুন আপডেট পাওয়া গেছে! আপনার অ্যাপ স্বয়ংক্রিয়ভাবে আপডেট হচ্ছে...'
+                      : 'New update detected — automatically updating your app...'}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Live Global Broadcast Banner pushed by Owner to all User Apps */}
+            {globalSettings.broadcastActive &&
+              globalSettings.broadcastMessage?.trim() &&
+              globalSettings.updatedAt > broadcastDismissedAt && (
+                <div
+                  className={`rounded-2xl px-4 py-2.5 border shadow-xs flex items-center justify-between gap-3 text-xs ${
+                    globalSettings.broadcastType === 'alert'
+                      ? 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200'
+                      : globalSettings.broadcastType === 'warning'
+                      ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200'
+                      : globalSettings.broadcastType === 'success'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                      : 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800 text-sky-900 dark:text-sky-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Radio className="w-4 h-4 shrink-0 animate-pulse" />
+                    <span className="font-medium truncate">{globalSettings.broadcastMessage}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setBroadcastDismissedAt(globalSettings.updatedAt || Date.now())}
+                    className="p-1 rounded-lg opacity-70 hover:opacity-100 transition cursor-pointer shrink-0"
+                    aria-label="Dismiss announcement"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
           {/* TAB 1: World-Class Financial Dashboard Overview */}
-          {activeTab === 'dashboard' && (
+          {activeTab === 'dashboard' && userPerms.canAccessDashboard && (
             <DashboardOverview
               transactions={transactions}
               customers={customers}
@@ -833,55 +1028,63 @@ export default function App() {
           )}
 
           {/* TAB 2: Daily Entry (Invoices / Bazar Account / Quick Cash) */}
-          {activeTab === 'entry' && (
+          {activeTab === 'entry' && userPerms.canAccessEntry && (
             <div className="space-y-6">
-              {/* Daily Entry Sub-Tab Selector */}
-              <div className="flex items-center justify-between flex-wrap gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
-                <div className="inline-flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-xs flex-wrap">
-                  <button
-                    onClick={() => setEntrySubTab('invoices')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-                      entrySubTab === 'invoices'
-                        ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-sm'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span>🧾</span>
-                    <span>{isBn ? 'ইনভয়েস ও রসিদ (Daily Invoices)' : 'Daily Invoices & Receipts'}</span>
-                  </button>
-                  <button
-                    onClick={() => setEntrySubTab('bazar')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-                      entrySubTab === 'bazar'
-                        ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-sm'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span>🛒</span>
-                    <span>{isBn ? 'দৈনিক বাজার খাতা (Bazar Account)' : 'Daily Bazar Account'}</span>
-                  </button>
-                  <button
-                    onClick={() => setEntrySubTab('quick')}
-                    className={`px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
-                      entrySubTab === 'quick'
-                        ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-sm'
-                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    <span>⚡</span>
-                    <span>{isBn ? 'কুইক ক্যাশ এন্ট্রি' : 'Quick Cash Entry'}</span>
-                  </button>
-                </div>
+              {/* Daily Entry Sub-Tab Selector (only renders permitted sub-tabs) */}
+              {(userPerms.canAccessInvoices || userPerms.canAccessQuickCash) && (
+                <div className="flex items-center justify-between flex-wrap gap-2 pb-1 border-b border-slate-200 dark:border-slate-800">
+                  <div className="w-full sm:w-auto flex sm:inline-flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/60 shadow-xs overflow-x-auto gap-1">
+                    {userPerms.canAccessInvoices && (
+                      <button
+                        onClick={() => setEntrySubTab('invoices')}
+                        className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0 ${
+                          entrySubTab === 'invoices'
+                            ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-sm'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <span>🧾</span>
+                        <span>{isBn ? 'ইনভয়েস ও রসিদ' : 'Daily Invoices'}</span>
+                      </button>
+                    )}
+                    {userPerms.canAccessBazar && (
+                      <button
+                        onClick={() => setEntrySubTab('bazar')}
+                        className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0 ${
+                          entrySubTab === 'bazar'
+                            ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-sm'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <span>🛒</span>
+                        <span>{isBn ? 'দৈনিক বাজার খাতা' : 'Daily Bazar'}</span>
+                      </button>
+                    )}
+                    {userPerms.canAccessQuickCash && (
+                      <button
+                        onClick={() => setEntrySubTab('quick')}
+                        className={`px-3 sm:px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 sm:gap-2 cursor-pointer shrink-0 ${
+                          entrySubTab === 'quick'
+                            ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-sm'
+                            : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                        }`}
+                      >
+                        <span>⚡</span>
+                        <span>{isBn ? 'কুইক ক্যাশ' : 'Quick Cash'}</span>
+                      </button>
+                    )}
+                  </div>
 
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
-                  {entrySubTab === 'invoices' && (isBn ? 'রিয়াদ টাইম ৫:০০ AM অনুযায়ী দৈনিক ইনভয়েস ও রসিদ' : 'Daily Invoices & Receipts from 5:00 AM Riyadh time')}
-                  {entrySubTab === 'bazar' && (isBn ? 'দৈনিক বাজার ও মুদি মালামাল হিসাব (সম্পূর্ণ নিয়ন্ত্রণ ও এডিটেবল)' : 'Daily Bazar, Fresh Market & Grocery Expense Ledger')}
-                  {entrySubTab === 'quick' && (isBn ? 'স্বয়ংক্রিয় ক্লাউড সিঙ্ক ক্যাশ ট্রানজ্যাকশন' : 'Auto-Save Cash Income & Expense')}
+                  <div className="text-[11px] text-slate-500 dark:text-slate-400 font-medium hidden sm:block">
+                    {entrySubTab === 'invoices' && (isBn ? 'রিয়াদ টাইম ৫:০০ AM অনুযায়ী দৈনিক ইনভয়েস ও রসিদ' : 'Daily Invoices & Receipts from 5:00 AM Riyadh time')}
+                    {entrySubTab === 'bazar' && (isBn ? 'দৈনিক বাজার ও মুদি মালামাল হিসাব (সম্পূর্ণ নিয়ন্ত্রণ ও এডিটেবল)' : 'Daily Bazar, Fresh Market & Grocery Expense Ledger')}
+                    {entrySubTab === 'quick' && (isBn ? 'স্বয়ংক্রিয় ক্লাউড সিঙ্ক ক্যাশ ট্রানজ্যাকশন' : 'Auto-Save Cash Income & Expense')}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Sub-view Rendering */}
-              {entrySubTab === 'invoices' && (
+              {entrySubTab === 'invoices' && userPerms.canAccessInvoices && (
                 <DailyInvoicesView
                   currentUser={currentUserAccount}
                   globalSettings={globalSettings}
@@ -889,30 +1092,30 @@ export default function App() {
                   currency={user.currency}
                   useBanglaNumerals={useBanglaNumerals}
                   customers={customers}
-                  onOpenQuickCash={() => setEntrySubTab('quick')}
-                  onOpenBazarAccount={() => setEntrySubTab('bazar')}
+                  onOpenQuickCash={userPerms.canAccessQuickCash ? () => setEntrySubTab('quick') : undefined}
+                  onOpenBazarAccount={userPerms.canAccessBazar ? () => setEntrySubTab('bazar') : undefined}
                 />
               )}
 
-              {entrySubTab === 'bazar' && (
+              {entrySubTab === 'bazar' && userPerms.canAccessBazar && (
                 <HomeBazarLedger
                   currentUser={currentUserAccount}
                   globalSettings={globalSettings}
                   currentLang={currentLang}
                   currency={user.currency}
                   useBanglaNumerals={useBanglaNumerals}
-                  onBackToInvoices={() => setEntrySubTab('invoices')}
+                  onBackToInvoices={userPerms.canAccessInvoices ? () => setEntrySubTab('invoices') : undefined}
                 />
               )}
 
-              {entrySubTab === 'quick' && (
+              {entrySubTab === 'quick' && userPerms.canAccessQuickCash && (
                 <QuickEntryCard user={user} onTransactionAdded={handleTransactionAdded} />
               )}
             </div>
           )}
 
           {/* TAB 3: Ledger Book */}
-          {activeTab === 'ledger' && (
+          {activeTab === 'ledger' && userPerms.canAccessLedger && (
             <LedgerList
               transactions={transactions}
               user={user}
@@ -924,7 +1127,7 @@ export default function App() {
           )}
 
           {/* TAB 4: Customers & Vendors CRM */}
-          {activeTab === 'customers' && (
+          {activeTab === 'customers' && userPerms.canAccessCustomers && (
             <CustomersLedger
               currentUser={currentUserAccount}
               globalSettings={globalSettings}
@@ -937,7 +1140,7 @@ export default function App() {
           )}
 
           {/* TAB 5: Owner Control Center (Owner Only) */}
-          {activeTab === 'owner_control' && currentUserAccount.role === 'owner' && (
+          {activeTab === 'owner_control' && userPerms.canAccessOwnerControl && (
             <OwnerControlCenter
               currentUser={currentUserAccount}
               globalSettings={globalSettings}
@@ -952,7 +1155,7 @@ export default function App() {
           )}
 
           {/* TAB 6: Appearance & 4 Themes Settings */}
-          {activeTab === 'appearance' && (
+          {activeTab === 'appearance' && userPerms.canAccessAppearance && (
             <AppearanceSettings
               currentUser={currentUserAccount}
               currentTheme={currentTheme}
@@ -975,7 +1178,7 @@ export default function App() {
           )}
 
           {/* TAB 7: Commission Sheet (Excel Style) */}
-          {activeTab === 'commission' && (
+          {activeTab === 'commission' && userPerms.canAccessCommission && (
             <CommissionSheet
               currentUser={currentUserAccount}
               globalSettings={globalSettings}
@@ -985,10 +1188,10 @@ export default function App() {
           )}
 
           {/* TAB 8: React Native Code Exporter */}
-          {activeTab === 'rn_code' && <ReactNativeCodeViewer user={user} />}
+          {activeTab === 'rn_code' && userPerms.canAccessRnCode && <ReactNativeCodeViewer user={user} />}
 
           {/* TAB 9: Sync & Audit Logs */}
-          {activeTab === 'logs' && <SyncLogsViewer user={user} />}
+          {activeTab === 'logs' && userPerms.canAccessLogs && <SyncLogsViewer user={user} />}
         </main>
         </div>
 
@@ -1028,6 +1231,7 @@ export default function App() {
         setActiveTab={setActiveTab}
         onOpenMobileMenu={() => setMobileMenuOpen(true)}
         currentLang={currentLang}
+        currentUser={currentUserAccount}
       />
 
       {/* Profile Photo Management Modal for Current User */}
@@ -1054,11 +1258,11 @@ export default function App() {
 
       {/* Undo Toast */}
       {undoToast && (
-        <div className="fixed bottom-20 sm:bottom-5 right-5 z-50 bg-slate-900 text-white text-xs px-4 py-3 rounded-xl shadow-xl flex items-center gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
+        <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] sm:bottom-5 left-4 right-4 sm:left-auto sm:right-5 z-50 bg-slate-900 text-white text-xs px-4 py-3 rounded-xl shadow-xl flex items-center justify-between gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
           <span>{undoToast.message}</span>
           <button
             onClick={handleUndoDelete}
-            className="text-amber-400 font-bold hover:underline cursor-pointer"
+            className="text-amber-400 font-bold hover:underline cursor-pointer shrink-0"
           >
             {isBn ? 'বাতিল করুন (Undo)' : 'Undo'}
           </button>

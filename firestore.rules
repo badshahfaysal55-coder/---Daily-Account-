@@ -1,0 +1,460 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global safety net: default deny all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core primitives
+    function incoming() {
+      return request.resource.data;
+    }
+    function existing() {
+      return resource.data;
+    }
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+    function isBootstrappedOwner() {
+      return isVerified() && request.auth.token.email == 'rh.faysal007@gmail.com';
+    }
+    function isAdmin() {
+      return isBootstrappedOwner() || (isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+    function isOwner(uid) {
+      return isVerified() && request.auth.uid == uid;
+    }
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+    function optStr(data, key, maxLen) {
+      return !(key in data) || (data[key] is string && data[key].size() <= maxLen);
+    }
+    function optBool(data, key) {
+      return !(key in data) || data[key] is bool;
+    }
+    function optNum(data, key) {
+      return !(key in data) || data[key] is number;
+    }
+
+    // Entity validation blueprints
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && isValidId(data.id)
+        && data.username is string && data.username.size() >= 2 && data.username.size() <= 64
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.passwordHash is string && data.passwordHash.size() >= 16 && data.passwordHash.size() <= 256
+        && data.role in ['owner', 'admin', 'manager', 'staff', 'viewer']
+        && data.workspaceName is string && data.workspaceName.size() <= 120
+        && data.status in ['active', 'disabled']
+        && data.canExport is bool
+        && data.canDelete is bool
+        && optBool(data, 'canAddTransactions')
+        && optBool(data, 'canViewLedger')
+        && optBool(data, 'canEditCustomers')
+        && optBool(data, 'canApproveInvoices')
+        && optBool(data, 'canManageCommissions')
+        && optBool(data, 'canManageBazar')
+        && optBool(data, 'canManageBuyers')
+        && optBool(data, 'isCommissionOnly')
+        && optBool(data, 'isCommissionBazarOnly')
+        && optStr(data, 'theme', 40)
+        && (!( 'displayMode' in data ) || data.displayMode in ['light', 'dark'])
+        && (!( 'language' in data ) || data.language in ['bn', 'en'])
+        && optBool(data, 'useBanglaNumerals')
+        && optStr(data, 'headerBgColor', 40)
+        && optStr(data, 'sidebarBgColor', 40)
+        && optStr(data, 'photoUrl', 512)
+        && data.clientCreatedAt is number
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAppSettings(data) {
+      return data.keys().hasAll(['ownerUid', 'appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'lastUpdatedBy', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'lastUpdatedBy', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && data.appName is string && data.appName.size() <= 120
+        && data.companyName is string && data.companyName.size() <= 160
+        && data.version is string && data.version.size() <= 40
+        && data.currency in ['BDT', 'USD', 'EUR', 'SAR']
+        && data.broadcastMessage is string && data.broadcastMessage.size() <= 1000
+        && data.broadcastType in ['info', 'warning', 'alert', 'success']
+        && data.broadcastActive is bool
+        && optStr(data, 'defaultTheme', 40)
+        && optStr(data, 'headerBgColor', 40)
+        && optStr(data, 'sidebarBgColor', 40)
+        && optNum(data, 'bazarMonthlyBudget')
+        && data.lastUpdatedBy is string && data.lastUpdatedBy.size() <= 120
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBazarBuyer(data) {
+      return data.keys().hasAll(['ownerUid', 'buyerId', 'name', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && data.buyerId is string && data.buyerId.size() >= 1 && data.buyerId.size() <= 80
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && optStr(data, 'phone', 40)
+        && optStr(data, 'role', 40)
+        && optNum(data, 'amount')
+        && optStr(data, 'notes', 1000)
+        && optStr(data, 'photoUrl', 512)
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && isValidId(data.id)
+        && data.userId is string && data.userId.size() <= 128
+        && data.workspaceUserId is string && data.workspaceUserId.size() <= 128
+        && data.description is string && data.description.size() <= 500
+        && data.amount is number
+        && data.type in ['income', 'expense']
+        && data.category is string && data.category.size() <= 100
+        && data.paymentMethod in ['cash', 'bkash', 'nagad', 'bank']
+        && data.timestamp is number
+        && data.clientUpdatedAt is number
+        && optStr(data, 'notes', 2000)
+        && optStr(data, 'createdByName', 120)
+        && optStr(data, 'customerName', 120)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCustomer(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'workspaceUserId', 'name', 'phone', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && isValidId(data.id)
+        && data.workspaceUserId is string && data.workspaceUserId.size() <= 128
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && data.phone is string && data.phone.size() <= 40
+        && optStr(data, 'whatsapp', 40)
+        && optStr(data, 'photoUrl', 512)
+        && optStr(data, 'email', 254)
+        && optStr(data, 'address', 500)
+        && optStr(data, 'businessName', 160)
+        && optStr(data, 'notes', 2000)
+        && data.type in ['customer', 'vendor']
+        && data.balance is number
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvoice(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'date', 'dueDate', 'items', 'subtotal', 'taxAmount', 'discountAmount', 'totalAmount', 'paidAmount', 'remainingAmount', 'status', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'date', 'dueDate', 'items', 'subtotal', 'taxAmount', 'discountAmount', 'totalAmount', 'paidAmount', 'remainingAmount', 'status', 'notes', 'createdByName', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && isValidId(data.id)
+        && data.workspaceUserId is string && data.workspaceUserId.size() <= 128
+        && data.invoiceNumber is string && data.invoiceNumber.size() <= 64
+        && data.customerId is string && data.customerId.size() <= 128
+        && data.customerName is string && data.customerName.size() <= 160
+        && optStr(data, 'customerPhone', 40)
+        && data.date is number
+        && data.dueDate is number
+        && data.items is list && data.items.size() <= 50 && (data.items.size() == 0 || data.items[0] is map)
+        && data.subtotal is number
+        && data.taxAmount is number
+        && data.discountAmount is number
+        && data.totalAmount is number
+        && data.paidAmount is number
+        && data.remainingAmount is number
+        && data.status in ['Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled', 'Partial']
+        && optStr(data, 'notes', 2000)
+        && optStr(data, 'createdByName', 120)
+        && data.clientCreatedAt is number
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCommissionEntry(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'client', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'commissionAmount', 'payoutStatus', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && isValidId(data.id)
+        && data.date is string && data.date.size() <= 32
+        && data.office is string && data.office.size() <= 160
+        && data.invoiceNo is string && data.invoiceNo.size() <= 64
+        && data.invoiceStatus in ['Active', 'Pending', 'Cancelled']
+        && data.agent is string && data.agent.size() <= 120
+        && optStr(data, 'agentId', 128)
+        && data.client is string && data.client.size() <= 160
+        && optStr(data, 'workerName', 160)
+        && optStr(data, 'clientMobile', 40)
+        && data['service'] is string && data['service'].size() <= 200
+        && data.qty is number
+        && data.ratePerUnit is number
+        && data.invoiceTotal is number
+        && data.remainingAmount is number
+        && data.eligible is bool
+        && optStr(data, 'reasonNotEligible', 500)
+        && data.commissionAmount is number
+        && optBool(data, 'isClawback')
+        && optNum(data, 'clawbackAmount')
+        && data.payoutStatus in ['To pay', 'Paid', 'Not eligible', 'Carried over']
+        && optNum(data, 'paidAt')
+        && optStr(data, 'period', 64)
+        && optStr(data, 'notes', 2000)
+        && data.clientCreatedAt is number
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCommissionPerson(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'name', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && isValidId(data.id)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
+        && optStr(data, 'iqamaNo', 64)
+        && optStr(data, 'phone', 40)
+        && optStr(data, 'office', 160)
+        && optStr(data, 'linkedUserId', 128)
+        && optStr(data, 'photoUrl', 512)
+        && data.clientCreatedAt is number
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCommissionMonth(data) {
+      return data.keys().hasAll(['ownerUid', 'month', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'month', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && data.month is string && data.month.size() == 7 && data.month.matches('^\\d{4}-\\d{2}$')
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidHomeBazarEntry(data) {
+      return data.keys().hasAll(['ownerUid', 'id', 'userId', 'workspaceUserId', 'date', 'itemName', 'category', 'amount', 'paymentMethod', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && isValidId(data.id)
+        && data.userId is string && data.userId.size() <= 128
+        && data.workspaceUserId is string && data.workspaceUserId.size() <= 128
+        && data.date is string && data.date.size() <= 32
+        && data.itemName is string && data.itemName.size() <= 200
+        && data.category is string && data.category.size() <= 100
+        && optStr(data, 'quantity', 80)
+        && data.amount is number
+        && data.paymentMethod in ['cash', 'bkash', 'nagad', 'bank']
+        && optStr(data, 'purchasedBy', 120)
+        && optStr(data, 'buyerId', 80)
+        && optStr(data, 'notes', 2000)
+        && data.clientCreatedAt is number
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidDeletedTombstone(data) {
+      return data.keys().hasAll(['ownerUid', 'recordId', 'deletedAtMs', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'recordId', 'deletedAtMs', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && data.recordId is string && data.recordId.size() >= 1 && data.recordId.size() <= 128
+        && data.deletedAtMs is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // Connection test doc
+    match /test/{docId} {
+      allow get: if isValidId(docId) && docId == 'connection' && isSignedIn();
+      allow list, write: if false;
+    }
+
+    // Admin registry
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if false;
+      allow create: if isValidId(uid) && isBootstrappedOwner() && isValidAdminUser(incoming())
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(uid) && isBootstrappedOwner() && isValidAdminUser(incoming())
+        && incoming().uid == existing().uid && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // Global settings
+    match /appSettings/{settingId} {
+      allow get: if isValidId(settingId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(settingId) && isAdmin() && isValidAppSettings(incoming())
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(settingId) && isAdmin() && isValidAppSettings(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'lastUpdatedBy', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(settingId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Users & Permissions
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(userId) && isAdmin() && isValidUserAccount(incoming())
+        && incoming().id == userId
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(userId) && isAdmin() && isValidUserAccount(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(userId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Bazar Buyers
+    match /bazarBuyers/{buyerId} {
+      allow get: if isValidId(buyerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(buyerId) && isAdmin() && isValidBazarBuyer(incoming())
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(buyerId) && isAdmin() && isValidBazarBuyer(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(buyerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Transactions
+    match /transactions/{txId} {
+      allow get: if isValidId(txId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(txId) && isAdmin() && isValidTransaction(incoming())
+        && incoming().id == txId
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(txId) && isAdmin() && isValidTransaction(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'updatedAt']);
+      allow delete: if isValidId(txId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Customers
+    match /customers/{customerId} {
+      allow get: if isValidId(customerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(customerId) && isAdmin() && isValidCustomer(incoming())
+        && incoming().id == customerId
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(customerId) && isAdmin() && isValidCustomer(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(customerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Invoices (with terminal state protection & admin override)
+    match /invoices/{invoiceId} {
+      allow get: if isValidId(invoiceId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(invoiceId) && isAdmin() && isValidInvoice(incoming())
+        && incoming().id == invoiceId
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(invoiceId) && isAdmin() && isValidInvoice(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (existing().status != 'Cancelled' || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'date', 'dueDate', 'items', 'subtotal', 'taxAmount', 'discountAmount', 'totalAmount', 'paidAmount', 'remainingAmount', 'status', 'notes', 'createdByName', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(invoiceId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Commission Entries (with terminal state protection & admin override)
+    match /commissionEntries/{entryId} {
+      allow get: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(entryId) && isAdmin() && isValidCommissionEntry(incoming())
+        && incoming().id == entryId
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(entryId) && isAdmin() && isValidCommissionEntry(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && (existing().invoiceStatus != 'Cancelled' || isAdmin())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Commission Persons
+    match /commissionPersons/{personId} {
+      allow get: if isValidId(personId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(personId) && isAdmin() && isValidCommissionPerson(incoming())
+        && incoming().id == personId
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(personId) && isAdmin() && isValidCommissionPerson(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(personId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Commission Months
+    match /commissionMonths/{monthId} {
+      allow get: if isValidId(monthId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(monthId) && isAdmin() && isValidCommissionMonth(incoming())
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(monthId) && isAdmin() && isValidCommissionMonth(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['month', 'updatedAt']);
+      allow delete: if isValidId(monthId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Home Bazar Entries
+    match /homeBazarEntries/{entryId} {
+      allow get: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(entryId) && isAdmin() && isValidHomeBazarEntry(incoming())
+        && incoming().id == entryId
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(entryId) && isAdmin() && isValidHomeBazarEntry(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'updatedAt']);
+      allow delete: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Deleted Record Tombstones
+    match /deletedRecords/{recordId} {
+      allow get: if isValidId(recordId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
+      allow create: if isValidId(recordId) && isAdmin() && isValidDeletedTombstone(incoming())
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(recordId) && isAdmin() && isValidDeletedTombstone(incoming())
+        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['deletedAtMs', 'updatedAt']);
+      allow delete: if isValidId(recordId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+  }
+}

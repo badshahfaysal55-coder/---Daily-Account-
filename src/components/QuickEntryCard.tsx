@@ -36,7 +36,7 @@ export const QuickEntryCard: React.FC<QuickEntryCardProps> = ({
   const [lastSavedTimestamp, setLastSavedTimestamp] = useState<string | null>(null);
   
   const [type, setType] = useState<'expense' | 'income'>('expense');
-  const [category, setCategory] = useState<string>('bazaar');
+  const [category, setCategory] = useState<string>('other');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'bkash' | 'nagad' | 'bank'>('cash');
   const [notes, setNotes] = useState('');
   const [viewAsMobilePhone, setViewAsMobilePhone] = useState(false);
@@ -139,7 +139,6 @@ export const QuickEntryCard: React.FC<QuickEntryCardProps> = ({
   };
 
   const quickPresets = [
-    { label: isBn ? 'কাঁচাবাজার ও খাদ্যসামগ্রী' : 'Bazaar & Grocery', num: 650, cat: 'bazaar', type: 'expense' as const },
     { label: isBn ? 'অফিস নাস্তা ও আপ্যায়ন' : 'Office Refreshments', num: 350, cat: 'dining', type: 'expense' as const },
     { label: isBn ? 'যাতায়াত ও সিএনজি ভাড়া' : 'Transport & Logistics', num: 180, cat: 'transport', type: 'expense' as const },
     { label: isBn ? 'বিদ্যুৎ ও ক্লাউড বিল' : 'Utilities & Server Cloud', num: 2800, cat: 'bills', type: 'expense' as const },

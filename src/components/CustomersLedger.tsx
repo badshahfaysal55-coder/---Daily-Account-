@@ -36,7 +36,7 @@ import {
 import { Customer, UserAccount, Invoice, InvoicePayment, GlobalAppSettings, CurrencyCode } from '../types/accounting';
 import { t, Language } from '../utils/translations';
 import { formatCurrency, formatDateBangla, formatDateEn } from '../utils/formatters';
-import { ApiService } from '../services/api';
+import { ApiService, isAppUnloading, isTransientFetchError } from '../services/api';
 import { ImageCropModal } from './ImageCropModal';
 import { CreateInvoiceModal } from './CreateInvoiceModal';
 import { RecordPaymentModal } from './RecordPaymentModal';
@@ -167,7 +167,9 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
       const list = await ApiService.getCustomers();
       setCustomers(list);
     } catch (err: any) {
-      console.error('Failed to load customers:', err);
+      if (!isAppUnloading() && !isTransientFetchError(err)) {
+        console.error('Failed to load customers:', err);
+      }
     } finally {
       setLoading(false);
     }
@@ -179,7 +181,9 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
       const data = await ApiService.getInvoices();
       setInvoices(data);
     } catch (err) {
-      console.error('Failed to load invoices:', err);
+      if (!isAppUnloading() && !isTransientFetchError(err)) {
+        console.error('Failed to load invoices:', err);
+      }
     } finally {
       setInvoicesLoading(false);
     }
@@ -187,6 +191,34 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
 
   useEffect(() => {
     loadInvoices();
+
+    const unsubscribe = ApiService.subscribeToEvents((event) => {
+      if (
+        event.startsWith('customer_') ||
+        event.startsWith('invoice_') ||
+        event === 'user_updated' ||
+        event === 'global_settings_updated' ||
+        event === 'database_restored'
+      ) {
+        loadCustomers();
+        loadInvoices();
+      }
+    });
+
+    const handleFocusOrRecovery = () => {
+      loadCustomers();
+      loadInvoices();
+    };
+    window.addEventListener('focus', handleFocusOrRecovery);
+    window.addEventListener('online', handleFocusOrRecovery);
+    window.addEventListener('zara-vault-recovered', handleFocusOrRecovery);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', handleFocusOrRecovery);
+      window.removeEventListener('online', handleFocusOrRecovery);
+      window.removeEventListener('zara-vault-recovered', handleFocusOrRecovery);
+    };
   }, []);
 
   const handleInvoiceCreated = (newInv: Invoice, updatedCust?: Customer) => {

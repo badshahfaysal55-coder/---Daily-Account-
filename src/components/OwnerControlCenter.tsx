@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { UserAccount, GlobalAppSettings, Transaction } from '../types/accounting';
 import { ApiService } from '../services/api';
+import { firestoreSyncService, FirestoreSyncStatus } from '../services/firestoreSyncService';
 import { formatCurrency, formatDateBangla, formatDateEn, toBanglaDigits } from '../utils/formatters';
 import { ProfilePhotoModal } from './ProfilePhotoModal';
 
@@ -57,6 +58,39 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
   // Tabs inside Owner Center
   const [ownerSubTab, setOwnerSubTab] = useState<'users' | 'broadcast' | 'consolidated' | 'backup'>('users');
+  const [cloudVaultStatus, setCloudVaultStatus] = useState<FirestoreSyncStatus>(() => firestoreSyncService.getStatus());
+  const [isConnectingCloud, setIsConnectingCloud] = useState(false);
+
+  useEffect(() => {
+    return firestoreSyncService.subscribe(setCloudVaultStatus);
+  }, []);
+
+  const handleConnectAndSyncCloud = async () => {
+    try {
+      setIsConnectingCloud(true);
+      setActionError(null);
+      if (!cloudVaultStatus.isVerifiedOwner) {
+        await firestoreSyncService.connectCloudVault();
+      }
+      const res = await ApiService.syncCloudFirestoreNow();
+      await loadData();
+      onUsersChanged?.();
+      window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
+      setActionSuccess(
+        res.recovered
+          ? isBn
+            ? 'ক্লাউড Firestore ভল্ট যুক্ত হয়েছে এবং সকল ইউজার ও ডাটা রিস্টোর হয়েছে।'
+            : 'Firebase Cloud Vault connected and missing users & records restored.'
+          : isBn
+            ? 'ক্লাউড Firestore ভল্ট সিঙ্ক সম্পন্ন হয়েছে — সকল ইউজার ও ডাটা এখন স্থায়ীভাবে সংরক্ষিত।'
+            : 'Firebase Cloud Vault synced — all users & data are now permanently saved.'
+      );
+    } catch (err: any) {
+      setActionError(err?.message || 'Failed to connect Firebase Cloud Vault');
+    } finally {
+      setIsConnectingCloud(false);
+    }
+  };
 
   // Create User Form State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -72,7 +106,10 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [newCanEditCustomers, setNewCanEditCustomers] = useState(true);
   const [newCanApproveInvoices, setNewCanApproveInvoices] = useState(true);
   const [newCanManageCommissions, setNewCanManageCommissions] = useState(false);
+  const [newCanManageBazar, setNewCanManageBazar] = useState(true);
+  const [newCanManageBuyers, setNewCanManageBuyers] = useState(false);
   const [newIsCommissionOnly, setNewIsCommissionOnly] = useState(false);
+  const [newIsCommissionBazarOnly, setNewIsCommissionBazarOnly] = useState(false);
 
   // Edit User State
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
@@ -88,16 +125,37 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [editCanEditCustomers, setEditCanEditCustomers] = useState(true);
   const [editCanApproveInvoices, setEditCanApproveInvoices] = useState(true);
   const [editCanManageCommissions, setEditCanManageCommissions] = useState(false);
+  const [editCanManageBazar, setEditCanManageBazar] = useState(true);
+  const [editCanManageBuyers, setEditCanManageBuyers] = useState(false);
   const [editIsCommissionOnly, setEditIsCommissionOnly] = useState(false);
+  const [editIsCommissionBazarOnly, setEditIsCommissionBazarOnly] = useState(false);
 
   const applyCommissionOnlyPresetToCreate = () => {
     setNewRole('staff');
     setNewIsCommissionOnly(true);
+    setNewIsCommissionBazarOnly(false);
     setNewCanManageCommissions(true);
     setNewCanAddTransactions(false);
     setNewCanViewLedger(false);
     setNewCanEditCustomers(false);
     setNewCanApproveInvoices(false);
+    setNewCanManageBazar(false);
+    setNewCanManageBuyers(false);
+    setNewCanDelete(false);
+    setNewCanExport(true);
+  };
+
+  const applyCommissionBazarOnlyPresetToCreate = () => {
+    setNewRole('staff');
+    setNewIsCommissionOnly(false);
+    setNewIsCommissionBazarOnly(true);
+    setNewCanManageCommissions(true);
+    setNewCanManageBazar(true);
+    setNewCanAddTransactions(false);
+    setNewCanViewLedger(false);
+    setNewCanEditCustomers(false);
+    setNewCanApproveInvoices(false);
+    setNewCanManageBuyers(false);
     setNewCanDelete(false);
     setNewCanExport(true);
   };
@@ -105,11 +163,29 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const applyCommissionOnlyPresetToEdit = () => {
     setEditRole('staff');
     setEditIsCommissionOnly(true);
+    setEditIsCommissionBazarOnly(false);
     setEditCanManageCommissions(true);
     setEditCanAddTransactions(false);
     setEditCanViewLedger(false);
     setEditCanEditCustomers(false);
     setEditCanApproveInvoices(false);
+    setEditCanManageBazar(false);
+    setEditCanManageBuyers(false);
+    setEditCanDelete(false);
+    setEditCanExport(true);
+  };
+
+  const applyCommissionBazarOnlyPresetToEdit = () => {
+    setEditRole('staff');
+    setEditIsCommissionOnly(false);
+    setEditIsCommissionBazarOnly(true);
+    setEditCanManageCommissions(true);
+    setEditCanManageBazar(true);
+    setEditCanAddTransactions(false);
+    setEditCanViewLedger(false);
+    setEditCanEditCustomers(false);
+    setEditCanApproveInvoices(false);
+    setEditCanManageBuyers(false);
     setEditCanDelete(false);
     setEditCanExport(true);
   };
@@ -117,10 +193,12 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   // Broadcast & Global App Settings state
   const [appName, setAppName] = useState(globalSettings.appName);
   const [companyName, setCompanyName] = useState(globalSettings.companyName);
+  const [appVersion, setAppVersion] = useState(globalSettings.version || '2.5.0-gold');
   const [broadcastMessage, setBroadcastMessage] = useState(globalSettings.broadcastMessage);
   const [broadcastType, setBroadcastType] = useState(globalSettings.broadcastType);
   const [broadcastActive, setBroadcastActive] = useState(globalSettings.broadcastActive);
   const [currency, setCurrency] = useState(globalSettings.currency);
+  const [isPushingUpdate, setIsPushingUpdate] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -142,6 +220,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   useEffect(() => {
     setAppName(globalSettings.appName);
     setCompanyName(globalSettings.companyName);
+    setAppVersion(globalSettings.version || '2.5.0-gold');
     setBroadcastMessage(globalSettings.broadcastMessage);
     setBroadcastType(globalSettings.broadcastType);
     setBroadcastActive(globalSettings.broadcastActive);
@@ -193,7 +272,10 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canEditCustomers: newCanEditCustomers,
         canApproveInvoices: newCanApproveInvoices,
         canManageCommissions: newCanManageCommissions,
+        canManageBazar: newCanManageBazar,
+        canManageBuyers: newCanManageBuyers,
         isCommissionOnly: newIsCommissionOnly,
+        isCommissionBazarOnly: newIsCommissionBazarOnly,
       });
 
       setUsers((prev) => [...prev, created]);
@@ -204,6 +286,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setNewPassword('');
       setNewWorkspace('');
       setNewIsCommissionOnly(false);
+      setNewIsCommissionBazarOnly(false);
       triggerToast(isBn ? `ইউজার "${created.name}" সফলভাবে তৈরি ও অটো-সিঙ্ক হয়েছে!` : `User "${created.name}" created & auto-synced!`);
     } catch (err: any) {
       setActionError(err.message);
@@ -225,7 +308,10 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanEditCustomers(u.canEditCustomers ?? true);
     setEditCanApproveInvoices(u.canApproveInvoices ?? true);
     setEditCanManageCommissions(u.canManageCommissions ?? false);
+    setEditCanManageBazar(u.canManageBazar ?? true);
+    setEditCanManageBuyers(u.canManageBuyers ?? (u.role === 'owner' || u.role === 'admin'));
     setEditIsCommissionOnly(Boolean(u.isCommissionOnly));
+    setEditIsCommissionBazarOnly(Boolean(u.isCommissionBazarOnly));
   };
 
   const handleUpdateUser = async (e: React.FormEvent) => {
@@ -246,7 +332,10 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canEditCustomers: editCanEditCustomers,
         canApproveInvoices: editCanApproveInvoices,
         canManageCommissions: editCanManageCommissions,
+        canManageBazar: editCanManageBazar,
+        canManageBuyers: editCanManageBuyers,
         isCommissionOnly: editIsCommissionOnly,
+        isCommissionBazarOnly: editIsCommissionBazarOnly,
       });
 
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
@@ -266,17 +355,72 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     const updates: Partial<UserAccount> = willBeCommOnly
       ? {
           isCommissionOnly: true,
+          isCommissionBazarOnly: false,
           canManageCommissions: true,
           canAddTransactions: false,
           canViewLedger: false,
           canEditCustomers: false,
           canApproveInvoices: false,
+          canManageBazar: false,
+          canManageBuyers: false,
           canExport: true,
           canDelete: false,
         }
       : {
           isCommissionOnly: false,
+          isCommissionBazarOnly: false,
           canManageCommissions: true,
+          canAddTransactions: true,
+          canViewLedger: true,
+          canEditCustomers: true,
+          canApproveInvoices: true,
+          canManageBazar: true,
+          canExport: true,
+        };
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === targetUser.id ? { ...u, ...updates } : u))
+    );
+
+    try {
+      const updated = await ApiService.updateUser(targetUser.id, updates);
+      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      onUsersChanged?.();
+      triggerToast(
+        willBeCommOnly
+          ? (isBn ? `"${targetUser.name}" কে শুধু কমিশন শিট দেখার অনুমতি দেয়া হয়েছে!` : `User "${targetUser.name}" restricted to Commission Sheet only!`)
+          : (isBn ? `"${targetUser.name}" এর সকল হিসাব ও খতিয়ান অনুমতি ফিরিয়ে দেয়া হয়েছে!` : `Standard permissions restored for "${targetUser.name}"!`)
+      );
+    } catch (err: any) {
+      setUsers((prev) => prev.map((u) => (u.id === targetUser.id ? targetUser : u)));
+      setActionError(err.message);
+    }
+  };
+
+  // Dedicated 1-Click Toggle for Commission Sheet + Daily Bazar Only
+  const handleToggleCommissionBazarOnly = async (targetUser: UserAccount) => {
+    if (targetUser.role === 'owner') return;
+    const willBeCommBazarOnly = !targetUser.isCommissionBazarOnly;
+
+    const updates: Partial<UserAccount> = willBeCommBazarOnly
+      ? {
+          isCommissionOnly: false,
+          isCommissionBazarOnly: true,
+          canManageCommissions: true,
+          canManageBazar: true,
+          canAddTransactions: false,
+          canViewLedger: false,
+          canEditCustomers: false,
+          canApproveInvoices: false,
+          canManageBuyers: false,
+          canExport: true,
+          canDelete: false,
+        }
+      : {
+          isCommissionOnly: false,
+          isCommissionBazarOnly: false,
+          canManageCommissions: true,
+          canManageBazar: true,
           canAddTransactions: true,
           canViewLedger: true,
           canEditCustomers: true,
@@ -293,8 +437,8 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       onUsersChanged?.();
       triggerToast(
-        willBeCommOnly
-          ? (isBn ? `"${targetUser.name}" কে শুধু কমিশন শিট দেখার অনুমতি দেয়া হয়েছে!` : `User "${targetUser.name}" restricted to Commission Sheet only!`)
+        willBeCommBazarOnly
+          ? (isBn ? `"${targetUser.name}" কে শুধু কমিশন ও বাজার পেজের অনুমতি দেয়া হয়েছে!` : `User "${targetUser.name}" restricted to Commission & Bazar pages only!`)
           : (isBn ? `"${targetUser.name}" এর সকল হিসাব ও খতিয়ান অনুমতি ফিরিয়ে দেয়া হয়েছে!` : `Standard permissions restored for "${targetUser.name}"!`)
       );
     } catch (err: any) {
@@ -362,22 +506,50 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       | 'canEditCustomers'
       | 'canApproveInvoices'
       | 'canManageCommissions'
+      | 'canManageBazar'
+      | 'canManageBuyers'
       | 'canExport'
       | 'canDelete'
   ) => {
     if (targetUser.role === 'owner') return;
-    const currentVal = targetUser[permKey] ?? (permKey === 'canDelete' || permKey === 'canManageCommissions' ? false : true);
+    const defaultFalse = permKey === 'canDelete' || permKey === 'canManageCommissions' || permKey === 'canManageBuyers';
+    const currentVal = targetUser[permKey] ?? !defaultFalse;
     const newVal = !currentVal;
+
+    const extraUpdates: Partial<UserAccount> = {};
+    if (
+      (permKey === 'canAddTransactions' ||
+        permKey === 'canViewLedger' ||
+        permKey === 'canEditCustomers' ||
+        permKey === 'canApproveInvoices') &&
+      newVal
+    ) {
+      extraUpdates.isCommissionOnly = false;
+      extraUpdates.isCommissionBazarOnly = false;
+    } else if (permKey === 'canManageBazar' && newVal && targetUser.isCommissionOnly) {
+      extraUpdates.isCommissionOnly = false;
+      if (targetUser.canManageCommissions) {
+        extraUpdates.isCommissionBazarOnly = true;
+      }
+    } else if (permKey === 'canManageBazar' && !newVal && targetUser.isCommissionBazarOnly) {
+      extraUpdates.isCommissionBazarOnly = false;
+      if (targetUser.canManageCommissions) {
+        extraUpdates.isCommissionOnly = true;
+      }
+    } else if (permKey === 'canManageCommissions' && !newVal) {
+      extraUpdates.isCommissionOnly = false;
+      extraUpdates.isCommissionBazarOnly = false;
+    }
+
+    const payload = { [permKey]: newVal, ...extraUpdates };
 
     // Optimistic UI update
     setUsers((prev) =>
-      prev.map((u) => (u.id === targetUser.id ? { ...u, [permKey]: newVal } : u))
+      prev.map((u) => (u.id === targetUser.id ? { ...u, ...payload } : u))
     );
 
     try {
-      const updated = await ApiService.updateUser(targetUser.id, {
-        [permKey]: newVal,
-      });
+      const updated = await ApiService.updateUser(targetUser.id, payload);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       onUsersChanged?.();
       triggerToast(
@@ -388,7 +560,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     } catch (err: any) {
       // Revert on error
       setUsers((prev) =>
-        prev.map((u) => (u.id === targetUser.id ? { ...u, [permKey]: currentVal } : u))
+        prev.map((u) => (u.id === targetUser.id ? targetUser : u))
       );
       setActionError(err.message || 'Failed to update permission');
     }
@@ -401,15 +573,42 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       const updated = await ApiService.updateGlobalSettings({
         appName,
         companyName,
+        version: appVersion,
         broadcastMessage,
         broadcastType,
         broadcastActive,
         currency,
       });
       onUpdateGlobalSettings(updated);
-      triggerToast(isBn ? 'গ্লোবাল সেটিংস ও ব্রডকাস্ট নোটিশ আপডেট হয়েছে!' : 'Global app settings & broadcast banner updated!');
+      triggerToast(isBn ? 'গ্লোবাল সেটিংস ও ব্রডকাস্ট নোটিশ সকল ইউজারের অ্যাপে আপডেট হয়েছে!' : 'Global app settings & broadcast updated across all user apps!');
     } catch (err: any) {
       setActionError(err.message);
+    }
+  };
+
+  const handlePushUpdateToAllUsers = async () => {
+    setIsPushingUpdate(true);
+    try {
+      const updated = await ApiService.updateGlobalSettings({
+        appName,
+        companyName,
+        version: appVersion,
+        broadcastMessage,
+        broadcastType,
+        broadcastActive,
+        currency,
+        forceRefreshClients: true,
+      });
+      onUpdateGlobalSettings(updated);
+      triggerToast(
+        isBn
+          ? 'সকল ইউজারের অ্যাপে অটো-আপডেট ও রিফ্রেশ পাঠানো হয়েছে!'
+          : 'Auto-update pushed! Every connected user app is updating now.'
+      );
+    } catch (err: any) {
+      setActionError(err.message || 'Failed to push update');
+    } finally {
+      setIsPushingUpdate(false);
     }
   };
 
@@ -617,6 +816,63 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
             </span>
           </div>
 
+          <div
+            className={`px-4 sm:px-5 py-3 border-b flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 ${
+              cloudVaultStatus.isVerifiedOwner
+                ? 'bg-emerald-50/70 border-emerald-100'
+                : 'bg-amber-50/80 border-amber-100'
+            }`}
+          >
+            <div className="flex items-start sm:items-center gap-2.5 text-xs">
+              <ShieldCheck
+                className={`w-4 h-4 shrink-0 mt-0.5 sm:mt-0 ${
+                  cloudVaultStatus.isVerifiedOwner ? 'text-emerald-600' : 'text-amber-600'
+                }`}
+              />
+              <div>
+                <p className="font-bold text-slate-900">
+                  {cloudVaultStatus.isVerifiedOwner
+                    ? isBn
+                      ? `Firebase ক্লাউড ভল্ট সক্রিয় (${cloudVaultStatus.email})`
+                      : `Firebase Cloud Vault Active (${cloudVaultStatus.email})`
+                    : isBn
+                      ? 'প্রতিটি আপডেটে ইউজার স্থায়ীভাবে সংরক্ষণ করতে Firebase ক্লাউড ভল্ট যুক্ত করুন'
+                      : 'Connect Firebase Cloud Vault so added Users & Data survive every app update'}
+                </p>
+                <p className="text-[11px] text-slate-600">
+                  {cloudVaultStatus.isVerifiedOwner
+                    ? cloudVaultStatus.lastSyncedAt
+                      ? `Last cloud sync: ${new Date(cloudVaultStatus.lastSyncedAt).toLocaleTimeString()}`
+                      : 'All created users, permissions & ledger records auto-sync permanently to Firestore.'
+                    : isBn
+                      ? 'ব্রাউজার ভল্ট (IndexedDB) চালু আছে; ক্লাউড সিঙ্ক চালু করলে যেকোনো ডিভাইস/আপডেটে ইউজার কখনো হারাবে না।'
+                      : 'Browser IndexedDB Vault is active; connecting Google Cloud Vault syncs all users permanently across deployments & devices.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleConnectAndSyncCloud}
+              disabled={isConnectingCloud || cloudVaultStatus.syncing}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                cloudVaultStatus.isVerifiedOwner
+                  ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                  : 'bg-amber-600 hover:bg-amber-700 text-white shadow-sm'
+              }`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isConnectingCloud || cloudVaultStatus.syncing ? 'animate-spin' : ''}`} />
+              <span>
+                {cloudVaultStatus.isVerifiedOwner
+                  ? isBn
+                    ? 'ক্লাউড সিঙ্ক করুন'
+                    : 'Sync Cloud Now'
+                  : isBn
+                    ? 'Google দিয়ে ক্লাউড যুক্ত করুন'
+                    : 'Connect Cloud Sync (Google)'}
+              </span>
+            </button>
+          </div>
+
           <div className="overflow-x-auto divide-y divide-slate-100">
             {users.map((u) => {
               const isOwner = u.role === 'owner';
@@ -760,6 +1016,34 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                         <button
                           type="button"
                           disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canManageBazar')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে দৈনিক বাজার খাতা পারমিশন পরিবর্তন করুন' : 'Click to toggle Daily Bazar access permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            u.canManageBazar !== false ? 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100' : 'bg-slate-100 text-slate-400 line-through hover:bg-slate-200'
+                          }`}
+                        >
+                          {u.canManageBazar !== false ? '✓' : '✕'} {isBn ? 'বাজার' : 'Bazar'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canManageBuyers')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে Buyer ID ও ছবি পরিবর্তন পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Buyer ID & Photo editing permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            u.canManageBuyers ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {u.canManageBuyers ? '✓' : '✕'} {isBn ? 'ক্রেতা ও ছবি' : 'Buyer ID & Photo'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
                           onClick={() => handleToggleCommissionOnly(u)}
                           title={isOwner ? undefined : (isBn ? 'এই ইউজারকে শুধু কমিশন শিট ব্যবহারের অনুমতি দিন (বাকি সব অপশন লুকানো থাকবে)' : 'Grant ONLY Commission Sheet access to this user (hides all other tabs)')}
                           className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition select-none ${
@@ -771,6 +1055,22 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           }`}
                         >
                           ⚡ {u.isCommissionOnly ? (isBn ? 'শুধু কমিশন [অন]' : 'Comm Only [ON]') : (isBn ? 'শুধু কমিশন' : 'Only Comm')}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleToggleCommissionBazarOnly(u)}
+                          title={isOwner ? undefined : (isBn ? 'এই ইউজারকে শুধু কমিশন শিট ও দৈনিক বাজার পেজ ব্যবহারের অনুমতি দিন (বাকি সব পেজ লুকানো থাকবে)' : 'Grant ONLY Commission Sheet & Daily Bazar page access (hides Dashboard, Invoices, CRM & Ledger)')}
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            u.isCommissionBazarOnly
+                              ? 'bg-amber-600 text-white shadow-xs ring-1 ring-amber-400 font-extrabold'
+                              : 'bg-slate-100 text-slate-500 hover:bg-amber-50 hover:text-amber-700 border border-slate-200'
+                          }`}
+                        >
+                          🛒 {u.isCommissionBazarOnly ? (isBn ? 'কমিশন + বাজার [অন]' : 'Comm + Bazar [ON]') : (isBn ? 'কমিশন + বাজার' : 'Comm + Bazar')}
                         </button>
 
                         <button
@@ -972,7 +1272,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
           </div>
 
           <form onSubmit={handleSaveGlobalSettings} className="space-y-4 max-w-2xl">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center gap-2.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0" />
+              <span>
+                {isBn
+                  ? 'অটো-আপডেট সক্রিয়: কোড ডিপ্লয়, পারমিশন পরিবর্তন বা যেকোনো ডেটা আপডেট হলে সকল ইউজারের মোবাইল ও ব্রাউজার অ্যাপ স্বয়ংক্রিয়ভাবে আপডেট হয়ে যাবে।'
+                  : 'Always-On Auto-Update Active: Every code deploy, permission change, setting update, and ledger entry automatically updates every user app across desktop, mobile & PWA.'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">
                   {isBn ? 'অ্যাপের নাম (Global App Name)' : 'App Name'}
@@ -994,6 +1303,19 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                   value={companyName}
                   onChange={(e) => setCompanyName(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-medium focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">
+                  {isBn ? 'অ্যাপ ভার্সন (App Version)' : 'App Version'}
+                </label>
+                <input
+                  type="text"
+                  value={appVersion}
+                  onChange={(e) => setAppVersion(e.target.value)}
+                  placeholder="2.5.0-gold"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-mono font-semibold focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500"
                 />
               </div>
             </div>
@@ -1059,12 +1381,26 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
               </div>
             </div>
 
-            <div className="pt-2">
+            <div className="pt-2 flex flex-wrap items-center gap-3">
               <button
                 type="submit"
                 className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md shadow-amber-600/20 transition cursor-pointer"
               >
                 {isBn ? 'সকল ইউজারের জন্য গ্লোবাল আপডেট সেভ করুন' : 'Broadcast Updates to All Users'}
+              </button>
+
+              <button
+                type="button"
+                disabled={isPushingUpdate}
+                onClick={handlePushUpdateToAllUsers}
+                className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs shadow-md shadow-emerald-600/20 transition cursor-pointer flex items-center gap-2"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isPushingUpdate ? 'animate-spin' : ''}`} />
+                <span>
+                  {isBn
+                    ? 'সকল ইউজারের অ্যাপ এখনই আপডেট/রিফ্রেশ করুন'
+                    : 'Push Update & Refresh All User Apps Now'}
+                </span>
               </button>
             </div>
           </form>
@@ -1109,16 +1445,36 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
             <div className="p-5 rounded-2xl border border-slate-200 bg-slate-50/60 space-y-3">
               <div className="flex items-center gap-2 text-slate-900 font-bold text-sm">
                 <ShieldCheck className="w-4 h-4 text-indigo-600" />
-                <span>{isBn ? 'সর্বক্ষণ স্বয়ংক্রিয় ব্যাকআপ (Always-On)' : 'Always-On Continuous Auto-Backup'}</span>
+                <span>{isBn ? 'Firebase ক্লাউড ভল্ট ও সর্বক্ষণ স্বয়ংক্রিয় ব্যাকআপ' : 'Firebase Cloud Vault & Always-On Auto-Backup'}</span>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
                 {isBn 
-                  ? 'প্রতিটি পরিবর্তন, রোলিং চেকপয়েন্ট (/data/backups) এবং ব্রাউজার ভল্ট (IndexedDB + 12টি রোলিং স্ন্যাপশট) স্বয়ংক্রিয়ভাবে সবসময় ব্যাকআপ হতে থাকে।'
-                  : 'Every edit atomically writes to server storage + rolling checkpoints (/data/backups), mirrors continuously to IndexedDB (12 rolling snapshots) & localStorage, and auto-syncs to Google Drive when connected.'}
+                  ? 'প্রতিটি পরিবর্তন সার্ভার চেকপয়েন্ট, IndexedDB ভল্ট (১২টি রোলিং স্ন্যাপশট) এবং Firebase Firestore ক্লাউড ডাটাবেজে সংরক্ষিত হয় যাতে কোনো আপডেটেই ইউজার বা ডাটা না হারায়।'
+                  : 'Every edit saves to server checkpoints, IndexedDB Vault (12 rolling snapshots), and Firebase Firestore Cloud Database so users and accounting data never disappear across updates.'}
               </p>
               <div className="text-[11px] font-mono text-emerald-700 bg-emerald-50 p-2 rounded-lg border border-emerald-200">
-                Active: Server + Rolling Checkpoints + IndexedDB Vault + Auto Drive Sync
+                Active: Server + IndexedDB Vault +{' '}
+                {cloudVaultStatus.isVerifiedOwner
+                  ? `Firebase Firestore (${cloudVaultStatus.email})`
+                  : 'Firestore Ready (Connect Google)'}
               </div>
+              <button
+                type="button"
+                onClick={handleConnectAndSyncCloud}
+                disabled={isConnectingCloud || cloudVaultStatus.syncing}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-sm transition cursor-pointer flex items-center gap-1.5"
+              >
+                <RefreshCw className={`w-4 h-4 ${isConnectingCloud || cloudVaultStatus.syncing ? 'animate-spin' : ''}`} />
+                <span>
+                  {cloudVaultStatus.isVerifiedOwner
+                    ? isBn
+                      ? 'এখনই Firebase ক্লাউড সিঙ্ক করুন'
+                      : 'Sync Firebase Cloud Vault Now'
+                    : isBn
+                      ? 'Firebase ক্লাউড পার্সিস্টেন্স চালু করুন (Google)'
+                      : 'Enable Firebase Cloud Vault (Sign in with Google)'}
+                </span>
+              </button>
             </div>
           </div>
         </div>
@@ -1212,20 +1568,45 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
               {/* Comprehensive User Access Control Section */}
               <div className="pt-2 border-t border-slate-200">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
                   <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5 text-amber-700">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     {isBn ? 'বিশেষ অ্যাক্সেস সুবিধা ও পারমিশন কন্ট্রোল' : 'Access Privileges & Security Privileges'}
                   </span>
-                  <button
-                    type="button"
-                    onClick={applyCommissionOnlyPresetToCreate}
-                    className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
-                  >
-                    ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন শিট' : 'Preset: Commission Only'}
-                  </button>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={applyCommissionBazarOnlyPresetToCreate}
+                      className="px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                    >
+                      🛒 {isBn ? 'প্রিসেট: কমিশন + বাজার' : 'Preset: Comm + Bazar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyCommissionOnlyPresetToCreate}
+                      className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                    >
+                      ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন' : 'Preset: Comm Only'}
+                    </button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900 sm:col-span-2 p-1.5 rounded-lg bg-amber-50/90 border border-amber-200 select-none">
+                    <input
+                      type="checkbox"
+                      checked={newIsCommissionBazarOnly}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setNewIsCommissionBazarOnly(checked);
+                        if (checked) {
+                          applyCommissionBazarOnlyPresetToCreate();
+                        }
+                      }}
+                      className="rounded text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>🛒 {isBn ? 'শুধু কমিশন শিট ও দৈনিক বাজার পেজের অনুমতি (বাকি সব পেজ লুকানো থাকবে)' : 'Only Commission Page + Bazar Page (Hide all other pages)'}</span>
+                  </label>
+
                   <label className="flex items-center gap-2 cursor-pointer font-bold text-emerald-800 sm:col-span-2 p-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 select-none">
                     <input
                       type="checkbox"
@@ -1290,6 +1671,26 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                       className="rounded text-amber-600 focus:ring-amber-500"
                     />
                     <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                    <input
+                      type="checkbox"
+                      checked={newCanManageBazar}
+                      onChange={(e) => setNewCanManageBazar(e.target.checked)}
+                      className="rounded text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>{isBn ? 'দৈনিক বাজার খাতা (Daily Bazar)' : 'Daily Bazar Access'}</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                    <input
+                      type="checkbox"
+                      checked={newCanManageBuyers}
+                      onChange={(e) => setNewCanManageBuyers(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
@@ -1422,20 +1823,45 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
               {/* Comprehensive User Access Control Section for Editing */}
               <div className="pt-2 border-t border-slate-200">
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
                   <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5 text-blue-700">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     {isBn ? 'বিশেষ অ্যাক্সেস সুবিধা ও পারমিশন কন্ট্রোল' : 'Access Privileges & Security Privileges'}
                   </span>
-                  <button
-                    type="button"
-                    onClick={applyCommissionOnlyPresetToEdit}
-                    className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
-                  >
-                    ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন শিট' : 'Preset: Commission Only'}
-                  </button>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={applyCommissionBazarOnlyPresetToEdit}
+                      className="px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                    >
+                      🛒 {isBn ? 'প্রিসেট: কমিশন + বাজার' : 'Preset: Comm + Bazar'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyCommissionOnlyPresetToEdit}
+                      className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                    >
+                      ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন' : 'Preset: Comm Only'}
+                    </button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                  <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900 sm:col-span-2 p-1.5 rounded-lg bg-amber-50/90 border border-amber-200 select-none">
+                    <input
+                      type="checkbox"
+                      checked={editIsCommissionBazarOnly}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setEditIsCommissionBazarOnly(checked);
+                        if (checked) {
+                          applyCommissionBazarOnlyPresetToEdit();
+                        }
+                      }}
+                      className="rounded text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>🛒 {isBn ? 'শুধু কমিশন শিট ও দৈনিক বাজার পেজের অনুমতি (বাকি সব পেজ লুকানো থাকবে)' : 'Only Commission Page + Bazar Page (Hide all other pages)'}</span>
+                  </label>
+
                   <label className="flex items-center gap-2 cursor-pointer font-bold text-emerald-800 sm:col-span-2 p-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 select-none">
                     <input
                       type="checkbox"
@@ -1500,6 +1926,26 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                       className="rounded text-blue-600 focus:ring-blue-500"
                     />
                     <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                    <input
+                      type="checkbox"
+                      checked={editCanManageBazar}
+                      onChange={(e) => setEditCanManageBazar(e.target.checked)}
+                      className="rounded text-amber-600 focus:ring-amber-500"
+                    />
+                    <span>{isBn ? 'দৈনিক বাজার খাতা (Daily Bazar)' : 'Daily Bazar Access'}</span>
+                  </label>
+
+                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                    <input
+                      type="checkbox"
+                      checked={editCanManageBuyers}
+                      onChange={(e) => setEditCanManageBuyers(e.target.checked)}
+                      className="rounded text-indigo-600 focus:ring-indigo-500"
+                    />
+                    <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
                   </label>
 
                   <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">

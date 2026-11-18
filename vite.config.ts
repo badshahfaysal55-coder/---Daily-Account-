@@ -9,6 +9,15 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
+      {
+        name: 'dev-pwa-manifest-link',
+        transformIndexHtml(html, ctx) {
+          if (ctx.server && !html.includes('rel="manifest"')) {
+            return html.replace('</head>', '    <link rel="manifest" href="/manifest.webmanifest" />\n  </head>');
+          }
+          return html;
+        },
+      },
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: [
@@ -26,7 +35,9 @@ export default defineConfig(() => {
           theme_color: '#101A2C',
           background_color: '#101A2C',
           display: 'standalone',
-          orientation: 'portrait',
+          display_override: ['standalone', 'minimal-ui'],
+          orientation: 'any',
+          categories: ['business', 'finance'],
           start_url: '/',
           scope: '/',
           icons: [
@@ -51,9 +62,12 @@ export default defineConfig(() => {
           ],
         },
         workbox: {
+          cleanupOutdatedCaches: true,
+          skipWaiting: true,
+          clientsClaim: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
           globIgnores: ['**/assets/aistudio/Screenshot_*', '**/assets/aistudio/image_*'],
-          maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
+          maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
           navigateFallbackDenylist: [/^\/api/],
           runtimeCaching: [
             {
@@ -91,7 +105,7 @@ export default defineConfig(() => {
           ],
         },
         devOptions: {
-          enabled: true,
+          enabled: false,
           type: 'module',
         },
       }),

@@ -60,7 +60,10 @@ export interface DbUser {
   canEditCustomers?: boolean;      // Permission: Add / edit customers
   canApproveInvoices?: boolean;    // Permission: Invoices & payments
   canManageCommissions?: boolean;  // Permission: Commission sheets
+  canManageBazar?: boolean;        // Permission: Daily Bazar ledger
+  canManageBuyers?: boolean;       // Permission: Buyer IDs & Buyer photos
   isCommissionOnly?: boolean;      // Permission: Commission sheet only
+  isCommissionBazarOnly?: boolean; // Permission: Commission sheet & Daily Bazar only
   theme?: AppTheme;
   displayMode?: DisplayMode;
   language?: 'bn' | 'en';
@@ -70,6 +73,7 @@ export interface DbUser {
   photoUrl?: string;
   photoData?: string;
   createdAt: number;
+  updatedAt?: number;
   lastLoginAt?: number;
 }
 
@@ -154,6 +158,11 @@ export interface DbBazarBuyer {
   name: string;
   phone?: string;
   role?: string;
+  amount?: number;
+  notes?: string;
+  photoUrl?: string;
+  photoData?: string;
+  updatedAt?: number;
 }
 
 export interface DbGlobalSettings {
@@ -169,6 +178,7 @@ export interface DbGlobalSettings {
   sidebarBgColor?: string;
   bazarMonthlyBudget?: number;
   bazarBuyers?: DbBazarBuyer[];
+  forceRefreshAt?: number;
   updatedAt: number;
   lastUpdatedBy: string;
 }
@@ -281,6 +291,8 @@ const INITIAL_DATABASE: DatabaseSchema = {
       canEditCustomers: true,
       canApproveInvoices: true,
       canManageCommissions: true,
+      canManageBazar: true,
+      canManageBuyers: true,
       theme: 'midnight-gold',
       displayMode: 'light',
       language: 'en',
@@ -404,6 +416,9 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   if (parsed.globalSettings.bazarMonthlyBudget === undefined) {
     parsed.globalSettings.bazarMonthlyBudget = 0;
   }
+  if (parsed.globalSettings.forceRefreshAt === undefined) {
+    parsed.globalSettings.forceRefreshAt = 0;
+  }
   if (!Array.isArray(parsed.globalSettings.bazarBuyers)) {
     parsed.globalSettings.bazarBuyers = [
       { buyerId: 'rh.faysal007', name: 'Faysal Ahmed (Main Owner)', role: 'Owner' },
@@ -445,6 +460,13 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
     if (u.canEditCustomers === undefined) u.canEditCustomers = u.role !== 'viewer';
     if (u.canApproveInvoices === undefined) u.canApproveInvoices = u.role === 'owner' || u.role === 'admin' || u.role === 'manager';
     if (u.canManageCommissions === undefined) u.canManageCommissions = u.role === 'owner' || u.role === 'admin' || u.role === 'manager';
+    if (u.canManageBazar === undefined) u.canManageBazar = u.role === 'owner' || !u.isCommissionOnly;
+    if (u.canManageBuyers === undefined) u.canManageBuyers = u.role === 'owner' || u.role === 'admin';
+    if (u.isCommissionBazarOnly) {
+      u.isCommissionOnly = false;
+      if (u.canManageCommissions === undefined) u.canManageCommissions = true;
+      if (u.canManageBazar === undefined) u.canManageBazar = true;
+    }
   });
 
   // Self-heal profile & customer photos between PHOTOS_DIR and embedded photoData
@@ -510,6 +532,16 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   parsed.users.forEach(rehydrateRecordPhoto);
   parsed.customers.forEach(rehydrateRecordPhoto);
   parsed.commissionPersons.forEach(rehydrateRecordPhoto);
+  if (Array.isArray(parsed.globalSettings?.bazarBuyers)) {
+    parsed.globalSettings.bazarBuyers.forEach((b: any) => {
+      if (!b || !b.buyerId) return;
+      const safeKey = 'buyer_' + String(b.buyerId).replace(/[^a-zA-Z0-9_-]/g, '_');
+      const temp: any = { id: safeKey, photoUrl: b.photoUrl, photoData: b.photoData };
+      rehydrateRecordPhoto(temp);
+      if (temp.photoUrl) b.photoUrl = temp.photoUrl;
+      if (temp.photoData) b.photoData = temp.photoData;
+    });
+  }
 
   return parsed as DatabaseSchema;
 }
@@ -624,10 +656,84 @@ function notifySubscribers(event: string, data: any) {
   }
 }
 
+const isProductionEnv = process.env.NODE_ENV === 'production';
+let cachedBuildFingerprint = { value: '', computedAt: 0 };
+
+function computeLatestMtimeInDir(dirPath: string): number {
+  let latest = 0;
+  try {
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue;
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        const sub = computeLatestMtimeInDir(fullPath);
+        if (sub > latest) latest = sub;
+      } else {
+        try {
+          const st = fs.statSync(fullPath);
+          if (st.mtimeMs > latest) latest = st.mtimeMs;
+        } catch {}
+      }
+    }
+  } catch {}
+  return latest;
+}
+
+function getBuildId(): string {
+  const now = Date.now();
+  if (cachedBuildFingerprint.value && now - cachedBuildFingerprint.computedAt < 3000) {
+    return cachedBuildFingerprint.value;
+  }
+  const hash = crypto.createHash('sha1');
+  try {
+    const distIndex = path.join(__dirname, 'dist', 'index.html');
+    if (fs.existsSync(distIndex)) {
+      hash.update(fs.readFileSync(distIndex));
+    }
+    const distSw = path.join(__dirname, 'dist', 'sw.js');
+    if (fs.existsSync(distSw)) {
+      hash.update(fs.readFileSync(distSw));
+    }
+    const serverStat = fs.statSync(__filename);
+    hash.update(String(Math.round(serverStat.mtimeMs)));
+    if (!isProductionEnv) {
+      const rootHtml = path.join(__dirname, 'index.html');
+      if (fs.existsSync(rootHtml)) {
+        hash.update(String(Math.round(fs.statSync(rootHtml).mtimeMs)));
+      }
+      hash.update(String(Math.round(computeLatestMtimeInDir(path.join(__dirname, 'src')))));
+    }
+  } catch {
+    hash.update('zara-default-build');
+  }
+  const digest = hash.digest('hex').slice(0, 14);
+  cachedBuildFingerprint = { value: digest, computedAt: now };
+  return digest;
+}
+
+function getAppVersionInfo() {
+  return {
+    buildId: getBuildId(),
+    version: db.globalSettings?.version || '2.5.0-gold',
+    settingsUpdatedAt: Number(db.globalSettings?.updatedAt) || 0,
+    forceRefreshAt: Number(db.globalSettings?.forceRefreshAt) || 0,
+    serverTime: Date.now(),
+  };
+}
+
 async function startServer() {
   const app = express();
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+  app.use('/api', (req, res, next) => {
+    if (!req.path.startsWith('/photos') && req.path !== '/sync/events') {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
+    }
+    next();
+  });
   // Self-healing photo serving: if file on disk is missing after an update, reconstruct it from embedded photoData
   app.get('/api/photos/:filename', (req, res, next) => {
     const filename = path.basename(req.params.filename || '');
@@ -933,7 +1039,10 @@ async function startServer() {
       canEditCustomers,
       canApproveInvoices,
       canManageCommissions,
+      canManageBazar,
+      canManageBuyers,
       isCommissionOnly,
+      isCommissionBazarOnly,
       theme, 
       language 
     } = req.body;
@@ -951,6 +1060,9 @@ async function startServer() {
     }
 
     const assignedRole = role || 'staff';
+    const commBazarOnlyFlag = Boolean(isCommissionBazarOnly);
+    const commOnlyFlag = !commBazarOnlyFlag && Boolean(isCommissionOnly);
+    const restrictedFlag = commOnlyFlag || commBazarOnlyFlag;
     const newUser: DbUser = {
       id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       username: trimmedUsername,
@@ -961,16 +1073,20 @@ async function startServer() {
       status: 'active',
       canExport: canExport !== undefined ? canExport : true,
       canDelete: canDelete !== undefined ? canDelete : false,
-      canAddTransactions: canAddTransactions !== undefined ? canAddTransactions : !isCommissionOnly,
-      canViewLedger: canViewLedger !== undefined ? canViewLedger : !isCommissionOnly,
-      canEditCustomers: canEditCustomers !== undefined ? canEditCustomers : (!isCommissionOnly && assignedRole !== 'viewer'),
-      canApproveInvoices: canApproveInvoices !== undefined ? canApproveInvoices : (!isCommissionOnly && (assignedRole === 'admin' || assignedRole === 'manager')),
-      canManageCommissions: canManageCommissions !== undefined ? canManageCommissions : (Boolean(isCommissionOnly) || assignedRole === 'admin'),
-      isCommissionOnly: Boolean(isCommissionOnly),
+      canAddTransactions: canAddTransactions !== undefined ? canAddTransactions : !restrictedFlag,
+      canViewLedger: canViewLedger !== undefined ? canViewLedger : !restrictedFlag,
+      canEditCustomers: canEditCustomers !== undefined ? canEditCustomers : (!restrictedFlag && assignedRole !== 'viewer'),
+      canApproveInvoices: canApproveInvoices !== undefined ? canApproveInvoices : (!restrictedFlag && (assignedRole === 'admin' || assignedRole === 'manager')),
+      canManageCommissions: canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || assignedRole === 'admin'),
+      canManageBazar: canManageBazar !== undefined ? canManageBazar : (commBazarOnlyFlag || !commOnlyFlag),
+      canManageBuyers: canManageBuyers !== undefined ? canManageBuyers : (assignedRole === 'admin'),
+      isCommissionOnly: commOnlyFlag,
+      isCommissionBazarOnly: commBazarOnlyFlag,
       theme: theme || db.globalSettings.defaultTheme || 'midnight-gold',
       displayMode: 'light',
       language: language || 'en',
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     };
 
     db.users.push(newUser);
@@ -1021,6 +1137,8 @@ async function startServer() {
       canEditCustomers,
       canApproveInvoices,
       canManageCommissions,
+      canManageBazar,
+      canManageBuyers,
       theme, 
       displayMode, 
       language 
@@ -1056,10 +1174,14 @@ async function startServer() {
     if (canEditCustomers !== undefined) targetUser.canEditCustomers = canEditCustomers;
     if (canApproveInvoices !== undefined) targetUser.canApproveInvoices = canApproveInvoices;
     if (canManageCommissions !== undefined) targetUser.canManageCommissions = canManageCommissions;
+    if (canManageBazar !== undefined) targetUser.canManageBazar = canManageBazar;
+    if (canManageBuyers !== undefined) targetUser.canManageBuyers = canManageBuyers;
     if (req.body.isCommissionOnly !== undefined) targetUser.isCommissionOnly = Boolean(req.body.isCommissionOnly);
+    if (req.body.isCommissionBazarOnly !== undefined) targetUser.isCommissionBazarOnly = Boolean(req.body.isCommissionBazarOnly);
     if (theme) targetUser.theme = theme;
     if (displayMode) targetUser.displayMode = displayMode;
     if (language) targetUser.language = language;
+    targetUser.updatedAt = Date.now();
 
     db.users[userIndex] = targetUser;
 
@@ -1112,6 +1234,9 @@ async function startServer() {
     }
 
     db.users = db.users.filter((u) => u.id !== targetId);
+    db.deletedRecordIds = db.deletedRecordIds || {};
+    db.deletedRecordIds[targetId] = Date.now();
+    db.deletedRecordIds[`buyer:${targetUser.username.toLowerCase()}`] = Date.now();
 
     // Purge any persisted or active sessions for deleted user
     for (const [tok, sessUser] of SESSIONS.entries()) {
@@ -1198,6 +1323,7 @@ async function startServer() {
     const photoUrl = `/api/photos/${filename}`;
     targetUser.photoUrl = photoUrl;
     targetUser.photoData = photoBase64;
+    targetUser.updatedAt = Date.now();
 
     db.auditLogs.unshift({
       id: 'audit-' + Date.now(),
@@ -1242,6 +1368,7 @@ async function startServer() {
 
     targetUser.photoUrl = undefined;
     targetUser.photoData = undefined;
+    targetUser.updatedAt = Date.now();
     db.auditLogs.unshift({
       id: 'audit-' + Date.now(),
       timestamp: Date.now(),
@@ -2250,8 +2377,74 @@ async function startServer() {
   });
 
   /* ------------------- DAILY HOME BAZAR & GROCERY GOODS API ------------------- */
+  const buildMergedBuyersList = (): DbBazarBuyer[] => {
+    const savedBuyers = db.globalSettings?.bazarBuyers || [];
+    const userByUsername = new Map<string, DbUser>();
+    (db.users || []).forEach((u) => {
+      userByUsername.set(u.username.toLowerCase(), u);
+    });
+
+    const map = new Map<string, DbBazarBuyer>();
+    savedBuyers.forEach((b) => {
+      const matchedUser = userByUsername.get(b.buyerId.toLowerCase());
+      map.set(b.buyerId.toLowerCase(), {
+        ...b,
+        photoUrl: b.photoUrl || matchedUser?.photoUrl,
+        photoData: b.photoData || matchedUser?.photoData,
+      });
+    });
+
+    (db.users || []).forEach((u) => {
+      const key = u.username.toLowerCase();
+      if (!map.has(key)) {
+        map.set(key, {
+          buyerId: u.username,
+          name: u.name,
+          role: u.role,
+          photoUrl: u.photoUrl,
+          photoData: u.photoData,
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  };
+
+  const saveBuyerPhotoFile = (buyerId: string, photoBase64: string, previousPhotoUrl?: string): { photoUrl: string; photoData: string } => {
+    const matches = photoBase64.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
+    if (!matches) {
+      throw new Error('Invalid image payload. Supported formats: JPG, PNG, WebP.');
+    }
+    let ext = matches[1].toLowerCase();
+    if (ext === 'jpeg') ext = 'jpg';
+    if (!['jpg', 'png', 'webp', 'gif', 'svg', 'heic', 'heif'].includes(ext)) {
+      throw new Error('Unsupported format. Allowed: JPG, JPEG, PNG, WebP, GIF, SVG, HEIC.');
+    }
+    const buffer = Buffer.from(matches[2], 'base64');
+    if (buffer.length > 25 * 1024 * 1024) {
+      throw new Error('Image exceeds maximum allowed size of 25MB.');
+    }
+
+    if (previousPhotoUrl && previousPhotoUrl.startsWith('/api/photos/')) {
+      const oldFilename = previousPhotoUrl.replace('/api/photos/', '');
+      const oldPath = path.join(PHOTOS_DIR, oldFilename);
+      if (fs.existsSync(oldPath)) {
+        try { fs.unlinkSync(oldPath); } catch {}
+      }
+    }
+
+    const safeBuyerKey = 'buyer_' + buyerId.replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `${safeBuyerKey}_${Date.now()}.${ext}`;
+    fs.writeFileSync(path.join(PHOTOS_DIR, filename), buffer);
+    return { photoUrl: `/api/photos/${filename}`, photoData: photoBase64 };
+  };
+
   // 1. Get All Home Bazar Entries, Summary & Buyers
   app.get('/api/home-bazar', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && (currentUser.isCommissionOnly || currentUser.canManageBazar === false)) {
+      return res.status(403).json({ error: 'Permission denied: Daily Bazar access is disabled for this user.' });
+    }
     const list = db.homeBazarEntries || [];
     const monthlyBudget = typeof db.globalSettings?.bazarMonthlyBudget === 'number'
       ? db.globalSettings.bazarMonthlyBudget
@@ -2272,7 +2465,9 @@ async function startServer() {
       other: 0,
     };
 
-    // Buyer aggregation
+    const mergedBuyers = buildMergedBuyersList();
+
+    // Buyer aggregation (display only — never modifies any buyer.amount)
     const buyerMap: Record<string, { buyerId: string; buyerName: string; totalSpent: number; itemCount: number }> = {};
 
     list.forEach((item) => {
@@ -2289,7 +2484,6 @@ async function startServer() {
         categoryTotals.other += amt;
       }
 
-      // Track by buyer
       const bId = item.buyerId || item.purchasedBy || 'Unknown';
       const bName = item.purchasedBy || item.buyerId || 'Unknown Buyer';
       if (!buyerMap[bId]) {
@@ -2309,7 +2503,6 @@ async function startServer() {
 
     const remainingBudget = monthlyBudget > 0 ? (monthlyBudget - totalThisMonth) : 0;
 
-    // Sort descending by date, then createdAt
     const sorted = [...list].sort((a, b) => {
       const diff = new Date(b.date).getTime() - new Date(a.date).getTime();
       return diff !== 0 ? diff : b.createdAt - a.createdAt;
@@ -2318,7 +2511,7 @@ async function startServer() {
     return res.json({
       entries: sorted,
       monthlyBudget,
-      buyers: db.globalSettings.bazarBuyers || [],
+      buyers: mergedBuyers,
       summary: {
         totalToday,
         totalThisMonth,
@@ -2330,9 +2523,13 @@ async function startServer() {
     });
   });
 
-  // 2. Add New Home Bazar Item (with Buyer ID)
+  // 2. Add New Home Bazar Item (with Buyer ID — NO automatic ledger transaction or buyer amount mutation)
   app.post('/api/home-bazar', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && currentUser.canManageBazar === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner has disabled Daily Bazar entry access.' });
+    }
+
     const {
       date = new Date().toISOString().slice(0, 10),
       itemName,
@@ -2345,20 +2542,18 @@ async function startServer() {
       buyerId,
     } = req.body;
 
-    const numAmount = parseFloat(amount);
+    const numAmount = amount === '' || amount === undefined || amount === null ? 0 : parseFloat(amount);
     if (!itemName || !String(itemName).trim()) {
       return res.status(400).json({ error: 'Item name is required' });
     }
-    if (isNaN(numAmount) || numAmount <= 0) {
-      return res.status(400).json({ error: 'Valid amount greater than 0 is required' });
+    if (isNaN(numAmount) || numAmount < 0) {
+      return res.status(400).json({ error: 'Valid non-negative amount is required' });
     }
 
-    // Determine Buyer ID and Name
     const resolvedBuyerId = buyerId ? String(buyerId).trim() : (currentUser.username || currentUser.id);
     let resolvedPurchasedBy = purchasedBy ? String(purchasedBy).trim() : '';
 
     if (!resolvedPurchasedBy) {
-      // Find name from registered buyers or users
       const foundBuyer = (db.globalSettings.bazarBuyers || []).find((b) => b.buyerId.toLowerCase() === resolvedBuyerId.toLowerCase());
       if (foundBuyer) {
         resolvedPurchasedBy = foundBuyer.name;
@@ -2368,7 +2563,7 @@ async function startServer() {
       }
     }
 
-    // Auto-register buyer if not yet present in bazarBuyers
+    // Auto-register buyer ID if new (without setting or changing any buyer amount)
     if (!Array.isArray(db.globalSettings.bazarBuyers)) {
       db.globalSettings.bazarBuyers = [];
     }
@@ -2381,7 +2576,7 @@ async function startServer() {
         name: resolvedPurchasedBy || resolvedBuyerId,
         role: 'Buyer',
       });
-      notifySubscribers('bazar_buyers_updated', { buyers: db.globalSettings.bazarBuyers });
+      notifySubscribers('bazar_buyers_updated', { buyers: buildMergedBuyersList() });
     }
 
     const newEntry: DbHomeBazarEntry = {
@@ -2406,32 +2601,20 @@ async function startServer() {
     }
     db.homeBazarEntries.unshift(newEntry);
 
-    // Record in transactions ledger under category 'bazaar'
-    const newTx: DbTransaction = {
-      id: 'tx-bazar-' + Date.now(),
-      userId: currentUser.id,
-      workspaceUserId: currentUser.id,
-      description: `Daily Bazar: ${newEntry.itemName} ${newEntry.quantity ? `(${newEntry.quantity})` : ''} [${newEntry.buyerId}]`,
-      amount: numAmount,
-      type: 'expense',
-      category: 'bazaar',
-      paymentMethod: paymentMethod || 'cash',
-      timestamp: new Date(newEntry.date).getTime() || Date.now(),
-      syncedToCloud: true,
-      notes: newEntry.notes || `Daily Bazar purchase by ${newEntry.purchasedBy} (Buyer ID: ${newEntry.buyerId})`,
-      createdByName: `${currentUser.name} (${newEntry.buyerId})`,
-    };
-    db.transactions.unshift(newTx);
-
+    // Keep Home Bazar independent: do NOT auto-add bazar amount into db.transactions or alter Buyer ID amounts.
     saveDatabase(db);
     notifySubscribers('home_bazar_added', { entry: newEntry });
-    notifySubscribers('transaction_created', { workspaceUserId: currentUser.id, transaction: newTx });
 
     return res.status(201).json({ success: true, entry: newEntry });
   });
 
-  // 3. Update Home Bazar Item
+  // 3. Update Home Bazar Item (Full Edit Support)
   app.put('/api/home-bazar/:id', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && currentUser.canManageBazar === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner has disabled Daily Bazar edit access.' });
+    }
+
     const entryId = req.params.id;
     const entry = (db.homeBazarEntries || []).find((e) => e.id === entryId);
 
@@ -2440,18 +2623,18 @@ async function startServer() {
     }
 
     const { itemName, category, quantity, amount, paymentMethod, date, notes, purchasedBy, buyerId } = req.body;
-    if (itemName) entry.itemName = String(itemName).trim();
+    if (itemName !== undefined && String(itemName).trim()) entry.itemName = String(itemName).trim();
     if (category) entry.category = category;
     if (quantity !== undefined) entry.quantity = quantity ? String(quantity).trim() : undefined;
     if (amount !== undefined) {
       const num = parseFloat(amount);
-      if (!isNaN(num) && num > 0) entry.amount = num;
+      if (!isNaN(num) && num >= 0) entry.amount = num;
     }
     if (paymentMethod) entry.paymentMethod = paymentMethod;
     if (date) entry.date = String(date).slice(0, 10);
     if (notes !== undefined) entry.notes = notes ? String(notes).trim() : undefined;
     if (purchasedBy !== undefined) entry.purchasedBy = purchasedBy ? String(purchasedBy).trim() : entry.purchasedBy;
-    if (buyerId !== undefined) entry.buyerId = buyerId ? String(buyerId).trim() : entry.buyerId;
+    if (buyerId !== undefined && String(buyerId).trim()) entry.buyerId = String(buyerId).trim();
     entry.updatedAt = Date.now();
 
     saveDatabase(db);
@@ -2462,6 +2645,11 @@ async function startServer() {
 
   // 4. Delete Home Bazar Item
   app.delete('/api/home-bazar/:id', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && (currentUser.canManageBazar === false || !currentUser.canDelete)) {
+      return res.status(403).json({ error: 'Permission denied: Only Owner or users with Delete permission can remove bazar items.' });
+    }
+
     const entryId = req.params.id;
     const idx = (db.homeBazarEntries || []).findIndex((e) => e.id === entryId);
 
@@ -2480,6 +2668,11 @@ async function startServer() {
 
   // 5. Update Monthly Bazar Budget
   app.put('/api/home-bazar/budget', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && currentUser.canManageBazar === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner has disabled Daily Bazar budget access.' });
+    }
+
     const { budget } = req.body;
     const num = parseFloat(budget);
     if (isNaN(num) || num < 0) {
@@ -2499,28 +2692,17 @@ async function startServer() {
 
   // 6. Get All Bazar Buyers
   app.get('/api/home-bazar/buyers', authMiddleware, (req, res) => {
-    const buyers = db.globalSettings.bazarBuyers || [];
-    // Also merge registered users so any team member can be picked directly
-    const userBuyers: DbBazarBuyer[] = (db.users || []).map((u) => ({
-      buyerId: u.username,
-      name: u.name,
-      role: u.role,
-    }));
-
-    const map = new Map<string, DbBazarBuyer>();
-    buyers.forEach((b) => map.set(b.buyerId.toLowerCase(), b));
-    userBuyers.forEach((ub) => {
-      if (!map.has(ub.buyerId.toLowerCase())) {
-        map.set(ub.buyerId.toLowerCase(), ub);
-      }
-    });
-
-    return res.json({ success: true, buyers: Array.from(map.values()) });
+    return res.json({ success: true, buyers: buildMergedBuyersList() });
   });
 
-  // 7. Add or Update Custom Bazar Buyer
+  // 7. Add or Upsert Custom Bazar Buyer (supports Photo + Manual Amount without auto-mutating existing amounts)
   app.post('/api/home-bazar/buyers', authMiddleware, (req, res) => {
-    const { buyerId, name, phone, role } = req.body;
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && !currentUser.canManageBuyers) {
+      return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users can manage Buyer IDs and Photos.' });
+    }
+
+    const { buyerId, name, phone, role, amount, notes, photoBase64, removePhoto } = req.body;
     if (!buyerId || !String(buyerId).trim()) {
       return res.status(400).json({ error: 'Buyer ID is required (e.g. BYR-01, MBR-05)' });
     }
@@ -2538,12 +2720,48 @@ async function startServer() {
     const existingIdx = db.globalSettings.bazarBuyers.findIndex(
       (b) => b.buyerId.toLowerCase() === cleanId.toLowerCase()
     );
+    const existingBuyer = existingIdx !== -1 ? db.globalSettings.bazarBuyers[existingIdx] : undefined;
+
+    let photoUrl = existingBuyer?.photoUrl;
+    let photoData = existingBuyer?.photoData;
+    if (removePhoto) {
+      if (photoUrl && photoUrl.startsWith('/api/photos/')) {
+        const oldPath = path.join(PHOTOS_DIR, photoUrl.replace('/api/photos/', ''));
+        if (fs.existsSync(oldPath)) {
+          try { fs.unlinkSync(oldPath); } catch {}
+        }
+      }
+      photoUrl = undefined;
+      photoData = undefined;
+    } else if (photoBase64 && typeof photoBase64 === 'string') {
+      try {
+        const saved = saveBuyerPhotoFile(cleanId, photoBase64, photoUrl);
+        photoUrl = saved.photoUrl;
+        photoData = saved.photoData;
+      } catch (err: any) {
+        return res.status(400).json({ error: err.message || 'Invalid buyer photo' });
+      }
+    }
+
+    // Preserve existing buyer amount unless explicitly specified
+    let resolvedAmount = existingBuyer?.amount;
+    if (amount !== undefined && amount !== '' && amount !== null) {
+      const parsedAmt = parseFloat(amount);
+      if (!isNaN(parsedAmt) && parsedAmt >= 0) {
+        resolvedAmount = parsedAmt;
+      }
+    }
 
     const buyerObj: DbBazarBuyer = {
       buyerId: cleanId,
       name: cleanName,
-      phone: phone ? String(phone).trim() : undefined,
-      role: role ? String(role).trim() : 'Buyer',
+      phone: phone !== undefined ? (phone ? String(phone).trim() : undefined) : existingBuyer?.phone,
+      role: role ? String(role).trim() : (existingBuyer?.role || 'Buyer'),
+      amount: resolvedAmount,
+      notes: notes !== undefined ? (notes ? String(notes).trim() : undefined) : existingBuyer?.notes,
+      photoUrl,
+      photoData,
+      updatedAt: Date.now(),
     };
 
     if (existingIdx !== -1) {
@@ -2554,13 +2772,139 @@ async function startServer() {
 
     db.globalSettings.updatedAt = Date.now();
     saveDatabase(db);
-    notifySubscribers('bazar_buyers_updated', { buyers: db.globalSettings.bazarBuyers });
+    notifySubscribers('bazar_buyers_updated', { buyers: buildMergedBuyersList() });
 
     return res.status(201).json({ success: true, buyer: buyerObj });
   });
 
+  // 7b. Full Edit for an Existing Buyer ID (Owner or permitted user can change everything)
+  app.put('/api/home-bazar/buyers/:buyerId', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && !currentUser.canManageBuyers) {
+      return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users can edit Buyer IDs and Photos.' });
+    }
+
+    const originalId = decodeURIComponent(req.params.buyerId).trim();
+    if (!Array.isArray(db.globalSettings.bazarBuyers)) {
+      db.globalSettings.bazarBuyers = [];
+    }
+
+    let idx = db.globalSettings.bazarBuyers.findIndex(
+      (b) => b.buyerId.toLowerCase() === originalId.toLowerCase()
+    );
+
+    // If buyer came from a registered user not yet materialized in bazarBuyers, materialize it now
+    if (idx === -1) {
+      const matchedUser = (db.users || []).find(
+        (u) => u.username.toLowerCase() === originalId.toLowerCase()
+      );
+      if (matchedUser) {
+        db.globalSettings.bazarBuyers.push({
+          buyerId: matchedUser.username,
+          name: matchedUser.name,
+          role: matchedUser.role,
+          photoUrl: matchedUser.photoUrl,
+          photoData: matchedUser.photoData,
+        });
+        idx = db.globalSettings.bazarBuyers.length - 1;
+      }
+    }
+
+    if (idx === -1) {
+      return res.status(404).json({ error: 'Buyer ID not found' });
+    }
+
+    const existing = db.globalSettings.bazarBuyers[idx];
+    const { newBuyerId, name, phone, role, amount, notes, photoBase64, removePhoto } = req.body;
+
+    const targetBuyerId = newBuyerId && String(newBuyerId).trim() ? String(newBuyerId).trim() : existing.buyerId;
+    if (
+      targetBuyerId.toLowerCase() !== existing.buyerId.toLowerCase() &&
+      db.globalSettings.bazarBuyers.some((b, i) => i !== idx && b.buyerId.toLowerCase() === targetBuyerId.toLowerCase())
+    ) {
+      return res.status(400).json({ error: `Buyer ID '${targetBuyerId}' already exists.` });
+    }
+
+    let photoUrl = existing.photoUrl;
+    let photoData = existing.photoData;
+    if (removePhoto) {
+      if (photoUrl && photoUrl.startsWith('/api/photos/')) {
+        const oldPath = path.join(PHOTOS_DIR, photoUrl.replace('/api/photos/', ''));
+        if (fs.existsSync(oldPath)) {
+          try { fs.unlinkSync(oldPath); } catch {}
+        }
+      }
+      photoUrl = undefined;
+      photoData = undefined;
+    } else if (photoBase64 && typeof photoBase64 === 'string') {
+      try {
+        const saved = saveBuyerPhotoFile(targetBuyerId, photoBase64, photoUrl);
+        photoUrl = saved.photoUrl;
+        photoData = saved.photoData;
+      } catch (err: any) {
+        return res.status(400).json({ error: err.message || 'Invalid buyer photo' });
+      }
+    }
+
+    // Preserve existing buyer amount unless explicitly edited (or cleared with null)
+    let resolvedAmount = existing.amount;
+    if (amount === null) {
+      resolvedAmount = undefined;
+    } else if (amount !== undefined && amount !== '') {
+      const parsedAmt = parseFloat(amount);
+      if (!isNaN(parsedAmt) && parsedAmt >= 0) {
+        resolvedAmount = parsedAmt;
+      }
+    }
+
+    const updatedBuyer: DbBazarBuyer = {
+      ...existing,
+      buyerId: targetBuyerId,
+      name: name !== undefined && String(name).trim() ? String(name).trim() : existing.name,
+      phone: phone !== undefined ? (phone ? String(phone).trim() : undefined) : existing.phone,
+      role: role !== undefined ? (role ? String(role).trim() : 'Buyer') : existing.role,
+      amount: resolvedAmount,
+      notes: notes !== undefined ? (notes ? String(notes).trim() : undefined) : existing.notes,
+      photoUrl,
+      photoData,
+      updatedAt: Date.now(),
+    };
+
+    const previousId = existing.buyerId;
+    db.globalSettings.bazarBuyers[idx] = updatedBuyer;
+
+    // If Buyer ID was renamed, update buyerId label on matching bazar entries without touching entry amounts
+    if (targetBuyerId !== previousId && Array.isArray(db.homeBazarEntries)) {
+      db.homeBazarEntries.forEach((entry) => {
+        if ((entry.buyerId || '').toLowerCase() === previousId.toLowerCase()) {
+          entry.buyerId = targetBuyerId;
+          entry.purchasedBy = updatedBuyer.name;
+          entry.updatedAt = Date.now();
+        }
+      });
+    }
+
+    db.globalSettings.updatedAt = Date.now();
+    saveDatabase(db);
+    notifySubscribers('bazar_buyers_updated', { buyers: buildMergedBuyersList() });
+    if (targetBuyerId !== previousId) {
+      notifySubscribers('home_bazar_updated', { renamedFrom: previousId, renamedTo: targetBuyerId });
+    }
+
+    return res.json({
+      success: true,
+      buyer: updatedBuyer,
+      renamedFrom: targetBuyerId !== previousId ? previousId : undefined,
+    });
+  });
+
   // 8. Delete Custom Bazar Buyer
   app.delete('/api/home-bazar/buyers/:buyerId', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && (!currentUser.canManageBuyers || !currentUser.canDelete)) {
+      return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users with Delete access can remove Buyer IDs.' });
+    }
+
     const targetId = decodeURIComponent(req.params.buyerId).trim().toLowerCase();
     if (!Array.isArray(db.globalSettings.bazarBuyers)) {
       return res.status(404).json({ error: 'Buyer not found' });
@@ -2573,10 +2917,20 @@ async function startServer() {
       return res.status(404).json({ error: 'Buyer not found' });
     }
 
+    const target = db.globalSettings.bazarBuyers[idx];
+    if (target.photoUrl && target.photoUrl.startsWith('/api/photos/')) {
+      const oldPath = path.join(PHOTOS_DIR, target.photoUrl.replace('/api/photos/', ''));
+      if (fs.existsSync(oldPath)) {
+        try { fs.unlinkSync(oldPath); } catch {}
+      }
+    }
+
     db.globalSettings.bazarBuyers.splice(idx, 1);
+    db.deletedRecordIds = db.deletedRecordIds || {};
+    db.deletedRecordIds[`buyer:${target.buyerId.toLowerCase()}`] = Date.now();
     db.globalSettings.updatedAt = Date.now();
     saveDatabase(db);
-    notifySubscribers('bazar_buyers_updated', { buyers: db.globalSettings.bazarBuyers });
+    notifySubscribers('bazar_buyers_updated', { buyers: buildMergedBuyersList() });
 
     return res.json({ success: true, deletedBuyerId: req.params.buyerId });
   });
@@ -3529,6 +3883,37 @@ Return valid JSON matching the schema.`,
     return res.json({ success: true, updatedAt: db.drafts[currentUser.id].updatedAt });
   });
 
+  /* ------------------- APP VERSION & AUTO-UPDATE PUSH ------------------- */
+  app.get('/api/app-version', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    return res.json(getAppVersionInfo());
+  });
+
+  app.post('/api/app-version/push-update', authMiddleware, ownerOnlyMiddleware, (req, res) => {
+    const requestedVersion = typeof req.body?.version === 'string' ? req.body.version.trim() : '';
+    if (requestedVersion) {
+      db.globalSettings.version = requestedVersion;
+    }
+    const now = Date.now();
+    db.globalSettings.forceRefreshAt = now;
+    db.globalSettings.updatedAt = now;
+    db.globalSettings.lastUpdatedBy = (req as any).user.name;
+
+    db.auditLogs.unshift({
+      id: 'audit-' + now,
+      timestamp: now,
+      action: 'APP_UPDATE_PUSHED',
+      performedBy: (req as any).user.name,
+      details: { version: db.globalSettings.version, forceRefreshAt: now },
+    });
+    saveDatabase(db);
+
+    const versionInfo = getAppVersionInfo();
+    notifySubscribers('global_settings_updated', { globalSettings: db.globalSettings });
+    notifySubscribers('app_update_available', versionInfo);
+    return res.json({ success: true, globalSettings: db.globalSettings, versionInfo });
+  });
+
   /* ------------------- GLOBAL SETTINGS & BROADCAST (Owner Control) ------------------- */
   app.get('/api/global-settings', (req, res) => {
     return res.json({ globalSettings: db.globalSettings });
@@ -3538,6 +3923,7 @@ Return valid JSON matching the schema.`,
     const {
       appName,
       companyName,
+      version,
       currency,
       broadcastMessage,
       broadcastType,
@@ -3545,10 +3931,12 @@ Return valid JSON matching the schema.`,
       defaultTheme,
       headerBgColor,
       sidebarBgColor,
+      forceRefreshClients,
     } = req.body;
 
     if (appName !== undefined && String(appName).trim()) db.globalSettings.appName = String(appName).trim();
     if (companyName !== undefined && String(companyName).trim()) db.globalSettings.companyName = String(companyName).trim();
+    if (version !== undefined && String(version).trim()) db.globalSettings.version = String(version).trim();
     if (currency !== undefined) db.globalSettings.currency = currency;
     if (broadcastMessage !== undefined) db.globalSettings.broadcastMessage = broadcastMessage;
     if (broadcastType !== undefined) db.globalSettings.broadcastType = broadcastType;
@@ -3557,12 +3945,16 @@ Return valid JSON matching the schema.`,
     if (headerBgColor !== undefined) db.globalSettings.headerBgColor = headerBgColor || undefined;
     if (sidebarBgColor !== undefined) db.globalSettings.sidebarBgColor = sidebarBgColor || undefined;
 
-    db.globalSettings.updatedAt = Date.now();
+    const now = Date.now();
+    if (forceRefreshClients) {
+      db.globalSettings.forceRefreshAt = now;
+    }
+    db.globalSettings.updatedAt = now;
     db.globalSettings.lastUpdatedBy = (req as any).user.name;
 
     db.auditLogs.unshift({
-      id: 'audit-' + Date.now(),
-      timestamp: Date.now(),
+      id: 'audit-' + now,
+      timestamp: now,
       action: 'GLOBAL_SETTINGS_UPDATED',
       performedBy: (req as any).user.name,
       details: req.body,
@@ -3570,6 +3962,9 @@ Return valid JSON matching the schema.`,
     saveDatabase(db);
 
     notifySubscribers('global_settings_updated', { globalSettings: db.globalSettings });
+    if (forceRefreshClients) {
+      notifySubscribers('app_update_available', getAppVersionInfo());
+    }
     return res.json({ globalSettings: db.globalSettings });
   });
 
@@ -3767,6 +4162,145 @@ Return valid JSON matching the schema.`,
 
       mergeCollection(db.homeBazarEntries, snapshot.homeBazarEntries);
 
+      // Non-destructively restore missing or newer user accounts (preserving Owner & respecting delete tombstones)
+      let usersChanged = false;
+      if (Array.isArray(snapshot.users)) {
+        snapshot.users.forEach((incUser: any) => {
+          if (!incUser || !incUser.id || !incUser.username) return;
+          const delTs = db.deletedRecordIds?.[incUser.id] || 0;
+          const incTs = Number(incUser.updatedAt) || Number(incUser.createdAt) || 0;
+          if (delTs && incTs <= delTs) return;
+
+          const existingIdx = db.users.findIndex(
+            (u) => u.id === incUser.id || u.username.toLowerCase() === String(incUser.username).trim().toLowerCase()
+          );
+
+          const candidatePhotoData = incUser.photoData || userPhotoMap[incUser.id];
+          if (existingIdx === -1) {
+            if (!incUser.passwordHash) return; // Cannot create loginable user without passwordHash
+            const restoredUser: DbUser = {
+              ...incUser,
+              username: String(incUser.username).trim().toLowerCase(),
+              status: incUser.status === 'disabled' ? 'disabled' : 'active',
+              role: incUser.role === 'owner' ? 'staff' : (incUser.role || 'staff'),
+              createdAt: Number(incUser.createdAt) || Date.now(),
+              updatedAt: Number(incUser.updatedAt) || Number(incUser.createdAt) || Date.now(),
+            };
+            if (candidatePhotoData) {
+              restorePhotoOnRecord(restoredUser, candidatePhotoData);
+            }
+            db.users.push(restoredUser);
+            usersChanged = true;
+            changed = true;
+          } else {
+            const existing = db.users[existingIdx];
+            const extTs = Number(existing.updatedAt) || Number(existing.createdAt) || 0;
+            if (incTs > extTs) {
+              const safeRole = existing.role === 'owner' ? 'owner' : (incUser.role === 'owner' ? existing.role : (incUser.role || existing.role));
+              const safeStatus = existing.role === 'owner' ? 'active' : (incUser.status || existing.status);
+              const mergedUser: DbUser = {
+                ...existing,
+                ...incUser,
+                id: existing.id,
+                username: existing.username,
+                role: safeRole,
+                status: safeStatus,
+                passwordHash: incUser.passwordHash || existing.passwordHash,
+                photoData: candidatePhotoData || existing.photoData,
+                photoUrl: incUser.photoUrl || existing.photoUrl,
+                updatedAt: incTs,
+              };
+              if (mergedUser.photoData) {
+                restorePhotoOnRecord(mergedUser, mergedUser.photoData);
+              }
+              db.users[existingIdx] = mergedUser;
+              for (const [tok, su] of SESSIONS.entries()) {
+                if (su.id === mergedUser.id) SESSIONS.set(tok, mergedUser);
+              }
+              usersChanged = true;
+              changed = true;
+            }
+          }
+        });
+      }
+
+      // Non-destructively restore globalSettings & bazarBuyers (currency, broadcast, monthly budget, buyer IDs + photos)
+      let settingsChanged = false;
+      if (snapshot.globalSettings && typeof snapshot.globalSettings === 'object') {
+        const incSettings = snapshot.globalSettings;
+        const incSetTs = Number(incSettings.updatedAt) || 0;
+        const extSetTs = Number(db.globalSettings.updatedAt) || 0;
+
+        if (incSetTs > extSetTs) {
+          db.globalSettings = {
+            ...db.globalSettings,
+            appName: incSettings.appName || db.globalSettings.appName,
+            companyName: incSettings.companyName || db.globalSettings.companyName,
+            currency: incSettings.currency || db.globalSettings.currency,
+            broadcastMessage: incSettings.broadcastMessage ?? db.globalSettings.broadcastMessage,
+            broadcastType: incSettings.broadcastType || db.globalSettings.broadcastType,
+            broadcastActive: incSettings.broadcastActive ?? db.globalSettings.broadcastActive,
+            defaultTheme: incSettings.defaultTheme || db.globalSettings.defaultTheme,
+            headerBgColor: incSettings.headerBgColor ?? db.globalSettings.headerBgColor,
+            sidebarBgColor: incSettings.sidebarBgColor ?? db.globalSettings.sidebarBgColor,
+            bazarMonthlyBudget:
+              typeof incSettings.bazarMonthlyBudget === 'number'
+                ? incSettings.bazarMonthlyBudget
+                : db.globalSettings.bazarMonthlyBudget,
+            updatedAt: incSetTs,
+          };
+          settingsChanged = true;
+          changed = true;
+        }
+
+        if (Array.isArray(incSettings.bazarBuyers)) {
+          db.globalSettings.bazarBuyers = db.globalSettings.bazarBuyers || [];
+          incSettings.bazarBuyers.forEach((incBuyer: any) => {
+            if (!incBuyer || !incBuyer.buyerId) return;
+            const normBuyerId = String(incBuyer.buyerId).trim().toLowerCase();
+            const delTs = db.deletedRecordIds?.[`buyer:${normBuyerId}`] || 0;
+            const incTs = Number(incBuyer.updatedAt) || incSetTs || 0;
+            if (delTs && incTs <= delTs) return;
+
+            const extIdx = db.globalSettings.bazarBuyers!.findIndex(
+              (b) => b.buyerId.toLowerCase() === normBuyerId
+            );
+            if (extIdx === -1) {
+              const buyerCopy: DbBazarBuyer = { ...incBuyer };
+              if (buyerCopy.photoData) {
+                const tempRec: any = { ...buyerCopy, id: `buyer_${normBuyerId}` };
+                if (restorePhotoOnRecord(tempRec, buyerCopy.photoData)) {
+                  buyerCopy.photoUrl = tempRec.photoUrl;
+                }
+              }
+              db.globalSettings.bazarBuyers!.push(buyerCopy);
+              settingsChanged = true;
+              changed = true;
+            } else {
+              const extBuyer = db.globalSettings.bazarBuyers![extIdx];
+              const extTs = Number(extBuyer.updatedAt) || 0;
+              if (incTs > extTs) {
+                const updatedBuyer: DbBazarBuyer = {
+                  ...extBuyer,
+                  ...incBuyer,
+                  photoData: incBuyer.photoData || extBuyer.photoData,
+                  photoUrl: incBuyer.photoUrl || extBuyer.photoUrl,
+                };
+                if (updatedBuyer.photoData) {
+                  const tempRec: any = { ...updatedBuyer, id: `buyer_${normBuyerId}` };
+                  if (restorePhotoOnRecord(tempRec, updatedBuyer.photoData)) {
+                    updatedBuyer.photoUrl = tempRec.photoUrl;
+                  }
+                }
+                db.globalSettings.bazarBuyers![extIdx] = updatedBuyer;
+                settingsChanged = true;
+                changed = true;
+              }
+            }
+          });
+        }
+      }
+
       const monthSet = new Set<string>([...(db.commissionMonths || [])]);
       if (Array.isArray(snapshot.commissionMonths)) {
         snapshot.commissionMonths.forEach((m: any) => {
@@ -3784,6 +4318,14 @@ Return valid JSON matching the schema.`,
         }
       });
       db.commissionMonths = Array.from(monthSet).sort();
+
+      if (usersChanged) {
+        notifySubscribers('user_updated', { type: 'recovered' });
+      }
+      if (settingsChanged) {
+        notifySubscribers('global_settings_updated', { globalSettings: db.globalSettings });
+        notifySubscribers('bazar_buyers_updated', { buyers: buildMergedBuyersList() });
+      }
     }
 
     if (changed) {
@@ -3809,25 +4351,58 @@ Return valid JSON matching the schema.`,
 
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-transform',
       'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no',
       'Access-Control-Allow-Origin': '*',
     });
+    if (typeof (res as any).flushHeaders === 'function') {
+      (res as any).flushHeaders();
+    }
 
     const clientId = crypto.randomUUID();
     const newClient = { id: clientId, res, userId: user ? user.id : 'anonymous' };
     clients.push(newClient);
 
-    res.write(`event: connected\ndata: ${JSON.stringify({ clientId, time: Date.now() })}\n\n`);
+    const versionInfo = getAppVersionInfo();
+    let clientSeenBuildId = versionInfo.buildId;
+    let clientSeenForceAt = versionInfo.forceRefreshAt;
+
+    res.write(
+      `event: connected\ndata: ${JSON.stringify({
+        clientId,
+        time: Date.now(),
+        ...versionInfo,
+      })}\n\n`
+    );
+
+    const heartbeatTimer = setInterval(() => {
+      try {
+        const latestInfo = getAppVersionInfo();
+        if (
+          latestInfo.buildId !== clientSeenBuildId ||
+          latestInfo.forceRefreshAt > clientSeenForceAt
+        ) {
+          clientSeenBuildId = latestInfo.buildId;
+          clientSeenForceAt = latestInfo.forceRefreshAt;
+          res.write(`event: app_update_available\ndata: ${JSON.stringify(latestInfo)}\n\n`);
+        } else {
+          res.write(`: keepalive ${Date.now()}\n\n`);
+        }
+      } catch {
+        clearInterval(heartbeatTimer);
+      }
+    }, 12000);
 
     req.on('close', () => {
+      clearInterval(heartbeatTimer);
       const idx = clients.findIndex((c) => c.id === clientId);
       if (idx !== -1) clients.splice(idx, 1);
     });
   });
 
   /* ------------------- VITE MIDDLEWARE ------------------- */
-  const isProduction = process.env.NODE_ENV === 'production';
+  const isProduction = isProductionEnv;
   let viteServer: any = null;
   if (!isProduction) {
     let viteMiddleware: express.RequestHandler | null = null;
@@ -3853,8 +4428,40 @@ Return valid JSON matching the schema.`,
       console.error('Vite middleware initialization failed:', err);
     });
 
+    app.get('/manifest.webmanifest', (_req, res) => {
+      const distManifestPath = path.join(__dirname, 'dist', 'manifest.webmanifest');
+      res.setHeader('Content-Type', 'application/manifest+json');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      if (fs.existsSync(distManifestPath)) {
+        return res.sendFile(distManifestPath);
+      }
+      return res.json({
+        id: '/',
+        name: 'ZARA Accounting - Cloud Ledger',
+        short_name: 'ZARA Acc',
+        description:
+          'Enterprise cloud daily accounting ledger with real-time sync, daily invoices, and CRM.',
+        theme_color: '#101A2C',
+        background_color: '#101A2C',
+        display: 'standalone',
+        display_override: ['standalone', 'minimal-ui'],
+        orientation: 'any',
+        categories: ['business', 'finance'],
+        start_url: '/',
+        scope: '/',
+        icons: [
+          { src: '/pwa-192x192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+          { src: '/pwa-maskable-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+        ],
+      });
+    });
+
     app.use(async (req, res, next) => {
       try {
+        if (req.path === '/' || req.path.endsWith('.html') || req.path === '/sw.js' || req.path === '/registerSW.js') {
+          res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+        }
         if (!viteMiddleware) {
           await viteReady;
         }
@@ -3864,8 +4471,27 @@ Return valid JSON matching the schema.`,
       }
     });
   } else {
-    app.use(express.static(path.join(__dirname, 'dist')));
+    app.use(
+      express.static(path.join(__dirname, 'dist'), {
+        setHeaders: (res, filePath) => {
+          const base = path.basename(filePath);
+          if (
+            base === 'index.html' ||
+            base === 'sw.js' ||
+            base === 'registerSW.js' ||
+            base === 'manifest.webmanifest'
+          ) {
+            res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+            res.setHeader('Pragma', 'no-cache');
+            res.setHeader('Expires', '0');
+          }
+        },
+      })
+    );
     app.get('*', (_req, res) => {
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
       res.sendFile(path.join(__dirname, 'dist', 'index.html'));
     });
   }

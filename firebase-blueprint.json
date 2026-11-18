@@ -1,0 +1,382 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Privileged admin record granting administrative access to ZARA cloud vault.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "UserAccountRecord": {
+      "title": "UserAccountRecord",
+      "description": "Persisted user account record including credentials hash, role, permissions, and workspace settings.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "username": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "passwordHash": {
+          "type": "string",
+          "minLength": 16,
+          "maxLength": 256
+        },
+        "role": {
+          "type": "string",
+          "enum": ["owner", "admin", "manager", "staff", "viewer"],
+          "maxLength": 20
+        },
+        "workspaceName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "disabled"],
+          "maxLength": 20
+        },
+        "canExport": { "type": "boolean" },
+        "canDelete": { "type": "boolean" },
+        "canAddTransactions": { "type": "boolean" },
+        "canViewLedger": { "type": "boolean" },
+        "canEditCustomers": { "type": "boolean" },
+        "canApproveInvoices": { "type": "boolean" },
+        "canManageCommissions": { "type": "boolean" },
+        "canManageBazar": { "type": "boolean" },
+        "canManageBuyers": { "type": "boolean" },
+        "isCommissionOnly": { "type": "boolean" },
+        "isCommissionBazarOnly": { "type": "boolean" },
+        "theme": { "type": "string", "maxLength": 40 },
+        "displayMode": { "type": "string", "enum": ["light", "dark"], "maxLength": 10 },
+        "language": { "type": "string", "enum": ["bn", "en"], "maxLength": 5 },
+        "useBanglaNumerals": { "type": "boolean" },
+        "headerBgColor": { "type": "string", "maxLength": 40 },
+        "sidebarBgColor": { "type": "string", "maxLength": 40 },
+        "photoUrl": { "type": "string", "maxLength": 512 },
+        "clientCreatedAt": { "type": "number" },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "username", "name", "passwordHash", "role", "workspaceName", "status", "canExport", "canDelete", "clientCreatedAt", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "AppSettingsRecord": {
+      "title": "AppSettingsRecord",
+      "description": "Global application settings and broadcast configuration.",
+      "type": "object",
+      "properties": {
+        "ownerUid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "appName": { "type": "string", "maxLength": 120 },
+        "companyName": { "type": "string", "maxLength": 160 },
+        "version": { "type": "string", "maxLength": 40 },
+        "currency": { "type": "string", "enum": ["BDT", "USD", "EUR", "SAR"], "maxLength": 10 },
+        "broadcastMessage": { "type": "string", "maxLength": 1000 },
+        "broadcastType": { "type": "string", "enum": ["info", "warning", "alert", "success"], "maxLength": 20 },
+        "broadcastActive": { "type": "boolean" },
+        "defaultTheme": { "type": "string", "maxLength": 40 },
+        "headerBgColor": { "type": "string", "maxLength": 40 },
+        "sidebarBgColor": { "type": "string", "maxLength": 40 },
+        "bazarMonthlyBudget": { "type": "number" },
+        "lastUpdatedBy": { "type": "string", "maxLength": 120 },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "appName", "companyName", "version", "currency", "broadcastMessage", "broadcastType", "broadcastActive", "lastUpdatedBy", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "BazarBuyerRecord": {
+      "title": "BazarBuyerRecord",
+      "description": "Home Bazar buyer ID and profile metadata.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "buyerId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "role": { "type": "string", "maxLength": 40 },
+        "amount": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "photoUrl": { "type": "string", "maxLength": 512 },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "buyerId", "name", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "TransactionRecord": {
+      "title": "TransactionRecord",
+      "description": "Financial income or expense transaction entry.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "workspaceUserId": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 500 },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["income", "expense"], "maxLength": 20 },
+        "category": { "type": "string", "maxLength": 100 },
+        "paymentMethod": { "type": "string", "enum": ["cash", "bkash", "nagad", "bank"], "maxLength": 20 },
+        "timestamp": { "type": "number" },
+        "clientUpdatedAt": { "type": "number" },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "createdByName": { "type": "string", "maxLength": 120 },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "userId", "workspaceUserId", "description", "amount", "type", "category", "paymentMethod", "timestamp", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "CustomerRecord": {
+      "title": "CustomerRecord",
+      "description": "Customer or vendor account record.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workspaceUserId": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "whatsapp": { "type": "string", "maxLength": 40 },
+        "photoUrl": { "type": "string", "maxLength": 512 },
+        "email": { "type": "string", "maxLength": 254 },
+        "address": { "type": "string", "maxLength": 500 },
+        "businessName": { "type": "string", "maxLength": 160 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "type": { "type": "string", "enum": ["customer", "vendor"], "maxLength": 20 },
+        "balance": { "type": "number" },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "workspaceUserId", "name", "phone", "type", "balance", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "InvoiceRecord": {
+      "title": "InvoiceRecord",
+      "description": "Customer invoice record with bounded line items.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "workspaceUserId": { "type": "string", "maxLength": 128 },
+        "invoiceNumber": { "type": "string", "maxLength": 64 },
+        "customerId": { "type": "string", "maxLength": 128 },
+        "customerName": { "type": "string", "maxLength": 160 },
+        "customerPhone": { "type": "string", "maxLength": 40 },
+        "date": { "type": "number" },
+        "dueDate": { "type": "number" },
+        "items": { "type": "array" },
+        "subtotal": { "type": "number" },
+        "taxAmount": { "type": "number" },
+        "discountAmount": { "type": "number" },
+        "totalAmount": { "type": "number" },
+        "paidAmount": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Draft", "Sent", "Paid", "Overdue", "Cancelled", "Partial"], "maxLength": 20 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "createdByName": { "type": "string", "maxLength": 120 },
+        "clientCreatedAt": { "type": "number" },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "workspaceUserId", "invoiceNumber", "customerId", "customerName", "date", "dueDate", "items", "subtotal", "taxAmount", "discountAmount", "totalAmount", "paidAmount", "remainingAmount", "status", "clientCreatedAt", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "CommissionEntryRecord": {
+      "title": "CommissionEntryRecord",
+      "description": "Commission sheet spreadsheet row entry.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "date": { "type": "string", "maxLength": 32 },
+        "office": { "type": "string", "maxLength": 160 },
+        "invoiceNo": { "type": "string", "maxLength": 64 },
+        "invoiceStatus": { "type": "string", "enum": ["Active", "Pending", "Cancelled"], "maxLength": 20 },
+        "agent": { "type": "string", "maxLength": 120 },
+        "agentId": { "type": "string", "maxLength": 128 },
+        "client": { "type": "string", "maxLength": 160 },
+        "workerName": { "type": "string", "maxLength": 160 },
+        "clientMobile": { "type": "string", "maxLength": 40 },
+        "service": { "type": "string", "maxLength": 200 },
+        "qty": { "type": "number" },
+        "ratePerUnit": { "type": "number" },
+        "invoiceTotal": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "eligible": { "type": "boolean" },
+        "reasonNotEligible": { "type": "string", "maxLength": 500 },
+        "commissionAmount": { "type": "number" },
+        "isClawback": { "type": "boolean" },
+        "clawbackAmount": { "type": "number" },
+        "payoutStatus": { "type": "string", "enum": ["To pay", "Paid", "Not eligible", "Carried over"], "maxLength": 30 },
+        "paidAt": { "type": "number" },
+        "period": { "type": "string", "maxLength": 64 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "clientCreatedAt": { "type": "number" },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "date", "office", "invoiceNo", "invoiceStatus", "agent", "client", "service", "qty", "ratePerUnit", "invoiceTotal", "remainingAmount", "eligible", "commissionAmount", "payoutStatus", "clientCreatedAt", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "CommissionPersonRecord": {
+      "title": "CommissionPersonRecord",
+      "description": "Commission agent/person directory profile.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "iqamaNo": { "type": "string", "maxLength": 64 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "office": { "type": "string", "maxLength": 160 },
+        "linkedUserId": { "type": "string", "maxLength": 128 },
+        "photoUrl": { "type": "string", "maxLength": 512 },
+        "clientCreatedAt": { "type": "number" },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "name", "clientCreatedAt", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "CommissionMonthRecord": {
+      "title": "CommissionMonthRecord",
+      "description": "Commission month period tab (YYYY-MM).",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "month": { "type": "string", "minLength": 7, "maxLength": 7, "pattern": "^\\d{4}-\\d{2}$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "month", "createdAt", "updatedAt"]
+    },
+    "HomeBazarEntryRecord": {
+      "title": "HomeBazarEntryRecord",
+      "description": "Daily Home Bazar expense ledger entry.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "id": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "userId": { "type": "string", "maxLength": 128 },
+        "workspaceUserId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 32 },
+        "itemName": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 100 },
+        "quantity": { "type": "string", "maxLength": 80 },
+        "amount": { "type": "number" },
+        "paymentMethod": { "type": "string", "enum": ["cash", "bkash", "nagad", "bank"], "maxLength": 40 },
+        "purchasedBy": { "type": "string", "maxLength": 120 },
+        "buyerId": { "type": "string", "maxLength": 80 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "clientCreatedAt": { "type": "number" },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "id", "userId", "workspaceUserId", "date", "itemName", "category", "amount", "paymentMethod", "clientCreatedAt", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "DeletedTombstoneRecord": {
+      "title": "DeletedTombstoneRecord",
+      "description": "Deletion tombstone preventing deleted records from resurrecting across syncs.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "recordId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "deletedAtMs": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "recordId", "deletedAtMs", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Admin role verification documents."
+    },
+    "/appSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppSettingsRecord" },
+      "description": "Global application settings document."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccountRecord" },
+      "description": "User accounts, permissions, and workspace settings."
+    },
+    "/bazarBuyers/{buyerId}": {
+      "schema": { "$ref": "#/entities/BazarBuyerRecord" },
+      "description": "Home Bazar buyer ID profiles."
+    },
+    "/transactions/{txId}": {
+      "schema": { "$ref": "#/entities/TransactionRecord" },
+      "description": "Financial income and expense transactions."
+    },
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/CustomerRecord" },
+      "description": "Customer and vendor directory records."
+    },
+    "/invoices/{invoiceId}": {
+      "schema": { "$ref": "#/entities/InvoiceRecord" },
+      "description": "Customer invoices and payment status."
+    },
+    "/commissionEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/CommissionEntryRecord" },
+      "description": "Commission spreadsheet entries."
+    },
+    "/commissionPersons/{personId}": {
+      "schema": { "$ref": "#/entities/CommissionPersonRecord" },
+      "description": "Commission person/agent profiles."
+    },
+    "/commissionMonths/{monthId}": {
+      "schema": { "$ref": "#/entities/CommissionMonthRecord" },
+      "description": "Commission month filter tabs."
+    },
+    "/homeBazarEntries/{entryId}": {
+      "schema": { "$ref": "#/entities/HomeBazarEntryRecord" },
+      "description": "Daily Home Bazar ledger expenses."
+    },
+    "/deletedRecords/{recordId}": {
+      "schema": { "$ref": "#/entities/DeletedTombstoneRecord" },
+      "description": "Deletion tombstones for non-destructive sync."
+    }
+  }
+}

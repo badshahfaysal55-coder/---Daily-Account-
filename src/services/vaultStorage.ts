@@ -1,5 +1,7 @@
 export interface PersistentVaultSnapshot {
   savedAt: number;
+  users?: any[];
+  globalSettings?: any;
   transactions?: any[];
   customers?: any[];
   invoices?: any[];
@@ -100,6 +102,24 @@ export const VaultStorage = {
     return idbData || lsData || null;
   },
 
+  async recordDeletion(recordId: string): Promise<void> {
+    if (!recordId) return;
+    try {
+      const existing = (await this.loadVault()) || { savedAt: Date.now() };
+      const deletedRecordIds = {
+        ...(existing.deletedRecordIds || {}),
+        [recordId]: Date.now(),
+      };
+      await this.saveVault({
+        ...existing,
+        savedAt: Date.now(),
+        deletedRecordIds,
+      });
+    } catch {
+      // non-fatal
+    }
+  },
+
   async saveVault(snapshot: PersistentVaultSnapshot): Promise<void> {
     const now = snapshot.savedAt || Date.now();
     const payload: PersistentVaultSnapshot = {
@@ -117,12 +137,14 @@ export const VaultStorage = {
       const history = await this.getSnapshotHistory();
       const latestHist = history[0];
       const latestCount =
+        (latestHist?.users?.length || 0) +
         (latestHist?.transactions?.length || 0) +
         (latestHist?.invoices?.length || 0) +
         (latestHist?.commissionEntries?.length || 0) +
         (latestHist?.homeBazarEntries?.length || 0) +
         (latestHist?.customers?.length || 0);
       const nextCount =
+        (payload.users?.length || 0) +
         (payload.transactions?.length || 0) +
         (payload.invoices?.length || 0) +
         (payload.commissionEntries?.length || 0) +
@@ -144,6 +166,15 @@ export const VaultStorage = {
       try {
         const compact: PersistentVaultSnapshot = {
           ...payload,
+          users: (payload.users || []).map((u: any) => ({ ...u, photoData: undefined })),
+          globalSettings: payload.globalSettings
+            ? {
+                ...payload.globalSettings,
+                bazarBuyers: Array.isArray(payload.globalSettings.bazarBuyers)
+                  ? payload.globalSettings.bazarBuyers.map((b: any) => ({ ...b, photoData: undefined }))
+                  : undefined,
+              }
+            : undefined,
           customers: (payload.customers || []).map((c: any) => ({ ...c, photoData: undefined })),
           commissionPersons: (payload.commissionPersons || []).map((p: any) => ({ ...p, photoData: undefined })),
           userPhotos: undefined,
