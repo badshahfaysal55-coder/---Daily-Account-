@@ -114,7 +114,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const perms = getUserPagePermissions(currentUser);
   const isBazarExclusiveEntry = perms.canAccessBazar && !perms.canAccessInvoices && !perms.canAccessQuickCash;
 
-  const navItems = [
+  const primaryNavItems = [
     {
       id: 'dashboard' as NavTabId,
       label: isBn ? 'ড্যাশবোর্ড' : 'Dashboard',
@@ -158,6 +158,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
       badge: isBn ? 'নতুন' : 'Excel',
       color: 'text-emerald-400',
     },
+  ];
+
+  const boxNavItems = [
     {
       id: 'appearance' as NavTabId,
       label: isBn ? 'থিম ও অ্যাপিয়ারেন্স' : 'Themes & Styling',
@@ -181,7 +184,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     },
   ];
 
-  const visibleNavItems = navItems.filter((item) => canAccessNavTab(currentUser, item.id));
+  const visibleNavItems = primaryNavItems.filter((item) => canAccessNavTab(currentUser, item.id));
+  const visibleBoxNavItems = boxNavItems.filter((item) => canAccessNavTab(currentUser, item.id));
   const activeThemeMeta = LUXURY_THEMES.find((th) => th.id === currentTheme) || LUXURY_THEMES[4];
 
   const handleSelectNav = (id: NavTabId) => {
@@ -301,7 +305,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
 
         {/* Navigation Items List */}
-        <nav className="flex-1 p-3 space-y-1.5 overflow-y-auto custom-scrollbar">
+        <nav className="flex-1 min-h-0 p-3 space-y-1.5 overflow-y-auto overscroll-contain custom-scrollbar">
           {visibleNavItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
@@ -352,9 +356,54 @@ export const Sidebar: React.FC<SidebarProps> = ({
             );
           })}
 
-          {/* Control Box (Moved from Header: Auto-Sync Live, Drive Sync, Get App, Notifications, Theme) */}
+          {/* Control Box (Contains Themes & Styling, Mobile App Code, Sync & Audit Logs + Utility Options) */}
           <div className="pt-2">
-            <div className="rounded-2xl bg-slate-950/75 border border-white/10 p-2 space-y-1.5 shadow-inner">
+            <div className="rounded-2xl bg-slate-950/85 border border-white/15 p-2.5 space-y-1.5 shadow-inner">
+              {visibleBoxNavItems.length > 0 && (
+                <div className="space-y-1 pb-1.5 mb-1 border-b border-white/10">
+                  {visibleBoxNavItems.map((item) => {
+                    const Icon = item.icon;
+                    const isActive = activeTab === item.id;
+
+                    return (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleSelectNav(item.id)}
+                        style={
+                          isActive
+                            ? {
+                                backgroundColor: 'var(--theme-accent-light)',
+                                color: 'var(--theme-accent)',
+                                borderColor: 'var(--theme-accent-border)',
+                              }
+                            : undefined
+                        }
+                        className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl text-[11px] font-semibold transition-all duration-150 cursor-pointer ${
+                          isActive
+                            ? 'border'
+                            : 'text-slate-300 hover:text-white hover:bg-white/10'
+                        } ${!isExpanded ? 'justify-center px-0' : ''}`}
+                        title={!isExpanded ? item.label : undefined}
+                      >
+                        <Icon
+                          style={isActive ? { color: 'var(--theme-accent)' } : undefined}
+                          className={`w-3.5 h-3.5 shrink-0 ${isActive ? '' : item.color}`}
+                        />
+                        {isExpanded && (
+                          <span className="flex-1 text-left truncate">{item.label}</span>
+                        )}
+                        {isExpanded && item.badge && (
+                          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 shrink-0">
+                            {item.badge}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+
               {/* 1. Auto-Sync Live + Refresh */}
               {isExpanded ? (
                 <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs">

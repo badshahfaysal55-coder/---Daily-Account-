@@ -203,6 +203,9 @@ export interface CloudAccountDoc {
 export interface UserAccount {
   id: string;
   username: string;
+  email?: string;
+  appleId?: string;
+  idProvider?: 'email' | 'apple';
   name: string;
   role: UserRole;
   workspaceName: string;

@@ -22,7 +22,8 @@ import {
   RefreshCw,
   Eye,
   FileSpreadsheet,
-  Camera
+  Camera,
+  Mail
 } from 'lucide-react';
 import { UserAccount, GlobalAppSettings, Transaction } from '../types/accounting';
 import { ApiService } from '../services/api';
@@ -94,6 +95,10 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
   // Create User Form State
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newIdProvider, setNewIdProvider] = useState<'email' | 'apple'>('email');
+  const [newEmail, setNewEmail] = useState('');
+  const [newAppleId, setNewAppleId] = useState('');
+  const [useEmailAsUserId, setUseEmailAsUserId] = useState(true);
   const [newUsername, setNewUsername] = useState('');
   const [newName, setNewName] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -113,6 +118,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
   // Edit User State
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
+  const [editIdProvider, setEditIdProvider] = useState<'email' | 'apple'>('email');
+  const [editEmail, setEditEmail] = useState('');
+  const [editAppleId, setEditAppleId] = useState('');
   const [editName, setEditName] = useState('');
   const [editPassword, setEditPassword] = useState('');
   const [editRole, setEditRole] = useState<any>('user');
@@ -250,17 +258,35 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setTimeout(() => setActionSuccess(null), 3500);
   };
 
+  const isValidEmailAddress = (val: string) =>
+    /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/.test(val.trim());
+
   // Create User Handler
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newUsername || !newPassword || !newName) {
+    const rawMail = (newIdProvider === 'apple' ? (newAppleId || newEmail) : newEmail).trim().toLowerCase();
+    const resolvedUsername = (useEmailAsUserId && rawMail ? rawMail : newUsername).trim().toLowerCase();
+
+    if (!rawMail || !isValidEmailAddress(rawMail)) {
+      setActionError(
+        isBn
+          ? 'User ID তৈরি করতে সঠিক মেইল অ্যাড্রেস বা Apple ID ইমেইল দেওয়া বাধ্যতামূলক!'
+          : 'A valid Mail Address or Apple ID email is required to create a User ID.'
+      );
+      return;
+    }
+
+    if (!resolvedUsername || !newPassword || !newName) {
       setActionError(isBn ? 'সবগুলো প্রয়োজনীয় ফিল্ড পূরণ করুন' : 'Fill all required fields');
       return;
     }
 
     try {
       const created = await ApiService.createUser({
-        username: newUsername,
+        username: resolvedUsername,
+        email: rawMail,
+        appleId: newIdProvider === 'apple' ? rawMail : (newAppleId.trim().toLowerCase() || undefined),
+        idProvider: newIdProvider,
         name: newName,
         password: newPassword,
         role: newRole,
@@ -281,6 +307,10 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setUsers((prev) => [...prev, created]);
       onUsersChanged?.();
       setShowCreateModal(false);
+      setNewIdProvider('email');
+      setNewEmail('');
+      setNewAppleId('');
+      setUseEmailAsUserId(true);
       setNewUsername('');
       setNewName('');
       setNewPassword('');
@@ -296,6 +326,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   // Edit User Handler
   const startEditUser = (u: UserAccount) => {
     setEditingUser(u);
+    setEditIdProvider(u.idProvider === 'apple' || u.appleId ? 'apple' : 'email');
+    setEditEmail(u.email || (u.username.includes('@') ? u.username : ''));
+    setEditAppleId(u.appleId || '');
     setEditName(u.name);
     setEditPassword('');
     setEditRole(u.role);
@@ -318,8 +351,24 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     e.preventDefault();
     if (!editingUser) return;
 
+    const cleanEmail = editEmail.trim().toLowerCase();
+    const cleanAppleId = editAppleId.trim().toLowerCase();
+    const effectiveMail = editIdProvider === 'apple' ? (cleanAppleId || cleanEmail) : cleanEmail;
+
+    if (effectiveMail && !isValidEmailAddress(effectiveMail)) {
+      setActionError(
+        isBn
+          ? 'সঠিক মেইল অ্যাড্রেস / Apple ID ইমেইল লিখুন'
+          : 'Please enter a valid Mail Address / Apple ID email'
+      );
+      return;
+    }
+
     try {
       const updated = await ApiService.updateUser(editingUser.id, {
+        email: effectiveMail || '',
+        appleId: editIdProvider === 'apple' ? (effectiveMail || '') : (cleanAppleId || ''),
+        idProvider: editIdProvider,
         name: editName,
         password: editPassword || undefined,
         role: editRole,
@@ -941,6 +990,24 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           <Building2 className="w-3 h-3 text-slate-500" />
                           {u.workspaceName}
                         </span>
+                        {(u.appleId || u.idProvider === 'apple') && (
+                          <span className="font-medium text-slate-900 bg-slate-200/80 border border-slate-300 px-2 py-0.5 rounded text-[11px] flex items-center gap-1">
+                            <span></span>
+                            <span>{u.appleId || u.email}</span>
+                          </span>
+                        )}
+                        {u.email && u.email !== u.appleId && (
+                          <span className="font-medium text-blue-800 bg-blue-50 border border-blue-200 px-2 py-0.5 rounded text-[11px] flex items-center gap-1">
+                            <Mail className="w-3 h-3 text-blue-600" />
+                            <span>{u.email}</span>
+                          </span>
+                        )}
+                        {!u.email && !u.appleId && u.role !== 'owner' && (
+                          <span className="font-medium text-amber-800 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded text-[11px] flex items-center gap-1">
+                            <Mail className="w-3 h-3 text-amber-600" />
+                            <span>{isBn ? 'মেইল যোগ করুন' : 'Add Mail / Apple ID'}</span>
+                          </span>
+                        )}
                         
                         {/* Granular Access Privileges Badges (Interactive 1-Click Toggles) */}
                         <button
@@ -1482,240 +1549,333 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
       {/* CREATE USER MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 safe-area-top safe-area-bottom overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl relative flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] overflow-hidden my-auto">
+            <div className="shrink-0 flex items-center justify-between px-5 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 bg-white">
               <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <UserPlus className="w-4 h-4 text-amber-500" />
+                <UserPlus className="w-4 h-4 text-amber-500 shrink-0" />
                 <span>{isBn ? 'নতুন ইউজার অ্যাকাউন্ট তৈরি (Owner Authority)' : 'Create New User Account'}</span>
               </h3>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+              <button
+                type="button"
+                onClick={() => setShowCreateModal(false)}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
             </div>
 
-            <form onSubmit={handleCreateUser} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {isBn ? 'ইউজারনেম / ইউজার আইডি (অনন্য)' : 'User ID / Username'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="cashier_mirpur"
-                  value={newUsername}
-                  onChange={(e) => setNewUsername(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {isBn ? 'সম্পূর্ণ নাম' : 'Full Name'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Shakil Ahmed"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {isBn ? 'পাসওয়ার্ড (মালিক কর্তৃক নির্ধারিত)' : 'Password'}
-                </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••••••"
-                  value={newPassword}
-                  onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+            <form onSubmit={handleCreateUser} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 py-4 space-y-3 text-xs">
+                {/* Account Source Selector: Mail Address vs Apple ID */}
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    {isBn ? 'ভূমিকা (Role)' : 'Role'}
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    {isBn ? 'ইউজার আইডি তৈরির মাধ্যম (বাধ্যতামূলক)' : 'Account Source (Mandatory for User ID)'}
                   </label>
-                  <select
-                    value={newRole}
-                    onChange={(e) => setNewRole(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  >
-                    <option value="admin">Admin (প্রশাসনিক)</option>
-                    <option value="manager">Manager (ম্যানেজার)</option>
-                    <option value="staff">Staff / Cashier (স্টাফ)</option>
-                    <option value="viewer">Viewer (নিরীক্ষক / রিড-অনলি)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    {isBn ? 'ওয়ার্কস্পেস নাম' : 'Workspace Name'}
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Mirpur Outlet Counter"
-                    value={newWorkspace}
-                    onChange={(e) => setNewWorkspace(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                  />
-                </div>
-              </div>
-
-              {/* Comprehensive User Access Control Section */}
-              <div className="pt-2 border-t border-slate-200">
-                <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-                  <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5 text-amber-700">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    {isBn ? 'বিশেষ অ্যাক্সেস সুবিধা ও পারমিশন কন্ট্রোল' : 'Access Privileges & Security Privileges'}
-                  </span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200">
                     <button
                       type="button"
-                      onClick={applyCommissionBazarOnlyPresetToCreate}
-                      className="px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      onClick={() => setNewIdProvider('email')}
+                      className={`py-2 px-2.5 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        newIdProvider === 'email'
+                          ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      🛒 {isBn ? 'প্রিসেট: কমিশন + বাজার' : 'Preset: Comm + Bazar'}
+                      <Mail className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isBn ? 'মেইল অ্যাড্রেস' : 'Mail Address'}</span>
                     </button>
                     <button
                       type="button"
-                      onClick={applyCommissionOnlyPresetToCreate}
-                      className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      onClick={() => setNewIdProvider('apple')}
+                      className={`py-2 px-2.5 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        newIdProvider === 'apple'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন' : 'Preset: Comm Only'}
+                      <span className="text-sm leading-none"></span>
+                      <span>Apple ID</span>
                     </button>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900 sm:col-span-2 p-1.5 rounded-lg bg-amber-50/90 border border-amber-200 select-none">
+
+                {/* Mandatory Mail Address / Apple ID Email */}
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {newIdProvider === 'apple'
+                      ? (isBn ? 'Apple ID ইমেইল (বাধ্যতামূলক) *' : 'Apple ID Email (Required) *')
+                      : (isBn ? 'মেইল অ্যাড্রেস (বাধ্যতামূলক) *' : 'Mail Address (Required) *')}
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    placeholder={newIdProvider === 'apple' ? 'name@icloud.com' : 'user@company.com'}
+                    value={newIdProvider === 'apple' ? newAppleId : newEmail}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (newIdProvider === 'apple') {
+                        setNewAppleId(val);
+                        setNewEmail(val);
+                      } else {
+                        setNewEmail(val);
+                      }
+                      if (useEmailAsUserId) {
+                        setNewUsername(val.trim().toLowerCase());
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20"
+                  />
+                  <label className="flex items-center gap-2 mt-1.5 text-[11px] text-slate-600 cursor-pointer select-none">
                     <input
                       type="checkbox"
-                      checked={newIsCommissionBazarOnly}
+                      checked={useEmailAsUserId}
                       onChange={(e) => {
                         const checked = e.target.checked;
-                        setNewIsCommissionBazarOnly(checked);
+                        setUseEmailAsUserId(checked);
                         if (checked) {
-                          applyCommissionBazarOnlyPresetToCreate();
+                          const src = (newIdProvider === 'apple' ? newAppleId : newEmail).trim().toLowerCase();
+                          setNewUsername(src);
                         }
                       }}
                       className="rounded text-amber-600 focus:ring-amber-500"
                     />
-                    <span>🛒 {isBn ? 'শুধু কমিশন শিট ও দৈনিক বাজার পেজের অনুমতি (বাকি সব পেজ লুকানো থাকবে)' : 'Only Commission Page + Bazar Page (Hide all other pages)'}</span>
+                    <span>
+                      {isBn
+                        ? 'এই মেইল / Apple ID কেই সরাসরি User ID হিসেবে ব্যবহার করুন'
+                        : 'Use this Mail / Apple ID directly as User ID'}
+                    </span>
                   </label>
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-emerald-800 sm:col-span-2 p-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newIsCommissionOnly}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setNewIsCommissionOnly(checked);
-                        if (checked) {
-                          applyCommissionOnlyPresetToCreate();
-                        }
-                      }}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span>⚡ {isBn ? 'শুধু কমিশন শিটের একক অনুমতি (বাকি সকল খতিয়ান ও মেনু বন্ধ থাকবে)' : 'Exclusive Commission Sheet Only (Hide all ledger & other menus)'}</span>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isBn ? 'ইউজারনেম / ইউজার আইডি (অনন্য)' : 'User ID / Username'}
                   </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="user@company.com or cashier_mirpur"
+                    value={newUsername}
+                    onChange={(e) => {
+                      setUseEmailAsUserId(false);
+                      setNewUsername(e.target.value);
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanAddTransactions}
-                      onChange={(e) => setNewCanAddTransactions(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>{isBn ? 'দৈনিক লেনদেন যোগ (Add Tx)' : 'Add Transactions'}</span>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isBn ? 'সম্পূর্ণ নাম' : 'Full Name'}
                   </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Shakil Ahmed"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanViewLedger}
-                      onChange={(e) => setNewCanViewLedger(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>{isBn ? 'খতিয়ান দর্শন (View Ledger)' : 'View Ledger'}</span>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isBn ? 'পাসওয়ার্ড (মালিক কর্তৃক নির্ধারিত)' : 'Password'}
                   </label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="••••••••"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:ring-2 focus:ring-amber-500/20"
+                  />
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanEditCustomers}
-                      onChange={(e) => setNewCanEditCustomers(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>{isBn ? 'গ্রাহক তৈরি/সম্পাদনা (CRM)' : 'Edit Customers'}</span>
-                  </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isBn ? 'ভূমিকা (Role)' : 'Role'}
+                    </label>
+                    <select
+                      value={newRole}
+                      onChange={(e) => setNewRole(e.target.value as any)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white"
+                    >
+                      <option value="admin">Admin (প্রশাসনিক)</option>
+                      <option value="manager">Manager (ম্যানেজার)</option>
+                      <option value="staff">Staff / Cashier (স্টাফ)</option>
+                      <option value="viewer">Viewer (নিরীক্ষক / রিড-অনলি)</option>
+                    </select>
+                  </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isBn ? 'ওয়ার্কস্পেস নাম' : 'Workspace Name'}
+                    </label>
                     <input
-                      type="checkbox"
-                      checked={newCanApproveInvoices}
-                      onChange={(e) => setNewCanApproveInvoices(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
+                      type="text"
+                      placeholder="Mirpur Outlet Counter"
+                      value={newWorkspace}
+                      onChange={(e) => setNewWorkspace(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl"
                     />
-                    <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
-                  </label>
+                  </div>
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanManageCommissions}
-                      onChange={(e) => setNewCanManageCommissions(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
-                  </label>
+                {/* Comprehensive User Access Control Section */}
+                <div className="pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                    <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5 text-amber-700">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      {isBn ? 'বিশেষ অ্যাক্সেস সুবিধা ও পারমিশন কন্ট্রোল' : 'Access Privileges & Security Privileges'}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={applyCommissionBazarOnlyPresetToCreate}
+                        className="px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      >
+                        🛒 {isBn ? 'প্রিসেট: কমিশন + বাজার' : 'Preset: Comm + Bazar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={applyCommissionOnlyPresetToCreate}
+                        className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      >
+                        ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন' : 'Preset: Comm Only'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900 sm:col-span-2 p-1.5 rounded-lg bg-amber-50/90 border border-amber-200 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newIsCommissionBazarOnly}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setNewIsCommissionBazarOnly(checked);
+                          if (checked) {
+                            applyCommissionBazarOnlyPresetToCreate();
+                          }
+                        }}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>🛒 {isBn ? 'শুধু কমিশন শিট ও দৈনিক বাজার পেজের অনুমতি (বাকি সব পেজ লুকানো থাকবে)' : 'Only Commission Page + Bazar Page (Hide all other pages)'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanManageBazar}
-                      onChange={(e) => setNewCanManageBazar(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>{isBn ? 'দৈনিক বাজার খাতা (Daily Bazar)' : 'Daily Bazar Access'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-emerald-800 sm:col-span-2 p-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newIsCommissionOnly}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setNewIsCommissionOnly(checked);
+                          if (checked) {
+                            applyCommissionOnlyPresetToCreate();
+                          }
+                        }}
+                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>⚡ {isBn ? 'শুধু কমিশন শিটের একক অনুমতি (বাকি সকল খতিয়ান ও মেনু বন্ধ থাকবে)' : 'Exclusive Commission Sheet Only (Hide all ledger & other menus)'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanManageBuyers}
-                      onChange={(e) => setNewCanManageBuyers(e.target.checked)}
-                      className="rounded text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanAddTransactions}
+                        onChange={(e) => setNewCanAddTransactions(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'দৈনিক লেনদেন যোগ (Add Tx)' : 'Add Transactions'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanExport}
-                      onChange={(e) => setNewCanExport(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>{isBn ? 'এক্সপোর্ট রিপোর্ট (Export)' : 'Export CSV/Excel'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanViewLedger}
+                        onChange={(e) => setNewCanViewLedger(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'খতিয়ান দর্শন (View Ledger)' : 'View Ledger'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-rose-700 sm:col-span-2 select-none">
-                    <input
-                      type="checkbox"
-                      checked={newCanDelete}
-                      onChange={(e) => setNewCanDelete(e.target.checked)}
-                      className="rounded text-rose-600 focus:ring-rose-500"
-                    />
-                    <span>{isBn ? 'রেকর্ড ডিলিট করার সর্বোচ্চ অনুমতি (Danger)' : 'Can Delete Records (Permanent)'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanEditCustomers}
+                        onChange={(e) => setNewCanEditCustomers(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'গ্রাহক তৈরি/সম্পাদনা (CRM)' : 'Edit Customers'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanApproveInvoices}
+                        onChange={(e) => setNewCanApproveInvoices(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanManageCommissions}
+                        onChange={(e) => setNewCanManageCommissions(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanManageBazar}
+                        onChange={(e) => setNewCanManageBazar(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'দৈনিক বাজার খাতা (Daily Bazar)' : 'Daily Bazar Access'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanManageBuyers}
+                        onChange={(e) => setNewCanManageBuyers(e.target.checked)}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanExport}
+                        onChange={(e) => setNewCanExport(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'এক্সপোর্ট রিপোর্ট (Export)' : 'Export CSV/Excel'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-rose-700 sm:col-span-2 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanDelete}
+                        onChange={(e) => setNewCanDelete(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{isBn ? 'রেকর্ড ডিলিট করার সর্বোচ্চ অনুমতি (Danger)' : 'Can Delete Records (Permanent)'}</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-3 flex gap-2">
+              <div className="shrink-0 px-5 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50/90 flex gap-2 text-xs">
                 <button
                   type="submit"
                   className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl transition cursor-pointer"
@@ -1725,7 +1885,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                 <button
                   type="button"
                   onClick={() => setShowCreateModal(false)}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-200/70 hover:bg-slate-200 text-slate-700 rounded-xl transition cursor-pointer"
                 >
                   {isBn ? 'বাতিল' : 'Cancel'}
                 </button>
@@ -1737,240 +1897,296 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
       {/* EDIT USER MODAL */}
       {editingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Edit3 className="w-4 h-4 text-blue-600" />
-                <span>{isBn ? `ইউজার সম্পাদনা: @${editingUser.username}` : `Edit User: @${editingUser.username}`}</span>
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 safe-area-top safe-area-bottom overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl relative flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] overflow-hidden my-auto">
+            <div className="shrink-0 flex items-center justify-between px-5 sm:px-6 py-3.5 sm:py-4 border-b border-slate-100 bg-white">
+              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2 min-w-0">
+                <Edit3 className="w-4 h-4 text-blue-600 shrink-0" />
+                <span className="truncate">{isBn ? `ইউজার সম্পাদনা: @${editingUser.username}` : `Edit User: @${editingUser.username}`}</span>
               </h3>
-              <button onClick={() => setEditingUser(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+              <button
+                type="button"
+                onClick={() => setEditingUser(null)}
+                className="w-8 h-8 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition cursor-pointer shrink-0"
+                aria-label="Close modal"
+              >
+                ✕
+              </button>
             </div>
 
-            <form onSubmit={handleUpdateUser} className="space-y-3 text-xs">
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {isBn ? 'নাম' : 'Name'}
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {isBn ? 'নতুন পাসওয়ার্ড (যদি পরিবর্তন করতে চান)' : 'New Password (Leave blank to keep current)'}
-                </label>
-                <input
-                  type="password"
-                  placeholder={isBn ? 'নতুন পাসওয়ার্ড দিন...' : 'Type new password...'}
-                  value={editPassword}
-                  onChange={(e) => setEditPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
+            <form onSubmit={handleUpdateUser} className="flex flex-col flex-1 min-h-0">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-5 sm:px-6 py-4 space-y-3 text-xs">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    {isBn ? 'ভূমিকা (Role)' : 'Role'}
+                    {isBn ? 'নাম' : 'Name'}
                   </label>
-                  <select
-                    disabled={editingUser.role === 'owner'}
-                    value={editRole}
-                    onChange={(e) => setEditRole(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl disabled:bg-slate-100"
-                  >
-                    {editingUser.role === 'owner' && <option value="owner">Owner (মালিক)</option>}
-                    <option value="admin">Admin (প্রশাসনিক)</option>
-                    <option value="manager">Manager (ম্যানেজার)</option>
-                    <option value="staff">Staff / Cashier (স্টাফ)</option>
-                    <option value="viewer">Viewer (নিরীক্ষক / রিড-অনলি)</option>
-                  </select>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                  />
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-700 mb-1">
-                    {isBn ? 'অ্যাকাউন্ট স্ট্যাটাস' : 'Status'}
+                  <label className="block font-bold text-slate-700 mb-1.5">
+                    {isBn ? 'লগইন আইডেন্টিটি মাধ্যম (Mail / Apple ID)' : 'Mail Address / Apple ID Source'}
                   </label>
-                  <select
-                    disabled={editingUser.role === 'owner'}
-                    value={editStatus}
-                    onChange={(e) => setEditStatus(e.target.value as any)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl disabled:bg-slate-100"
-                  >
-                    <option value="active">{isBn ? 'সক্রিয় (Active)' : 'Active'}</option>
-                    <option value="disabled">{isBn ? 'নিষ্ক্রিয় (Disabled)' : 'Disabled'}</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  {isBn ? 'ওয়ার্কস্পেস নাম' : 'Workspace Name'}
-                </label>
-                <input
-                  type="text"
-                  value={editWorkspace}
-                  onChange={(e) => setEditWorkspace(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl"
-                />
-              </div>
-
-              {/* Comprehensive User Access Control Section for Editing */}
-              <div className="pt-2 border-t border-slate-200">
-                <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
-                  <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5 text-blue-700">
-                    <ShieldCheck className="w-3.5 h-3.5" />
-                    {isBn ? 'বিশেষ অ্যাক্সেস সুবিধা ও পারমিশন কন্ট্রোল' : 'Access Privileges & Security Privileges'}
-                  </span>
-                  <div className="flex items-center gap-1.5 flex-wrap">
+                  <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-100 rounded-xl border border-slate-200 mb-2">
                     <button
                       type="button"
-                      onClick={applyCommissionBazarOnlyPresetToEdit}
-                      className="px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      onClick={() => setEditIdProvider('email')}
+                      className={`py-1.5 px-2.5 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        editIdProvider === 'email'
+                          ? 'bg-white text-slate-900 shadow-xs border border-slate-200'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      🛒 {isBn ? 'প্রিসেট: কমিশন + বাজার' : 'Preset: Comm + Bazar'}
+                      <Mail className="w-3.5 h-3.5 text-blue-600" />
+                      <span>{isBn ? 'মেইল অ্যাড্রেস' : 'Mail Address'}</span>
                     </button>
                     <button
                       type="button"
-                      onClick={applyCommissionOnlyPresetToEdit}
-                      className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      onClick={() => setEditIdProvider('apple')}
+                      className={`py-1.5 px-2.5 rounded-lg font-bold text-[11px] flex items-center justify-center gap-1.5 transition cursor-pointer ${
+                        editIdProvider === 'apple'
+                          ? 'bg-slate-900 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
                     >
-                      ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন' : 'Preset: Comm Only'}
+                      <span className="text-sm leading-none"></span>
+                      <span>Apple ID</span>
                     </button>
                   </div>
+                  <input
+                    type="email"
+                    placeholder={editIdProvider === 'apple' ? 'name@icloud.com' : 'user@company.com'}
+                    value={editIdProvider === 'apple' ? (editAppleId || editEmail) : editEmail}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (editIdProvider === 'apple') {
+                        setEditAppleId(val);
+                        if (!editEmail) setEditEmail(val);
+                      } else {
+                        setEditEmail(val);
+                      }
+                    }}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                  />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900 sm:col-span-2 p-1.5 rounded-lg bg-amber-50/90 border border-amber-200 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editIsCommissionBazarOnly}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setEditIsCommissionBazarOnly(checked);
-                        if (checked) {
-                          applyCommissionBazarOnlyPresetToEdit();
-                        }
-                      }}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>🛒 {isBn ? 'শুধু কমিশন শিট ও দৈনিক বাজার পেজের অনুমতি (বাকি সব পেজ লুকানো থাকবে)' : 'Only Commission Page + Bazar Page (Hide all other pages)'}</span>
-                  </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-bold text-emerald-800 sm:col-span-2 p-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editIsCommissionOnly}
-                      onChange={(e) => {
-                        const checked = e.target.checked;
-                        setEditIsCommissionOnly(checked);
-                        if (checked) {
-                          applyCommissionOnlyPresetToEdit();
-                        }
-                      }}
-                      className="rounded text-emerald-600 focus:ring-emerald-500"
-                    />
-                    <span>⚡ {isBn ? 'শুধু কমিশন শিটের একক অনুমতি (বাকি সকল খতিয়ান ও মেনু বন্ধ থাকবে)' : 'Exclusive Commission Sheet Only (Hide all ledger & other menus)'}</span>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isBn ? 'নতুন পাসওয়ার্ড (যদি পরিবর্তন করতে চান)' : 'New Password (Leave blank to keep current)'}
                   </label>
+                  <input
+                    type="password"
+                    placeholder={isBn ? 'নতুন পাসওয়ার্ড দিন...' : 'Type new password...'}
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                  />
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanAddTransactions}
-                      onChange={(e) => setEditCanAddTransactions(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>{isBn ? 'দৈনিক লেনদেন যোগ (Add Tx)' : 'Add Transactions'}</span>
-                  </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isBn ? 'ভূমিকা (Role)' : 'Role'}
+                    </label>
+                    <select
+                      disabled={editingUser.role === 'owner'}
+                      value={editRole}
+                      onChange={(e) => setEditRole(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white disabled:bg-slate-100"
+                    >
+                      {editingUser.role === 'owner' && <option value="owner">Owner (মালিক)</option>}
+                      <option value="admin">Admin (প্রশাসনিক)</option>
+                      <option value="manager">Manager (ম্যানেজার)</option>
+                      <option value="staff">Staff / Cashier (স্টাফ)</option>
+                      <option value="viewer">Viewer (নিরীক্ষক / রিড-অনলি)</option>
+                    </select>
+                  </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanViewLedger}
-                      onChange={(e) => setEditCanViewLedger(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>{isBn ? 'খতিয়ান দর্শন (View Ledger)' : 'View Ledger'}</span>
-                  </label>
+                  <div>
+                    <label className="block font-bold text-slate-700 mb-1">
+                      {isBn ? 'অ্যাকাউন্ট স্ট্যাটাস' : 'Status'}
+                    </label>
+                    <select
+                      disabled={editingUser.role === 'owner'}
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value as any)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white disabled:bg-slate-100"
+                    >
+                      <option value="active">{isBn ? 'সক্রিয় (Active)' : 'Active'}</option>
+                      <option value="disabled">{isBn ? 'নিষ্ক্রিয় (Disabled)' : 'Disabled'}</option>
+                    </select>
+                  </div>
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanEditCustomers}
-                      onChange={(e) => setEditCanEditCustomers(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>{isBn ? 'গ্রাহক তৈরি/সম্পাদনা (CRM)' : 'Edit Customers'}</span>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    {isBn ? 'ওয়ার্কস্পেস নাম' : 'Workspace Name'}
                   </label>
+                  <input
+                    type="text"
+                    value={editWorkspace}
+                    onChange={(e) => setEditWorkspace(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl"
+                  />
+                </div>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanApproveInvoices}
-                      onChange={(e) => setEditCanApproveInvoices(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
-                  </label>
+                {/* Comprehensive User Access Control Section for Editing */}
+                <div className="pt-2 border-t border-slate-200">
+                  <div className="flex items-center justify-between gap-2 flex-wrap mb-2">
+                    <span className="block font-bold text-slate-800 text-[11px] uppercase tracking-wider flex items-center gap-1.5 text-blue-700">
+                      <ShieldCheck className="w-3.5 h-3.5" />
+                      {isBn ? 'বিশেষ অ্যাক্সেস সুবিধা ও পারমিশন কন্ট্রোল' : 'Access Privileges & Security Privileges'}
+                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <button
+                        type="button"
+                        onClick={applyCommissionBazarOnlyPresetToEdit}
+                        className="px-2 py-0.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      >
+                        🛒 {isBn ? 'প্রিসেট: কমিশন + বাজার' : 'Preset: Comm + Bazar'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={applyCommissionOnlyPresetToEdit}
+                        className="px-2 py-0.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-300 text-[10px] font-bold cursor-pointer transition flex items-center gap-1"
+                      >
+                        ⚡ {isBn ? 'প্রিসেট: শুধু কমিশন' : 'Preset: Comm Only'}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 bg-slate-50 p-2.5 rounded-xl border border-slate-200">
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-amber-900 sm:col-span-2 p-1.5 rounded-lg bg-amber-50/90 border border-amber-200 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editIsCommissionBazarOnly}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEditIsCommissionBazarOnly(checked);
+                          if (checked) {
+                            applyCommissionBazarOnlyPresetToEdit();
+                          }
+                        }}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>🛒 {isBn ? 'শুধু কমিশন শিট ও দৈনিক বাজার পেজের অনুমতি (বাকি সব পেজ লুকানো থাকবে)' : 'Only Commission Page + Bazar Page (Hide all other pages)'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanManageCommissions}
-                      onChange={(e) => setEditCanManageCommissions(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-bold text-emerald-800 sm:col-span-2 p-1.5 rounded-lg bg-emerald-50/80 border border-emerald-200 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editIsCommissionOnly}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setEditIsCommissionOnly(checked);
+                          if (checked) {
+                            applyCommissionOnlyPresetToEdit();
+                          }
+                        }}
+                        className="rounded text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <span>⚡ {isBn ? 'শুধু কমিশন শিটের একক অনুমতি (বাকি সকল খতিয়ান ও মেনু বন্ধ থাকবে)' : 'Exclusive Commission Sheet Only (Hide all ledger & other menus)'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanManageBazar}
-                      onChange={(e) => setEditCanManageBazar(e.target.checked)}
-                      className="rounded text-amber-600 focus:ring-amber-500"
-                    />
-                    <span>{isBn ? 'দৈনিক বাজার খাতা (Daily Bazar)' : 'Daily Bazar Access'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanAddTransactions}
+                        onChange={(e) => setEditCanAddTransactions(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{isBn ? 'দৈনিক লেনদেন যোগ (Add Tx)' : 'Add Transactions'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanManageBuyers}
-                      onChange={(e) => setEditCanManageBuyers(e.target.checked)}
-                      className="rounded text-indigo-600 focus:ring-indigo-500"
-                    />
-                    <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanViewLedger}
+                        onChange={(e) => setEditCanViewLedger(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{isBn ? 'খতিয়ান দর্শন (View Ledger)' : 'View Ledger'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanExport}
-                      onChange={(e) => setEditCanExport(e.target.checked)}
-                      className="rounded text-blue-600 focus:ring-blue-500"
-                    />
-                    <span>{isBn ? 'এক্সপোর্ট রিপোর্ট (Export)' : 'Export CSV/Excel'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanEditCustomers}
+                        onChange={(e) => setEditCanEditCustomers(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{isBn ? 'গ্রাহক তৈরি/সম্পাদনা (CRM)' : 'Edit Customers'}</span>
+                    </label>
 
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-rose-700 sm:col-span-2 select-none">
-                    <input
-                      type="checkbox"
-                      checked={editCanDelete}
-                      onChange={(e) => setEditCanDelete(e.target.checked)}
-                      className="rounded text-rose-600 focus:ring-rose-500"
-                    />
-                    <span>{isBn ? 'রেকর্ড ডিলিট করার সর্বোচ্চ অনুমতি (Danger)' : 'Can Delete Records (Permanent)'}</span>
-                  </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanApproveInvoices}
+                        onChange={(e) => setEditCanApproveInvoices(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanManageCommissions}
+                        onChange={(e) => setEditCanManageCommissions(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanManageBazar}
+                        onChange={(e) => setEditCanManageBazar(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'দৈনিক বাজার খাতা (Daily Bazar)' : 'Daily Bazar Access'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanManageBuyers}
+                        onChange={(e) => setEditCanManageBuyers(e.target.checked)}
+                        className="rounded text-indigo-600 focus:ring-indigo-500"
+                      />
+                      <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanExport}
+                        onChange={(e) => setEditCanExport(e.target.checked)}
+                        className="rounded text-blue-600 focus:ring-blue-500"
+                      />
+                      <span>{isBn ? 'এক্সপোর্ট রিপোর্ট (Export)' : 'Export CSV/Excel'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-rose-700 sm:col-span-2 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanDelete}
+                        onChange={(e) => setEditCanDelete(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{isBn ? 'রেকর্ড ডিলিট করার সর্বোচ্চ অনুমতি (Danger)' : 'Can Delete Records (Permanent)'}</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
-              <div className="pt-3 flex gap-2">
+              <div className="shrink-0 px-5 sm:px-6 py-3 sm:py-4 border-t border-slate-100 bg-slate-50/90 flex gap-2 text-xs">
                 <button
                   type="submit"
                   className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition cursor-pointer"
@@ -1980,7 +2196,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                 <button
                   type="button"
                   onClick={() => setEditingUser(null)}
-                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition cursor-pointer"
+                  className="px-4 py-2.5 bg-slate-200/70 hover:bg-slate-200 text-slate-700 rounded-xl transition cursor-pointer"
                 >
                   {isBn ? 'বাতিল' : 'Cancel'}
                 </button>
@@ -2009,8 +2225,8 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
       {/* CUSTOM DELETE CONFIRMATION MODAL (Safe for AI Studio iFrame) */}
       {userToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative border border-rose-100 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/60 backdrop-blur-xs p-3 sm:p-4 safe-area-top safe-area-bottom overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl relative border border-rose-100 max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] overflow-y-auto overscroll-contain my-auto animate-in fade-in zoom-in-95 duration-150">
             <div className="w-12 h-12 rounded-full bg-rose-100 flex items-center justify-center mx-auto mb-3 text-rose-600">
               <Trash2 className="w-6 h-6" />
             </div>

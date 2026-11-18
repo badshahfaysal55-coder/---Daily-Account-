@@ -48,6 +48,9 @@ export type DisplayMode = 'light' | 'dark';
 export interface DbUser {
   id: string;
   username: string;
+  email?: string;
+  appleId?: string;
+  idProvider?: 'email' | 'apple';
   name: string;
   passwordHash: string;
   role: UserRole;
@@ -727,6 +730,25 @@ async function startServer() {
   app.use(express.json({ limit: '25mb' }));
   app.use(express.urlencoded({ extended: true, limit: '25mb' }));
   app.use('/api', (req, res, next) => {
+    const origin = req.headers.origin;
+    if (
+      origin &&
+      (origin === 'https://localhost' ||
+        origin === 'http://localhost' ||
+        origin === 'capacitor://localhost' ||
+        origin === 'ionic://localhost' ||
+        origin.startsWith('http://localhost:') ||
+        origin.startsWith('http://127.0.0.1:'))
+    ) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Expose-Headers', 'x-auth-token');
+    }
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
     if (!req.path.startsWith('/photos') && req.path !== '/sync/events') {
       res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
       res.setHeader('Pragma', 'no-cache');
@@ -859,19 +881,26 @@ async function startServer() {
   };
 
   /* ------------------- AUTH ROUTES ------------------- */
+  const EMAIL_REGEX = /^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$/;
+
   app.post('/api/auth/login', (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) {
-      return res.status(400).json({ error: 'Username and password are required' });
+      return res.status(400).json({ error: 'User ID / Mail Address and password are required' });
     }
 
+    const identifier = String(username).trim().toLowerCase();
     const hashed = hashPassword(password);
     const user = db.users.find(
-      (u) => (u.username.toLowerCase() === username.trim().toLowerCase()) && u.passwordHash === hashed
+      (u) =>
+        u.passwordHash === hashed &&
+        (u.username.toLowerCase() === identifier ||
+          (u.email && u.email.toLowerCase() === identifier) ||
+          (u.appleId && u.appleId.toLowerCase() === identifier))
     );
 
     if (!user) {
-      return res.status(401).json({ error: 'ভুল ইউজার আইডি অথবা পাসওয়ার্ড (Invalid User ID or Password)' });
+      return res.status(401).json({ error: 'ভুল ইউজার আইডি / ইমেইল অথবা পাসওয়ার্ড (Invalid User ID, Email or Password)' });
     }
 
     if (user.status === 'disabled') {
@@ -902,6 +931,96 @@ async function startServer() {
       user: safeUser,
       globalSettings: db.globalSettings,
     });
+  });
+
+  app.post('/api/auth/apple-login', async (req, res) => {
+    try {
+      const { idToken } = req.body || {};
+      if (!idToken || typeof idToken !== 'string') {
+        return res.status(400).json({ error: 'Apple Sign-In ID token is required' });
+      }
+
+      const firebaseCfgPath = path.join(__dirname, 'firebase-applet-config.json');
+      if (!fs.existsSync(firebaseCfgPath)) {
+        return res.status(500).json({ error: 'Firebase configuration missing on server' });
+      }
+      const firebaseCfg = JSON.parse(fs.readFileSync(firebaseCfgPath, 'utf-8'));
+      const apiKey = firebaseCfg?.apiKey;
+      if (!apiKey) {
+        return res.status(500).json({ error: 'Firebase API key missing on server' });
+      }
+
+      const verifyRes = await fetch(
+        `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ idToken }),
+        }
+      );
+
+      if (!verifyRes.ok) {
+        return res.status(401).json({ error: 'Apple ID token verification failed' });
+      }
+
+      const verifyData: any = await verifyRes.json();
+      const fbUser = Array.isArray(verifyData?.users) ? verifyData.users[0] : null;
+      const verifiedEmail = String(
+        fbUser?.email ||
+          fbUser?.providerUserInfo?.find((p: any) => p?.email)?.email ||
+          ''
+      )
+        .trim()
+        .toLowerCase();
+
+      if (!verifiedEmail) {
+        return res.status(400).json({ error: 'No email returned from Apple ID. Please share email during Apple Sign-In.' });
+      }
+
+      const user = db.users.find(
+        (u) =>
+          (u.appleId && u.appleId.toLowerCase() === verifiedEmail) ||
+          (u.email && u.email.toLowerCase() === verifiedEmail) ||
+          u.username.toLowerCase() === verifiedEmail
+      );
+
+      if (!user) {
+        return res.status(404).json({
+          error: `এই Apple ID (${verifiedEmail}) এর জন্য কোনো ইউজার আইডি তৈরি করা নেই। প্রথমে Owner Control থেকে এই Apple ID দিয়ে User ID তৈরি করুন। (No account found for Apple ID: ${verifiedEmail})`,
+        });
+      }
+
+      if (user.status === 'disabled') {
+        return res.status(403).json({ error: 'আপনার অ্যাকাউন্টটি Owner দ্বারা স্থগিত (Suspended) করা রয়েছে।' });
+      }
+
+      const token = `token_${user.id}_${crypto.randomUUID()}`;
+      user.lastLoginAt = Date.now();
+      if (!db.sessions) db.sessions = {};
+      db.sessions[token] = user.id;
+      SESSIONS.set(token, user);
+
+      db.auditLogs.unshift({
+        id: 'audit-' + Date.now(),
+        timestamp: Date.now(),
+        action: 'USER_LOGIN',
+        performedBy: `${user.name} (${user.username})`,
+        details: { role: user.role, workspace: user.workspaceName, provider: 'apple' },
+      });
+      db.auditLogs = db.auditLogs.slice(0, 100);
+      saveDatabase(db);
+
+      const safeUser = { ...user };
+      delete (safeUser as any).passwordHash;
+
+      return res.json({
+        token,
+        user: safeUser,
+        globalSettings: db.globalSettings,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || 'Apple ID authentication error' });
+    }
   });
 
   app.get('/api/auth/me', authMiddleware, (req, res) => {
@@ -1028,6 +1147,9 @@ async function startServer() {
   app.post('/api/users', authMiddleware, ownerOnlyMiddleware, (req, res) => {
     const { 
       username, 
+      email,
+      appleId,
+      idProvider,
       name, 
       password, 
       role, 
@@ -1047,16 +1169,50 @@ async function startServer() {
       language 
     } = req.body;
     if (!username || !password || !name) {
-      return res.status(400).json({ error: 'Username, password and name are required' });
+      return res.status(400).json({ error: 'User ID, password and name are required' });
     }
 
     if (role === 'owner') {
       return res.status(400).json({ error: 'Only one Primary Owner account can exist in the system.' });
     }
 
-    const trimmedUsername = username.trim().toLowerCase();
+    const trimmedUsername = String(username).trim().toLowerCase();
+    const rawEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+    const rawAppleId = typeof appleId === 'string' ? appleId.trim().toLowerCase() : '';
+    const resolvedProvider: 'email' | 'apple' = idProvider === 'apple' ? 'apple' : 'email';
+    const normalizedEmail =
+      rawEmail ||
+      rawAppleId ||
+      (EMAIL_REGEX.test(trimmedUsername) ? trimmedUsername : '');
+    const normalizedAppleId =
+      resolvedProvider === 'apple' ? (rawAppleId || normalizedEmail) : rawAppleId;
+
+    if (!normalizedEmail || !EMAIL_REGEX.test(normalizedEmail)) {
+      return res.status(400).json({
+        error: 'একটি সঠিক মেইল অ্যাড্রেস বা Apple ID ইমেইল দেওয়া বাধ্যতামূলক (Valid Mail Address / Apple ID email is required to create a User ID).',
+      });
+    }
+
+    if (normalizedAppleId && !EMAIL_REGEX.test(normalizedAppleId)) {
+      return res.status(400).json({
+        error: 'সঠিক Apple ID ইমেইল লিখুন (Please enter a valid Apple ID email address).',
+      });
+    }
+
     if (db.users.some((u) => u.username.toLowerCase() === trimmedUsername)) {
       return res.status(400).json({ error: 'User ID / Username already taken. Please choose another.' });
+    }
+
+    if (
+      db.users.some(
+        (u) =>
+          (u.email && u.email.toLowerCase() === normalizedEmail) ||
+          (normalizedAppleId && u.appleId && u.appleId.toLowerCase() === normalizedAppleId)
+      )
+    ) {
+      return res.status(400).json({
+        error: 'এই মেইল অ্যাড্রেস / Apple ID দিয়ে ইতিমধ্যেই একটি ইউজার অ্যাকাউন্ট রয়েছে। (This Mail Address or Apple ID is already registered.)',
+      });
     }
 
     const assignedRole = role || 'staff';
@@ -1066,6 +1222,9 @@ async function startServer() {
     const newUser: DbUser = {
       id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
       username: trimmedUsername,
+      email: normalizedEmail,
+      ...(normalizedAppleId ? { appleId: normalizedAppleId } : {}),
+      idProvider: resolvedProvider,
       name: name.trim(),
       passwordHash: hashPassword(password),
       role: assignedRole,
@@ -1121,11 +1280,14 @@ async function startServer() {
     return res.status(201).json({ user: safe });
   });
 
-  // Owner edits user (password reset, role, status activate/suspend, permissions)
+  // Owner edits user (password reset, email/appleId, role, status activate/suspend, permissions)
   app.put('/api/users/:id', authMiddleware, ownerOnlyMiddleware, (req, res) => {
     const targetId = req.params.id;
     const { 
       name, 
+      email,
+      appleId,
+      idProvider,
       password, 
       role, 
       workspaceName, 
@@ -1158,6 +1320,49 @@ async function startServer() {
     // Cannot promote non-owner to owner
     if (targetUser.role !== 'owner' && role === 'owner') {
       return res.status(403).json({ error: 'Cannot promote a user account to Primary Owner' });
+    }
+
+    if (email !== undefined) {
+      const nextEmail = String(email || '').trim().toLowerCase();
+      if (nextEmail && !EMAIL_REGEX.test(nextEmail)) {
+        return res.status(400).json({ error: 'সঠিক মেইল অ্যাড্রেস লিখুন (Invalid Mail Address format).' });
+      }
+      if (
+        nextEmail &&
+        db.users.some((u) => u.id !== targetId && u.email && u.email.toLowerCase() === nextEmail)
+      ) {
+        return res.status(400).json({ error: 'এই মেইল অ্যাড্রেসটি অন্য ইউজারের জন্য ব্যবহৃত হচ্ছে।' });
+      }
+      if (nextEmail) {
+        targetUser.email = nextEmail;
+      } else {
+        delete targetUser.email;
+      }
+    }
+
+    if (appleId !== undefined) {
+      const nextAppleId = String(appleId || '').trim().toLowerCase();
+      if (nextAppleId && !EMAIL_REGEX.test(nextAppleId)) {
+        return res.status(400).json({ error: 'সঠিক Apple ID ইমেইল লিখুন (Invalid Apple ID format).' });
+      }
+      if (
+        nextAppleId &&
+        db.users.some((u) => u.id !== targetId && u.appleId && u.appleId.toLowerCase() === nextAppleId)
+      ) {
+        return res.status(400).json({ error: 'এই Apple ID টি অন্য ইউজারের জন্য ব্যবহৃত হচ্ছে।' });
+      }
+      if (nextAppleId) {
+        targetUser.appleId = nextAppleId;
+        if (!targetUser.email) {
+          targetUser.email = nextAppleId;
+        }
+      } else {
+        delete targetUser.appleId;
+      }
+    }
+
+    if (idProvider === 'email' || idProvider === 'apple') {
+      targetUser.idProvider = idProvider;
     }
 
     if (name) targetUser.name = name.trim();

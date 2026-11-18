@@ -8,7 +8,6 @@ import {
   Camera,
   LogOut,
   Users,
-  Crown,
   Smartphone
 } from 'lucide-react';
 import { UserProfile, UserAccount, GlobalAppSettings, AppTheme, DisplayMode, CurrencyCode } from '../types/accounting';
@@ -54,7 +53,6 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectCurrency,
 }) => {
   const isBn = currentLang === 'bn';
-  const isOwner = currentUserAccount?.role === 'owner';
 
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
@@ -108,12 +106,6 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="font-bold text-white text-sm sm:text-base tracking-tight font-heading leading-tight truncate drop-shadow-xs">
                   {globalSettings.appName || 'ZARA Accounting'}
                 </span>
-                {isOwner && (
-                  <span className="hidden xs:inline-flex sm:inline-flex items-center gap-1 bg-[#D4AF37] text-slate-950 font-black text-[9px] px-1.5 py-0.5 rounded-md uppercase tracking-wider shadow-xs shrink-0">
-                    <Crown className="w-2.5 h-2.5 text-slate-950" />
-                    Owner
-                  </span>
-                )}
               </div>
               <span className="text-[10px] text-slate-400 font-medium hidden sm:block truncate -mt-0.5">
                 {isBn ? 'প্রিমিয়াম ক্লাউড প্ল্যাটফর্ম' : 'Enterprise Cloud Accounting'}
@@ -330,17 +322,7 @@ export const Header: React.FC<HeaderProps> = ({
                   {currentUserAccount?.name || user.name}
                 </strong>
               </span>
-              <span className="text-slate-600 hidden sm:inline">·</span>
-              <span className="truncate max-w-xs text-slate-300 hidden sm:inline">
-                {currentUserAccount?.workspaceName || 'Private Workspace'}
-              </span>
             </div>
-            {isOwner && (
-              <span className="hidden sm:inline-flex items-center gap-1 bg-[#D4AF37]/20 border border-[#D4AF37]/40 text-[#D4AF37] font-bold text-[10px] px-2 py-0.2 rounded-full uppercase shrink-0">
-                <Crown className="w-2.5 h-2.5" />
-                Main Owner
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] text-slate-400 shrink-0">

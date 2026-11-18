@@ -1,3 +1,4 @@
+import { Capacitor } from '@capacitor/core';
 import { Transaction, UserAccount, GlobalAppSettings, Customer, Invoice, InvoicePayment, CustomerStatement, CommissionEntry, CommissionPersonAccount, CommissionStatementSummary, HomeBazarEntry, HomeBazarSummary, BazarBuyer, AppVersionInfo } from '../types/accounting';
 import { VaultStorage, PersistentVaultSnapshot } from './vaultStorage';
 import { googleDriveService } from './googleDriveService';
@@ -6,6 +7,24 @@ import { firestoreSyncService } from './firestoreSyncService';
 const TOKEN_KEY = 'zara_auth_token_v1';
 const CACHED_USER_KEY = 'zara_cached_user_v1';
 const CROSS_TAB_STORAGE_KEY = 'zara_cross_tab_sync_v1';
+const NATIVE_DEFAULT_API_BASE = 'https://ais-pre-otwyikgrhfjkomxcdz7g2q-73319294110.europe-west2.run.app';
+
+export function resolveApiUrl(endpoint: string): string {
+  if (!endpoint.startsWith('/')) return endpoint;
+  if (typeof window !== 'undefined' && Capacitor.isNativePlatform()) {
+    const customBase = (() => {
+      try {
+        return localStorage.getItem('zara_api_base_url') || '';
+      } catch {
+        return '';
+      }
+    })();
+    const envBase = (import.meta as any).env?.VITE_API_BASE_URL || '';
+    const base = (customBase || envBase || NATIVE_DEFAULT_API_BASE).replace(/\/+$/, '');
+    return `${base}${endpoint}`;
+  }
+  return endpoint;
+}
 let vaultSyncTimer: ReturnType<typeof setTimeout> | null = null;
 let isSyncingVaultNow = false;
 
@@ -143,7 +162,7 @@ function ensureSharedEventSource(forceRestart = false) {
   teardownSharedEventSource();
   sharedEventToken = currentToken;
 
-  const sseUrl = `/api/sync/events${currentToken ? `?token=${encodeURIComponent(currentToken)}` : ''}`;
+  const sseUrl = resolveApiUrl(`/api/sync/events${currentToken ? `?token=${encodeURIComponent(currentToken)}` : ''}`);
   const es = new EventSource(sseUrl);
   sharedEventSource = es;
 
@@ -248,7 +267,7 @@ export const ApiService = {
     let lastErr: any = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        const res = await fetch('/api/auth/session', {
+        const res = await fetch(resolveApiUrl('/api/auth/session'), {
           cache: 'no-store',
           headers: existingToken ? { Authorization: `Bearer ${existingToken}` } : {},
         });
@@ -300,7 +319,7 @@ export const ApiService = {
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       try {
-        response = await fetch(endpoint, {
+        response = await fetch(resolveApiUrl(endpoint), {
           cache: 'no-store',
           ...options,
           headers,
@@ -584,6 +603,17 @@ export const ApiService = {
     return data;
   },
 
+  async loginWithAppleToken(idToken: string): Promise<{ token: string; user: UserAccount; globalSettings: GlobalAppSettings }> {
+    const data = await this.request<{ token: string; user: UserAccount; globalSettings: GlobalAppSettings }>('/api/auth/apple-login', {
+      method: 'POST',
+      body: JSON.stringify({ idToken }),
+    });
+
+    this.setToken(data.token);
+    this.setCachedUser(data.user);
+    return data;
+  },
+
   async getMe(): Promise<{ user: UserAccount; globalSettings: GlobalAppSettings }> {
     const data = await this.request<{ user: UserAccount; globalSettings: GlobalAppSettings }>('/api/auth/me');
     this.setCachedUser(data.user);
@@ -663,6 +693,9 @@ export const ApiService = {
 
   async createUser(userData: {
     username: string;
+    email: string;
+    appleId?: string;
+    idProvider?: 'email' | 'apple';
     name: string;
     password: string;
     role: string;
@@ -1038,7 +1071,7 @@ export const ApiService = {
 
   // App Version & Auto-Update Push
   async getAppVersion(): Promise<AppVersionInfo> {
-    const res = await fetch('/api/app-version', { cache: 'no-store' });
+    const res = await fetch(resolveApiUrl('/api/app-version'), { cache: 'no-store' });
     if (!res.ok) {
       throw new Error(`Version check failed: ${res.status}`);
     }

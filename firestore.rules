@@ -54,10 +54,13 @@ service cloud.firestore {
 
     function isValidUserAccount(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && isValidId(data.id)
         && data.username is string && data.username.size() >= 2 && data.username.size() <= 64
+        && optStr(data, 'email', 254)
+        && optStr(data, 'appleId', 254)
+        && (!('idProvider' in data) || data.idProvider in ['email', 'apple'])
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
         && data.passwordHash is string && data.passwordHash.size() >= 16 && data.passwordHash.size() <= 256
         && data.role in ['owner', 'admin', 'manager', 'staff', 'viewer']
@@ -328,7 +331,7 @@ service cloud.firestore {
       allow update: if isValidId(userId) && isAdmin() && isValidUserAccount(incoming())
         && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
         && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'updatedAt']);
       allow delete: if isValidId(userId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 

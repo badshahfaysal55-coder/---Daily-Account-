@@ -46,6 +46,20 @@
           "minLength": 2,
           "maxLength": 64
         },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 254
+        },
+        "appleId": {
+          "type": "string",
+          "maxLength": 254
+        },
+        "idProvider": {
+          "type": "string",
+          "enum": ["email", "apple"],
+          "maxLength": 20
+        },
         "name": {
           "type": "string",
           "minLength": 1,

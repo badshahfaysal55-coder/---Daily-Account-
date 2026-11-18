@@ -2,8 +2,10 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   getAuth,
   GoogleAuthProvider,
+  OAuthProvider,
   onAuthStateChanged,
   signInWithPopup,
+  signOut,
   User as FirebaseUser,
 } from 'firebase/auth';
 import {
@@ -206,6 +208,22 @@ class FirestoreSyncService {
     this.lastError = null;
     this.emit();
     return result.user;
+  }
+
+  public async signInWithAppleId(): Promise<{ idToken: string; email: string | null; displayName: string | null }> {
+    const helperApp =
+      getApps().find((a) => a.name === 'apple-auth-helper') ||
+      initializeApp(firebaseConfig, 'apple-auth-helper');
+    const helperAuth = getAuth(helperApp);
+    const provider = new OAuthProvider('apple.com');
+    provider.addScope('email');
+    provider.addScope('name');
+    const result = await signInWithPopup(helperAuth, provider);
+    const idToken = await result.user.getIdToken();
+    const email = result.user.email || result.user.providerData?.[0]?.email || null;
+    const displayName = result.user.displayName || null;
+    await signOut(helperAuth).catch(() => {});
+    return { idToken, email, displayName };
   }
 
   private getVerifiedOwnerUid(): string | null {
@@ -569,6 +587,9 @@ class FirestoreSyncService {
           clientCreatedAt: clampNum(u.createdAt, Date.now()),
           clientUpdatedAt: clampNum(u.updatedAt || u.createdAt, Date.now()),
         };
+        if (u.email) userDoc.email = clampStr(u.email, 254);
+        if (u.appleId) userDoc.appleId = clampStr(u.appleId, 254);
+        if (u.idProvider === 'email' || u.idProvider === 'apple') userDoc.idProvider = u.idProvider;
         if (u.canAddTransactions !== undefined) userDoc.canAddTransactions = Boolean(u.canAddTransactions);
         if (u.canViewLedger !== undefined) userDoc.canViewLedger = Boolean(u.canViewLedger);
         if (u.canEditCustomers !== undefined) userDoc.canEditCustomers = Boolean(u.canEditCustomers);

@@ -9,6 +9,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { ApiService } from '../services/api';
+import { firestoreSyncService } from '../services/firestoreSyncService';
 import { UserAccount, GlobalAppSettings } from '../types/accounting';
 import { t, Language } from '../utils/translations';
 
@@ -33,6 +34,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [username, setUsername] = useState('rh.faysal007');
   const [password, setPassword] = useState('zara@owner2026');
   const [loading, setLoading] = useState(false);
+  const [appleLoading, setAppleLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Multi-Factor Authentication (MFA) step for Owner
@@ -101,17 +103,47 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   };
 
+  const handleAppleSignIn = async () => {
+    setAppleLoading(true);
+    setError(null);
+    try {
+      const { idToken } = await firestoreSyncService.signInWithAppleId();
+      const res = await ApiService.loginWithAppleToken(idToken);
+      onSuccess(res.user, res.globalSettings);
+      if (onClose) onClose();
+    } catch (err: any) {
+      const code = String(err?.code || '');
+      const msg = String(err?.message || '');
+      if (code.includes('operation-not-allowed') || msg.includes('operation-not-allowed')) {
+        setError(
+          isBn
+            ? 'Firebase Console-এ Apple Sign-In provider এখনো চালু করা হয়নি। তবে আপনার Apple ID ইমেইল ও পাসওয়ার্ড দিয়ে উপরের ফর্মে সরাসরি লগইন করতে পারবেন।'
+            : 'Apple OAuth popup provider is not enabled in Firebase Console yet. You can still sign in right above using your Apple ID email + password.'
+        );
+      } else if (code.includes('popup-closed-by-user')) {
+        setError(isBn ? 'Apple সাইন-ইন পপআপ বন্ধ করা হয়েছে।' : 'Apple sign-in popup was closed.');
+      } else {
+        setError(msg || (isBn ? 'Apple ID লগইন ব্যর্থ হয়েছে' : 'Apple ID login failed'));
+      }
+    } finally {
+      setAppleLoading(false);
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 overflow-y-auto">
-      <div className="bg-white dark:bg-[#101A2C] rounded-3xl max-w-xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 dark:border-slate-800 relative my-6 transition-colors">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-slate-950/85 backdrop-blur-md p-3 sm:p-4 safe-area-top safe-area-bottom overflow-y-auto">
+      <div className="bg-white dark:bg-[#101A2C] rounded-3xl max-w-xl w-full shadow-2xl border border-slate-200 dark:border-slate-800 relative my-auto flex flex-col max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] overflow-hidden transition-colors">
         {canClose && onClose && (
           <button
+            type="button"
             onClick={onClose}
-            className="absolute right-4 top-4 text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            className="absolute right-4 top-4 z-10 text-slate-400 hover:text-slate-600 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+            aria-label="Close"
           >
             ✕
           </button>
         )}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5 sm:p-8">
 
         {/* Brand Header */}
         <div className="text-center mb-6">
@@ -230,7 +262,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <form onSubmit={handleSubmit} className="space-y-3.5 mb-6">
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
-                {t('usernameField', currentLang)}
+                {isBn
+                  ? 'ইউজার আইডি / মেইল অ্যাড্রেস / Apple ID'
+                  : 'User ID / Mail Address / Apple ID'}
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3 pointer-events-none" />
@@ -238,7 +272,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="rh.faysal007"
+                  placeholder={portalMode === 'owner' ? 'rh.faysal007' : 'name@icloud.com or user@mail.com'}
                   required
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-sm font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition"
                 />
@@ -264,7 +298,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || appleLoading}
               className="w-full py-3 bg-gradient-to-r from-amber-600 via-amber-500 to-yellow-600 hover:from-amber-700 hover:to-yellow-700 text-white font-bold text-sm rounded-xl shadow-lg shadow-amber-600/20 flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
             >
               {loading ? (
@@ -276,6 +310,34 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 </>
               )}
             </button>
+
+            {portalMode === 'staff' && (
+              <>
+                <div className="relative flex items-center py-1">
+                  <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
+                  <span className="px-2.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                    {isBn ? 'অথবা' : 'OR'}
+                  </span>
+                  <div className="flex-grow border-t border-slate-200 dark:border-slate-800" />
+                </div>
+
+                <button
+                  type="button"
+                  disabled={loading || appleLoading}
+                  onClick={handleAppleSignIn}
+                  className="w-full py-2.5 bg-slate-950 hover:bg-black text-white font-bold text-xs rounded-xl border border-slate-800 flex items-center justify-center gap-2 transition cursor-pointer disabled:opacity-50"
+                >
+                  {appleLoading ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <>
+                      <span className="text-base leading-none"></span>
+                      <span>{isBn ? 'Apple ID দিয়ে লগইন করুন' : 'Continue with Apple ID'}</span>
+                    </>
+                  )}
+                </button>
+              </>
+            )}
           </form>
         )}
 
@@ -289,6 +351,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 : 'No automatic or public accounts exist. Only User IDs created by the Main Owner in Owner Control can sign in, and created users auto-sync across the system.'}
             </p>
           </div>
+        </div>
         </div>
       </div>
     </div>

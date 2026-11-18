@@ -159,7 +159,8 @@
 
   html {
     max-width: 100%;
-    overflow-x: hidden;
+    overflow-x: clip;
+    overflow-y: auto;
     -webkit-text-size-adjust: 100%;
   }
 
@@ -167,9 +168,7 @@
     font-family: var(--font-body);
     background-color: var(--theme-bg);
     color: var(--theme-text-main);
-    max-width: 100%;
-    overflow-x: hidden;
-    overscroll-behavior-y: contain;
+    min-height: 100%;
     -webkit-tap-highlight-color: transparent;
     transition: background-color 0.25s ease, color 0.25s ease;
   }

@@ -857,7 +857,7 @@ export default function App() {
         backgroundColor: 'var(--theme-bg)',
         color: 'var(--theme-text-main)',
       }}
-      className="min-h-[100dvh] w-full overflow-x-hidden flex font-sans transition-colors duration-200"
+      className="min-h-[100dvh] w-full overflow-x-clip flex font-sans transition-colors duration-200"
     >
       {/* 1. Collapsible Sidebar Navigation */}
       <Sidebar
@@ -917,7 +917,7 @@ export default function App() {
 
         {/* Main Viewport Canvas */}
         <div
-          className={`flex-1 flex flex-col relative overflow-x-hidden transition-colors duration-200 ${
+          className={`flex-1 flex flex-col relative overflow-x-clip transition-colors duration-200 ${
             activeTab === 'dashboard' ? 'bg-[#E5E7EB] dark:bg-[#1E232B]' : ''
           }`}
         >
