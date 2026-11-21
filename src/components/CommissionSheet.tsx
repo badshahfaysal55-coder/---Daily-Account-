@@ -37,6 +37,7 @@ import {
   Lock,
   ShieldCheck,
   GitMerge,
+  SlidersHorizontal,
 } from 'lucide-react';
 import {
   CommissionEntry,
@@ -54,7 +55,28 @@ interface CommissionSheetProps {
   globalSettings: GlobalAppSettings;
   currentLang: 'bn' | 'en';
   useBanglaNumerals: boolean;
+  allUsers?: UserAccount[];
+  selectedWorkspaceUserId?: string | null;
+  onNavigateTab?: (
+    tab:
+      | 'dashboard'
+      | 'entry'
+      | 'ledger'
+      | 'customers'
+      | 'commission'
+      | 'owner_control'
+      | 'appearance'
+      | 'rn_code'
+      | 'logs'
+  ) => void;
 }
+
+type CommissionUserOption = {
+  id: string;
+  username: string;
+  name: string;
+  role: string;
+};
 
 type PersonAccountSummary = CommissionPersonAccount & {
   invoicesCount: number;
@@ -125,15 +147,36 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   globalSettings,
   currentLang,
   useBanglaNumerals,
+  allUsers = [],
+  selectedWorkspaceUserId = null,
+  onNavigateTab,
 }) => {
   const isBn = currentLang === 'bn';
   const isOwner = currentUser.role === 'owner';
+  const isAdmin = currentUser.role === 'admin';
+  const hasCommManage = isOwner || (isAdmin && currentUser.canManageCommissions !== false) || Boolean(currentUser.canManageCommissions);
+  const canAddRecords = isOwner || (hasCommManage && currentUser.canAddCommissionRecords !== false);
+  const canEditRecords = isOwner || (hasCommManage && currentUser.canEditCommissionRecords !== false);
+  const canDeleteRecords =
+    isOwner ||
+    (isAdmin && currentUser.canManageCommissions !== false && currentUser.canDeleteCommissionRecords !== false) ||
+    (hasCommManage && (currentUser.canDeleteCommissionRecords !== undefined ? currentUser.canDeleteCommissionRecords : currentUser.canDelete === true));
+  const canPayCommissions = isOwner || (hasCommManage && currentUser.canPayCommissions !== false);
+  const canImportCommissions = isOwner || (hasCommManage && currentUser.canImportCommissions !== false);
+  const canManageMonths = isOwner || (hasCommManage && currentUser.canManageCommissionMonths !== false);
+  const canExportSheet = isOwner || currentUser.canExport !== false;
+  const canAddPerson = isOwner || (isAdmin && currentUser.canAddCommissionPersons !== false) || currentUser.canAddCommissionPersons === true;
+  const canEditPerson = isOwner || (isAdmin && currentUser.canEditCommissionPersons !== false) || (currentUser.canEditCommissionPersons ?? currentUser.canAddCommissionPersons === true);
+  const canDeletePerson = isOwner || (isAdmin && currentUser.canDeleteCommissionPersons !== false) || currentUser.canDeleteCommissionPersons === true;
+  const canMergePerson = isOwner || (isAdmin && currentUser.canMergeCommissionPersons !== false) || currentUser.canMergeCommissionPersons === true;
+  const canManagePersonPhoto = isOwner || (isAdmin && canEditPerson);
   const currentYm = useMemo(() => getCurrentYearMonth(), []);
 
   // Core Data
   const [entries, setEntries] = useState<CommissionEntry[]>([]);
   const [persons, setPersons] = useState<CommissionPersonAccount[]>([]);
   const [personAccounts, setPersonAccounts] = useState<PersonAccountSummary[]>([]);
+  const [serverUsersSummary, setServerUsersSummary] = useState<CommissionUserOption[]>([]);
   const [months, setMonths] = useState<string[]>([currentYm]);
   const [loading, setLoading] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -159,11 +202,21 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     return saved || 'serif';
   });
   const [directEditActive, setDirectEditActive] = useState<boolean>(true);
+  const effectiveDirectEdit = directEditActive && canEditRecords;
   const [showAccountsStrip, setShowAccountsStrip] = useState<boolean>(true);
 
   // Filters
+  const [selectedCreatorFilter, setSelectedCreatorFilter] = useState<string>(
+    selectedWorkspaceUserId || 'all'
+  );
+  useEffect(() => {
+    setSelectedCreatorFilter(selectedWorkspaceUserId || 'all');
+  }, [selectedWorkspaceUserId]);
   const [selectedAgent, setSelectedAgent] = useState<string>('all');
   const [selectedPeriod, setSelectedPeriod] = useState<string>(currentYm);
+  const selectedPeriodRef = useRef<string>(selectedPeriod);
+  selectedPeriodRef.current = selectedPeriod;
+  const hasAutoPickedInitialPeriodRef = useRef<boolean>(false);
   const [selectedOffice, setSelectedOffice] = useState<string>('all');
   const [selectedServiceFilter, setSelectedServiceFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -181,7 +234,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const [quickDate, setQuickDate] = useState<string>(new Date().toISOString().slice(0, 10));
   const [quickOffice, setQuickOffice] = useState<string>(DEFAULT_OFFICES[0]);
   const [quickInvoiceNo, setQuickInvoiceNo] = useState<string>('');
-  const [quickAgent, setQuickAgent] = useState<string>('RH FAYSAL');
+  const [quickAgent, setQuickAgent] = useState<string>('');
   const [quickClient, setQuickClient] = useState<string>('');
   const [quickWorker, setQuickWorker] = useState<string>('');
   const [quickMobile, setQuickMobile] = useState<string>('');
@@ -225,6 +278,11 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const [deleteReassignTo, setDeleteReassignTo] = useState<string>('');
   const [isDeletingPerson, setIsDeletingPerson] = useState(false);
 
+  // Delete All Persons Modal
+  const [showDeleteAllPersonsModal, setShowDeleteAllPersonsModal] = useState(false);
+  const [deleteAllClearEntryAgents, setDeleteAllClearEntryAgents] = useState(false);
+  const [isDeletingAllPersons, setIsDeletingAllPersons] = useState(false);
+
   // Merge Persons Modal
   const [showMergePersonModal, setShowMergePersonModal] = useState(false);
   const [mergeSourceName, setMergeSourceName] = useState<string>('');
@@ -250,7 +308,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const [formDate, setFormDate] = useState(new Date().toISOString().slice(0, 10));
   const [formOffice, setFormOffice] = useState(DEFAULT_OFFICES[0]);
   const [formInvoiceNo, setFormInvoiceNo] = useState('');
-  const [formAgent, setFormAgent] = useState('RH FAYSAL');
+  const [formAgent, setFormAgent] = useState('');
   const [formClient, setFormClient] = useState('');
   const [formWorker, setFormWorker] = useState('');
   const [formClientMobile, setFormClientMobile] = useState('');
@@ -311,11 +369,16 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
       const fetchedEntries = (commRes.entries || []).filter(isExplicitCommissionEntry);
       setEntries(fetchedEntries);
+      if (Array.isArray(commRes.users)) {
+        setServerUsersSummary(commRes.users);
+      }
 
-      const serverPersons = personsRes.persons?.length ? personsRes.persons : commRes.persons || [];
+      const serverPersons = Array.isArray(personsRes.persons)
+        ? personsRes.persons
+        : commRes.persons || [];
       setPersons(serverPersons);
 
-      if (personsRes.accounts && personsRes.accounts.length > 0) {
+      if (Array.isArray(personsRes.accounts)) {
         setPersonAccounts(personsRes.accounts);
       } else {
         // Compute balances strictly for explicitly added Persons (never auto-generate from entries)
@@ -349,15 +412,39 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       }
 
       // Collect all YYYY-MM sheets from server + entries + current month
-      const monthSet = new Set<string>([currentYm, ...(commRes.months || [])]);
+      const serverMonthsList = Array.isArray(commRes.months) ? commRes.months : [];
+      const monthSet = new Set<string>([currentYm, ...serverMonthsList]);
+      const entryMonthsSet = new Set<string>();
       fetchedEntries.forEach((e) => {
         if (e.date && /^\d{4}-\d{2}/.test(e.date)) {
-          monthSet.add(e.date.slice(0, 7));
+          const ym = e.date.slice(0, 7);
+          monthSet.add(ym);
+          entryMonthsSet.add(ym);
         } else if (e.period && /^\d{4}-\d{2}$/.test(e.period)) {
           monthSet.add(e.period);
+          entryMonthsSet.add(e.period);
         }
       });
-      setMonths(Array.from(monthSet).sort());
+      const sortedMonths = Array.from(monthSet).sort();
+      setMonths(sortedMonths);
+
+      const activePeriod = selectedPeriodRef.current;
+      if (
+        activePeriod !== 'all' &&
+        Array.isArray(commRes.months) &&
+        !monthSet.has(activePeriod)
+      ) {
+        setSelectedPeriod('all');
+      } else if (!hasAutoPickedInitialPeriodRef.current && fetchedEntries.length > 0) {
+        hasAutoPickedInitialPeriodRef.current = true;
+        if (
+          activePeriod !== 'all' &&
+          !entryMonthsSet.has(activePeriod)
+        ) {
+          const populatedMonths = Array.from(entryMonthsSet).sort();
+          setSelectedPeriod(populatedMonths[populatedMonths.length - 1] || 'all');
+        }
+      }
     } catch (err: any) {
       if (!isSilent) {
         setToastMessage({ text: err.message || 'Failed to load commission statement', type: 'error' });
@@ -371,11 +458,14 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   useEffect(() => {
     loadData(false);
 
-    const unsubscribe = ApiService.subscribeToEvents((event) => {
+    const unsubscribe = ApiService.subscribeToEvents((event, data) => {
       if (
+        (event === 'connected' && !data?.reused) ||
         event.startsWith('commission_') ||
         event.startsWith('commissions_') ||
         event === 'user_updated' ||
+        event === 'user_created' ||
+        event === 'user_deleted' ||
         event === 'global_settings_updated' ||
         event === 'database_restored'
       ) {
@@ -412,6 +502,14 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
   }, [persons]);
 
+  const personByNameMap = useMemo(() => {
+    const map = new Map<string, CommissionPersonAccount>();
+    persons.forEach((p) => {
+      if (p.name) map.set(p.name.trim().toLowerCase(), p);
+    });
+    return map;
+  }, [persons]);
+
   // Any legacy/imported entry agent names that don't have a manual Person profile (available to merge cleanly)
   const unlinkedEntryAgents = useMemo(() => {
     const known = new Set(availablePersons.map((p) => p.name.trim().toLowerCase()));
@@ -428,12 +526,29 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   useEffect(() => {
     if (
       selectedAgent !== 'all' &&
-      availablePersons.length > 0 &&
       !availablePersons.some((p) => p.name.trim().toLowerCase() === selectedAgent.trim().toLowerCase())
     ) {
       setSelectedAgent('all');
     }
   }, [selectedAgent, availablePersons]);
+
+  // Auto-close open Edit/Delete modals if Owner/another user deleted the record remotely
+  useEffect(() => {
+    if (editingPerson && !editingPerson.id.startsWith('person_temp') && !persons.some((p) => p.id === editingPerson.id)) {
+      setEditingPerson(null);
+      setShowPersonModal(false);
+    }
+    if (personToDelete && !persons.some((p) => p.id === personToDelete.id)) {
+      setPersonToDelete(null);
+    }
+    if (editingEntry && !entries.some((e) => e.id === editingEntry.id)) {
+      setEditingEntry(null);
+      setShowAddModal(false);
+    }
+    if (entryToDelete && !entries.some((e) => e.id === entryToDelete.id)) {
+      setEntryToDelete(null);
+    }
+  }, [persons, entries, editingPerson, personToDelete, editingEntry, entryToDelete]);
 
   const activePersonProfile = useMemo(() => {
     if (selectedAgent === 'all') {
@@ -461,11 +576,50 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     return Array.from(set);
   }, [entries]);
 
+  // Owner Multi-User Creator Filter Options
+  const creatorFilterUsers = useMemo(() => {
+    const map = new Map<string, CommissionUserOption>();
+    (allUsers || []).forEach((u) => {
+      if (u?.id) {
+        map.set(u.id, {
+          id: u.id,
+          username: u.username,
+          name: u.name || u.username,
+          role: u.role,
+        });
+      }
+    });
+    serverUsersSummary.forEach((u) => {
+      if (u?.id && !map.has(u.id)) {
+        map.set(u.id, u);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [allUsers, serverUsersSummary]);
+
+  const matchesCreatorUser = (entry: CommissionEntry, userIdFilter: string): boolean => {
+    if (!isOwner || !userIdFilter || userIdFilter === 'all') return true;
+    if (entry.createdByUserId) {
+      return entry.createdByUserId === userIdFilter;
+    }
+    if (entry.agentId) {
+      return entry.agentId === userIdFilter;
+    }
+    const targetUser = creatorFilterUsers.find((u) => u.id === userIdFilter);
+    if (!targetUser) return false;
+    const creatorName = (entry.createdByName || '').trim().toLowerCase();
+    return (
+      creatorName === targetUser.name.trim().toLowerCase() ||
+      creatorName === targetUser.username.trim().toLowerCase()
+    );
+  };
+
   // Month count helper
   const getMonthEntryCount = (ym: string): number => {
     return entries.filter((e) => {
+      if (!matchesCreatorUser(e, selectedCreatorFilter)) return false;
       const matchAgent =
-        selectedAgent === 'all' || e.agent.trim().toLowerCase() === selectedAgent.trim().toLowerCase();
+        selectedAgent === 'all' || (e.agent || '').trim().toLowerCase() === selectedAgent.trim().toLowerCase();
       if (!matchAgent) return false;
       return e.period === ym || (e.date && e.date.startsWith(ym));
     }).length;
@@ -475,7 +629,11 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const filtered = useMemo(() => {
     return entries.filter((e) => {
       if (!isExplicitCommissionEntry(e)) return false;
-      if (selectedAgent !== 'all' && e.agent.trim().toLowerCase() !== selectedAgent.trim().toLowerCase()) {
+      if (!matchesCreatorUser(e, selectedCreatorFilter)) return false;
+      if (
+        selectedAgent !== 'all' &&
+        (e.agent || '').trim().toLowerCase() !== selectedAgent.trim().toLowerCase()
+      ) {
         return false;
       }
       if (selectedPeriod !== 'all') {
@@ -492,18 +650,19 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       const invClean = (e.invoiceNo || '').toLowerCase().replace(/[^0-9]/g, '');
       const mobClean = (e.clientMobile || '').replace(/[^0-9]/g, '');
       return (
-        e.invoiceNo.toLowerCase().includes(q) ||
+        (e.invoiceNo || '').toLowerCase().includes(q) ||
         (digits.length >= 3 && invClean.includes(digits)) ||
         (e.clientMobile && e.clientMobile.includes(q)) ||
         (digits.length >= 3 && mobClean.includes(digits)) ||
-        e.client.toLowerCase().includes(q) ||
+        (e.client || '').toLowerCase().includes(q) ||
         (e.workerName && e.workerName.toLowerCase().includes(q)) ||
-        e.agent.toLowerCase().includes(q) ||
-        e.service.toLowerCase().includes(q) ||
-        e.office.toLowerCase().includes(q)
+        (e.agent || '').toLowerCase().includes(q) ||
+        (e.createdByName && e.createdByName.toLowerCase().includes(q)) ||
+        (e.service || '').toLowerCase().includes(q) ||
+        (e.office || '').toLowerCase().includes(q)
       );
     });
-  }, [entries, selectedAgent, selectedPeriod, selectedOffice, selectedServiceFilter, searchQuery]);
+  }, [entries, selectedCreatorFilter, selectedAgent, selectedPeriod, selectedOffice, selectedServiceFilter, searchQuery, creatorFilterUsers, isOwner]);
 
   // Row Calculation Helpers (NO auto-invented fallback amounts)
   const getRowCommission = (e: CommissionEntry): number => {
@@ -697,7 +856,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const handlePersonPhotoFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file || !isOwner) return;
+    if (!file || !canManagePersonPhoto) return;
     if (!file.type.startsWith('image/') && !file.name.match(/\.(jpe?g|png|webp|gif|heic|heif|bmp|svg)$/i)) {
       setToastMessage({ text: 'Please select a valid image file (JPG, PNG, WebP, HEIC).', type: 'error' });
       return;
@@ -718,6 +877,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   // --- PERSON ACCOUNT HANDLERS ---
   const openAddPersonModal = () => {
+    if (!canAddPerson) {
+      setToastMessage({
+        text: 'Permission denied: Owner permission required to add Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
     setEditingPerson(null);
     setPersonNameInput('');
     setPersonIqamaInput('');
@@ -730,6 +896,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   };
 
   const openEditSpecificPersonModal = (person: CommissionPersonAccount) => {
+    if (!canEditPerson) {
+      setToastMessage({
+        text: 'Permission denied: Owner permission required to edit Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
     setEditingPerson(person);
     setPersonNameInput(person.name);
     setPersonIqamaInput(person.iqamaNo || '');
@@ -750,6 +923,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   };
 
   const openDeletePersonModal = (person: CommissionPersonAccount) => {
+    if (!canDeletePerson) {
+      setToastMessage({
+        text: 'Permission denied: Owner permission required to delete Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
     setPersonToDelete(person);
     const other = availablePersons.find((p) => p.id !== person.id);
     setDeleteReassignTo(other ? other.name : '');
@@ -757,6 +937,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   const handleConfirmDeletePerson = async () => {
     if (!personToDelete) return;
+    if (!canDeletePerson) {
+      setToastMessage({
+        text: 'Permission denied: Owner permission required to delete Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
     setIsDeletingPerson(true);
     try {
       await ApiService.deleteCommissionPerson(personToDelete.id, deleteReassignTo || undefined);
@@ -768,9 +955,12 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       }
       await loadData(true);
       setToastMessage({
-        text: deleteReassignTo
-          ? `Deleted "${deletedName}" & reassigned records to "${deleteReassignTo}"`
-          : `Deleted person "${deletedName}"`,
+        text:
+          deleteReassignTo === '__CLEAR__'
+            ? `Deleted "${deletedName}" & cleared Person name from records`
+            : deleteReassignTo
+            ? `Deleted "${deletedName}" & reassigned records to "${deleteReassignTo}"`
+            : `Deleted person "${deletedName}"`,
         type: 'success',
       });
     } catch (err: any) {
@@ -780,14 +970,48 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     }
   };
 
+  const handleConfirmDeleteAllPersons = async () => {
+    if (!canDeletePerson) {
+      setToastMessage({
+        text: 'Permission denied: Owner permission required to delete Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
+    setIsDeletingAllPersons(true);
+    try {
+      const res = await ApiService.deleteAllCommissionPersons(deleteAllClearEntryAgents);
+      setShowDeleteAllPersonsModal(false);
+      setShowPersonModal(false);
+      setSelectedAgent('all');
+      await loadData(true);
+      setToastMessage({
+        text: deleteAllClearEntryAgents
+          ? `Deleted all ${res.deletedCount} Person ID(s) & cleared Person names from records`
+          : `Deleted all ${res.deletedCount} Person ID(s) (records preserved)`,
+        type: 'success',
+      });
+    } catch (err: any) {
+      setToastMessage({ text: err.message || 'Failed to delete all persons', type: 'error' });
+    } finally {
+      setIsDeletingAllPersons(false);
+    }
+  };
+
   const openMergePersonsModal = (initialSourceName?: string) => {
+    if (!canMergePerson) {
+      setToastMessage({
+        text: 'Permission denied: Owner permission required to merge Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
     const allSourceChoices = [
       ...availablePersons.map((p) => p.name),
       ...unlinkedEntryAgents,
     ];
     const source =
       initialSourceName ||
-      allSourceChoices.find((nm) => nm.toLowerCase() !== 'rh faysal') ||
       allSourceChoices[0] ||
       '';
     const target =
@@ -800,6 +1024,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   const handleConfirmMergePersons = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canMergePerson) {
+      setToastMessage({
+        text: 'Permission denied: Owner permission required to merge Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
     if (!mergeSourceName || !mergeTargetId) {
       setToastMessage({ text: 'Select both Source and Target person', type: 'error' });
       return;
@@ -842,12 +1073,22 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   const handleSavePerson = async (e: React.FormEvent) => {
     e.preventDefault();
+    const isEditingExistingPerson = Boolean(editingPerson && !editingPerson.id.startsWith('person_temp'));
+    if (isEditingExistingPerson ? !canEditPerson : !canAddPerson) {
+      setToastMessage({
+        text: isEditingExistingPerson
+          ? 'Permission denied: Owner permission required to edit Person accounts.'
+          : 'Permission denied: Owner permission required to add Person accounts.',
+        type: 'error',
+      });
+      return;
+    }
     const cleanName = personNameInput.trim();
     if (!cleanName) return;
     setIsSavingPerson(true);
     try {
       let saved: CommissionPersonAccount;
-      const photoPayload = isOwner
+      const photoPayload = canManagePersonPhoto
         ? {
             ...(personPhotoBase64 ? { photoBase64: personPhotoBase64 } : {}),
             ...(personPhotoRemoved ? { removePhoto: true } : {}),
@@ -869,7 +1110,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             iqamaNo: personIqamaInput.trim(),
             phone: personPhoneInput.trim(),
             office: personOfficeInput.trim(),
-            ...(isOwner && personPhotoBase64 ? { photoBase64: personPhotoBase64 } : {}),
+            ...(canManagePersonPhoto && personPhotoBase64 ? { photoBase64: personPhotoBase64 } : {}),
           });
         }
       } else {
@@ -878,7 +1119,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           iqamaNo: personIqamaInput.trim(),
           phone: personPhoneInput.trim(),
           office: personOfficeInput.trim(),
-          ...(isOwner && personPhotoBase64 ? { photoBase64: personPhotoBase64 } : {}),
+          ...(canManagePersonPhoto && personPhotoBase64 ? { photoBase64: personPhotoBase64 } : {}),
         });
       }
       setSelectedAgent(saved.name);
@@ -900,6 +1141,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   // --- MONTHLY SHEET HANDLERS ---
   const handleAddMonth = async (e?: React.FormEvent, explicitYm?: string) => {
     if (e) e.preventDefault();
+    if (!canManageMonths) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to add month sheets.', type: 'error' });
+      return;
+    }
     const targetYm = (explicitYm || newMonthInput || '').trim();
     if (!/^\d{4}-\d{2}$/.test(targetYm)) {
       setToastMessage({ text: 'Please select a valid month (YYYY-MM)', type: 'error' });
@@ -920,6 +1165,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   };
 
   const handleDeleteMonth = async (ym: string) => {
+    if (!canManageMonths) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to delete month sheets.', type: 'error' });
+      return;
+    }
     const count = entries.filter((e) => e.period === ym || (e.date && e.date.startsWith(ym))).length;
     if (count > 0) {
       setToastMessage({
@@ -943,6 +1192,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   // --- QUICK INLINE ENTRY (NO AUTO AMOUNT) ---
   const handleQuickSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canAddRecords) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to add records.', type: 'error' });
+      return;
+    }
     if (!quickInvoiceNo.trim() || !quickClient.trim()) {
       setToastMessage({ text: 'Invoice # and Client name are required', type: 'error' });
       return;
@@ -970,7 +1223,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         office: quickOffice,
         invoiceNo: quickInvoiceNo.trim(),
         invoiceStatus: isClaw ? 'Cancelled' : isElig ? 'Active' : 'Pending',
-        agent: (quickAgent || (selectedAgent !== 'all' ? selectedAgent : availablePersons[0]?.name || 'RH FAYSAL')).trim(),
+        agent: (quickAgent || (selectedAgent !== 'all' ? selectedAgent : availablePersons[0]?.name || '')).trim(),
         client: quickClient.trim(),
         workerName: quickWorker.trim() || undefined,
         clientMobile: quickMobile.trim() || undefined,
@@ -1006,7 +1259,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       setShowQuickRow(false);
       await loadData(true);
       setToastMessage({
-        text: `Added #${created.invoiceNo} for ${created.agent}`,
+        text: `Added #${created.invoiceNo}${created.agent ? ` for ${created.agent}` : ''}`,
         type: 'success',
       });
     } catch (err: any) {
@@ -1018,6 +1271,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   // --- ADD / EDIT MODAL ---
   const openAddModal = () => {
+    if (!canAddRecords) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to add commission records.', type: 'error' });
+      return;
+    }
     setEditingEntry(null);
     const defaultDate =
       selectedPeriod !== 'all' && /^\d{4}-\d{2}$/.test(selectedPeriod)
@@ -1033,7 +1290,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     setFormAgent(
       selectedAgent !== 'all'
         ? selectedAgent
-        : activePersonProfile?.name || availablePersons[0]?.name || 'RH FAYSAL'
+        : activePersonProfile?.name || availablePersons[0]?.name || ''
     );
     setFormClient('');
     setFormWorker('');
@@ -1053,6 +1310,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   };
 
   const openEditModal = (entry: CommissionEntry) => {
+    if (!canEditRecords) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to edit commission records.', type: 'error' });
+      return;
+    }
     setEditingEntry(entry);
     setFormDate(entry.date);
     setFormOffice(entry.office || DEFAULT_OFFICES[0]);
@@ -1095,7 +1356,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         date: formDate,
         office: formOffice.trim(),
         invoiceNo: formInvoiceNo.trim(),
-        agent: (formAgent || availablePersons[0]?.name || 'RH FAYSAL').trim(),
+        agent: (formAgent || '').trim(),
         client: formClient.trim(),
         workerName: formWorker.trim() || undefined,
         clientMobile: formClientMobile.trim() || undefined,
@@ -1124,7 +1385,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         const created = await ApiService.createCommission(payload);
         setEntries((prev) => [created, ...prev]);
         setToastMessage({
-          text: `Record #${created.invoiceNo} saved for ${created.agent}`,
+          text: `Record #${created.invoiceNo} saved${created.agent ? ` for ${created.agent}` : ''}`,
           type: 'success',
         });
       }
@@ -1140,6 +1401,18 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   // --- INLINE DIRECT CELL UPDATE ---
   const handleDirectCellUpdate = async (entry: CommissionEntry, patch: Partial<CommissionEntry>) => {
+    const patchKeys = Object.keys(patch);
+    const isOnlyPayoutMarkPaid =
+      patchKeys.every((k) => k === 'payoutStatus' || k === 'eligible') && patch.payoutStatus === 'Paid';
+    if (isOnlyPayoutMarkPaid) {
+      if (!canPayCommissions) {
+        setToastMessage({ text: 'Permission denied: Owner permission required to settle commission payouts.', type: 'error' });
+        return;
+      }
+    } else if (!canEditRecords) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to edit commission records.', type: 'error' });
+      return;
+    }
     try {
       const updated = await ApiService.updateCommission(entry.id, patch);
       setEntries((prev) => prev.map((it) => (it.id === updated.id ? updated : it)));
@@ -1153,6 +1426,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   // --- DELETE ENTRY ---
   const handleConfirmDelete = async () => {
     if (!entryToDelete) return;
+    if (!canDeleteRecords) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to delete commission records.', type: 'error' });
+      return;
+    }
     setIsDeletingEntry(true);
     try {
       await ApiService.deleteCommission(entryToDelete.id);
@@ -1169,6 +1446,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   // --- SETTLE PAYOUT (AUTO-POSTS TO ACCOUNTING LEDGER) ---
   const handleSettlePayout = async (targetPerson?: string) => {
+    if (!canPayCommissions) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to pay commissions.', type: 'error' });
+      return;
+    }
     try {
       const personToPay = targetPerson || (selectedAgent !== 'all' ? selectedAgent : undefined);
       const ids =
@@ -1176,7 +1457,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           ? entries
               .filter(
                 (e) =>
-                  e.agent.trim().toLowerCase() === targetPerson.trim().toLowerCase() &&
+                  (e.agent || '').trim().toLowerCase() === targetPerson.trim().toLowerCase() &&
                   e.eligible &&
                   !e.isClawback &&
                   e.payoutStatus === 'To pay'
@@ -1206,6 +1487,10 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   // --- REAL .XLSX EXPORT ---
   const handleExportXlsx = () => {
+    if (!canExportSheet) {
+      setToastMessage({ text: 'Permission denied: Owner permission required to export sheets.', type: 'error' });
+      return;
+    }
     try {
       const wb = XLSX.utils.book_new();
 
@@ -1345,7 +1630,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(16);
       doc.setTextColor(15, 23, 42);
-      doc.text(globalSettings.companyName || 'ZARA Accounting', headerTextX, startY + 10);
+      doc.text(globalSettings.companyName || 'ZF Accounting', headerTextX, startY + 10);
 
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(10.5);
@@ -1355,7 +1640,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       const personLabel = selectedAgent === 'all' ? 'All Persons' : selectedAgent;
       const iqamaPart =
         selectedAgent !== 'all' && activePersonProfile?.iqamaNo
-          ? `  |  Iqama: ${activePersonProfile.iqamaNo}`
+          ? `  |  Person ID / Iqama: ${activePersonProfile.iqamaNo}`
           : '';
       const phonePart =
         selectedAgent !== 'all' && activePersonProfile?.phone
@@ -1390,20 +1675,24 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       const totalPdfInv = filtered.reduce((a, b) => a + (Number(b.invoiceTotal) || 0), 0);
       const totalPdfRem = filtered.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0);
 
-      const tableRows = filtered.map((e, idx) => [
-        String(idx + 1),
-        e.date || '',
-        e.invoiceNo || '',
-        e.agent || '',
-        e.client || '',
-        e.service || '',
-        String(Number(e.qty) || 1),
-        formatPlainMoney(Number(e.invoiceTotal) || 0),
-        formatPlainMoney(Number(e.remainingAmount) || 0),
-        formatPlainMoney(Number(e.ratePerUnit) || 0),
-        formatPlainMoney(getRowCommission(e)),
-        e.payoutStatus || '',
-      ]);
+      const tableRows = filtered.map((e, idx) => {
+        const matched = personByNameMap.get((e.agent || '').trim().toLowerCase());
+        const agentDisplay = matched?.iqamaNo ? `${e.agent} (ID: ${matched.iqamaNo})` : (e.agent || '—');
+        return [
+          String(idx + 1),
+          e.date || '',
+          e.invoiceNo || '',
+          agentDisplay,
+          e.client || '',
+          e.service || '',
+          String(Number(e.qty) || 1),
+          formatPlainMoney(Number(e.invoiceTotal) || 0),
+          formatPlainMoney(Number(e.remainingAmount) || 0),
+          formatPlainMoney(Number(e.ratePerUnit) || 0),
+          formatPlainMoney(getRowCommission(e)),
+          e.payoutStatus || '',
+        ];
+      });
 
       autoTable(doc, {
         startY: dividerY + 14,
@@ -1498,12 +1787,14 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       const totalPrintRem = filtered.reduce((a, b) => a + (Number(b.remainingAmount) || 0), 0);
 
       const rowsHtml = filtered
-        .map(
-          (e) => `
+        .map((e) => {
+          const matched = personByNameMap.get((e.agent || '').trim().toLowerCase());
+          const agentDisplay = matched?.iqamaNo ? `${e.agent} (ID: ${matched.iqamaNo})` : (e.agent || '—');
+          return `
           <tr>
             <td>${escapeHtml(e.date)}</td>
             <td style="font-weight:700;">${escapeHtml(e.invoiceNo)}</td>
-            <td>${escapeHtml(e.agent)}</td>
+            <td>${escapeHtml(agentDisplay)}</td>
             <td>${escapeHtml(e.client)}</td>
             <td>${escapeHtml(e.service)}</td>
             <td style="text-align:right;">${e.qty}</td>
@@ -1512,9 +1803,18 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             <td style="text-align:right;">${escapeHtml(formatPrintMoney(Number(e.ratePerUnit || 0)))}</td>
             <td style="text-align:right;font-weight:700;">${escapeHtml(formatPrintMoney(getRowCommission(e)))}</td>
             <td style="text-align:center;">${escapeHtml(e.payoutStatus)}</td>
-          </tr>`
-        )
+          </tr>`;
+        })
         .join('');
+
+      const printIqamaPart =
+        selectedAgent !== 'all' && activePersonProfile?.iqamaNo
+          ? ` &bull; Person ID / Iqama: <strong>${escapeHtml(activePersonProfile.iqamaNo)}</strong>`
+          : '';
+      const printPhonePart =
+        selectedAgent !== 'all' && activePersonProfile?.phone
+          ? ` &bull; Phone: ${escapeHtml(activePersonProfile.phone)}`
+          : '';
 
       const htmlDoc = `<!doctype html>
 <html>
@@ -1541,9 +1841,9 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     <div class="header-left">
       ${photoHtml}
       <div>
-        <h2>${escapeHtml(globalSettings.companyName || 'ZARA Accounting')}</h2>
+        <h2>${escapeHtml(globalSettings.companyName || 'ZF Accounting')}</h2>
         <p class="sub">Agent Commission Statement (${escapeHtml(activeMonthLabel)})</p>
-        <p class="meta">Person: <strong>${escapeHtml(selectedAgent === 'all' ? 'All Persons' : selectedAgent)}</strong> &bull; Period: ${escapeHtml(formatMonthPeriodRange(selectedPeriod))}</p>
+        <p class="meta">Person: <strong>${escapeHtml(selectedAgent === 'all' ? 'All Persons' : selectedAgent)}</strong>${printIqamaPart}${printPhonePart} &bull; Period: ${escapeHtml(formatMonthPeriodRange(selectedPeriod))}</p>
       </div>
     </div>
     <div class="totals">
@@ -1674,15 +1974,11 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
               const pickedAgentRaw = pick('person', 'agent', 'person / agent', 'staff');
               const resolveImportedAgent = (raw: string): string => {
-                const fallback = selectedAgent !== 'all' ? selectedAgent : (availablePersons[0]?.name || 'RH FAYSAL');
+                const fallback = selectedAgent !== 'all' ? selectedAgent : (availablePersons[0]?.name || '');
                 const t = raw.trim();
                 if (!t) return fallback;
                 const match = availablePersons.find((p) => p.name.trim().toLowerCase() === t.toLowerCase());
                 if (match) return match.name;
-                if (t.toLowerCase() === 'faysal') {
-                  const rh = availablePersons.find((p) => p.name.trim().toLowerCase() === 'rh faysal');
-                  if (rh) return rh.name;
-                }
                 return fallback;
               };
 
@@ -1738,14 +2034,11 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     setIsScanning(true);
     try {
       const res = await ApiService.extractCommissionWithAi(scanFile.base64, scanFile.mimeType);
-      const fallbackAgent = selectedAgent !== 'all' ? selectedAgent : (availablePersons[0]?.name || 'RH FAYSAL');
+      const fallbackAgent = selectedAgent !== 'all' ? selectedAgent : (availablePersons[0]?.name || '');
       const list = (res.entries || []).map((row: any) => {
         const rawAg = String(row.agent || '').trim();
         const matched = rawAg
-          ? availablePersons.find((p) => p.name.trim().toLowerCase() === rawAg.toLowerCase()) ||
-            (rawAg.toLowerCase() === 'faysal'
-              ? availablePersons.find((p) => p.name.trim().toLowerCase() === 'rh faysal')
-              : undefined)
+          ? availablePersons.find((p) => p.name.trim().toLowerCase() === rawAg.toLowerCase())
           : undefined;
         return {
           ...row,
@@ -1796,7 +2089,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       {/* Toast Banner */}
       {toastMessage && (
         <div
-          className={`fixed bottom-20 right-4 z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-sm font-medium transition-all ${
+          className={`fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-5 left-3 right-3 sm:left-5 sm:right-auto sm:max-w-md z-50 flex items-center gap-2 px-4 py-3 rounded-xl shadow-lg border text-xs sm:text-sm font-medium transition-all ${
             toastMessage.type === 'success'
               ? 'bg-emerald-900 text-emerald-50 border-emerald-600'
               : 'bg-rose-900 text-rose-50 border-rose-600'
@@ -1859,17 +2152,17 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      if (isOwner && selectedAgent !== 'all' && activePersonProfile) {
+                      if (canManagePersonPhoto && selectedAgent !== 'all' && activePersonProfile) {
                         openEditSpecificPersonModal(activePersonProfile);
                       }
                     }}
                     title={
-                      isOwner && selectedAgent !== 'all'
-                        ? 'Owner: Click to add or change person photo'
+                      canManagePersonPhoto && selectedAgent !== 'all'
+                        ? 'Click to add or change person photo'
                         : 'Person Avatar'
                     }
                     className={`relative w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-200 font-bold flex items-center justify-center text-[11px] shrink-0 overflow-hidden border border-emerald-200 dark:border-emerald-700 ${
-                      isOwner && selectedAgent !== 'all' ? 'cursor-pointer hover:ring-2 hover:ring-emerald-500 group' : 'cursor-default'
+                      canManagePersonPhoto && selectedAgent !== 'all' ? 'cursor-pointer hover:ring-2 hover:ring-emerald-500 group' : 'cursor-default'
                     }`}
                   >
                     {activePhoto ? (
@@ -1887,7 +2180,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     ) : (
                       <span>{getInitials(selectedAgent === 'all' ? 'ALL' : selectedAgent)}</span>
                     )}
-                    {isOwner && selectedAgent !== 'all' && (
+                    {canManagePersonPhoto && selectedAgent !== 'all' && (
                       <span className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
                         <Camera className="w-3.5 h-3.5" />
                       </span>
@@ -1904,19 +2197,21 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                 <option value="all">All Persons ({availablePersons.length})</option>
                 {availablePersons.map((p) => (
                   <option key={p.id} value={p.name}>
-                    {p.name}
+                    {p.name}{p.iqamaNo ? ` (ID: ${p.iqamaNo})` : ''}
                   </option>
                 ))}
               </select>
-              <button
-                onClick={openAddPersonModal}
-                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors cursor-pointer"
-                title="Manually add a new Person account"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add</span>
-              </button>
-              {(availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
+              {canAddPerson && (
+                <button
+                  onClick={openAddPersonModal}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition-colors cursor-pointer"
+                  title="Manually add a new Person account"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add</span>
+                </button>
+              )}
+              {canMergePerson && (availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
                 <button
                   type="button"
                   onClick={() => openMergePersonsModal()}
@@ -1930,7 +2225,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
               <span className="text-slate-300 dark:text-slate-700">•</span>
               <span>
-                Iqama:{' '}
+                Person ID / Iqama:{' '}
                 <strong className="text-slate-800 dark:text-slate-100">
                   {activePersonProfile?.iqamaNo || 'Not set'}
                 </strong>
@@ -1952,13 +2247,15 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               </span>
               {activePersonProfile && (
                 <>
-                  <button
-                    onClick={openEditPersonModal}
-                    className="text-emerald-700 dark:text-emerald-400 underline font-medium hover:text-emerald-800 cursor-pointer"
-                  >
-                    (Edit info)
-                  </button>
-                  {selectedAgent !== 'all' && availablePersons.length > 1 && (
+                  {canEditPerson && (
+                    <button
+                      onClick={openEditPersonModal}
+                      className="text-emerald-700 dark:text-emerald-400 underline font-medium hover:text-emerald-800 cursor-pointer"
+                    >
+                      (Edit info)
+                    </button>
+                  )}
+                  {canDeletePerson && selectedAgent !== 'all' && (
                     <button
                       type="button"
                       onClick={() => openDeletePersonModal(activePersonProfile)}
@@ -1969,36 +2266,78 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   )}
                 </>
               )}
+
+              {isOwner && (
+                <>
+                  <span className="text-slate-300 dark:text-slate-700">•</span>
+                  <div className="inline-flex items-center gap-1.5">
+                    <span className="text-slate-500 dark:text-slate-400 font-medium">User Data:</span>
+                    <select
+                      value={selectedCreatorFilter}
+                      onChange={(e) => setSelectedCreatorFilter(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50/70 dark:bg-amber-950/40 font-semibold text-amber-900 dark:text-amber-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                    >
+                      <option value="all">All Users Data ({entries.length})</option>
+                      {creatorFilterUsers.map((u) => {
+                        const count = entries.filter((entry) => matchesCreatorUser(entry, u.id)).length;
+                        return (
+                          <option key={u.id} value={u.id}>
+                            @{u.username} — {u.name} ({count})
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                </>
+              )}
+
+              {isOwner && onNavigateTab && (
+                <button
+                  type="button"
+                  onClick={() => onNavigateTab('owner_control')}
+                  className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-slate-900 dark:bg-amber-500/20 border border-slate-700 dark:border-amber-500/40 text-white dark:text-amber-300 font-semibold hover:opacity-90 transition-opacity cursor-pointer"
+                  title="Manage user permissions for adding, editing, merging, or deleting Persons"
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" />
+                  <span>Person Permissions</span>
+                </button>
+              )}
             </div>
           </div>
 
           {/* Right: Action Buttons */}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={() => {
-                setImportedRows([]);
-                setScanFile(null);
-                setShowImportModal(true);
-              }}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-sm transition-colors"
-            >
-              <Upload className="w-3.5 h-3.5" />
-              <span>Import Excel / PDF</span>
-            </button>
-            <button
-              onClick={openAddModal}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Record</span>
-            </button>
-            <button
-              onClick={() => setShowMonthsModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 text-xs font-semibold transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Add Month File</span>
-            </button>
+            {canImportCommissions && (
+              <button
+                onClick={() => {
+                  setImportedRows([]);
+                  setScanFile(null);
+                  setShowImportModal(true);
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-semibold shadow-sm transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                <span>Import Excel / PDF</span>
+              </button>
+            )}
+            {canAddRecords && (
+              <button
+                onClick={openAddModal}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Record</span>
+              </button>
+            )}
+            {canManageMonths && (
+              <button
+                onClick={() => setShowMonthsModal(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 text-xs font-semibold transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Add Month File</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 setViewMode('table');
@@ -2009,27 +2348,31 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               <TableIcon className="w-3.5 h-3.5" />
               <span>Excel Worksheet</span>
             </button>
-            <button
-              onClick={handleExportXlsx}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-semibold transition-colors"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export .XLSX</span>
-            </button>
-            <button
-              onClick={() => setShowPrintModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-semibold transition-colors"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              <span>Preview PDF</span>
-            </button>
-            <button
-              onClick={() => setShowPrintModal(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-semibold transition-colors"
-            >
-              <Printer className="w-3.5 h-3.5" />
-              <span>Print</span>
-            </button>
+            {canExportSheet && (
+              <>
+                <button
+                  onClick={handleExportXlsx}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-semibold transition-colors"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Export .XLSX</span>
+                </button>
+                <button
+                  onClick={() => setShowPrintModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-semibold transition-colors"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Preview PDF</span>
+                </button>
+                <button
+                  onClick={() => setShowPrintModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 text-xs font-semibold transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print</span>
+                </button>
+              </>
+            )}
             <button
               onClick={() => loadData(false)}
               title="Refresh worksheet"
@@ -2064,7 +2407,11 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
           >
             <span>All Months</span>
             <span className="px-1.5 py-0.2 rounded-full bg-slate-200/80 dark:bg-slate-700 text-[10px]">
-              {entries.filter((e) => selectedAgent === 'all' || e.agent.toLowerCase() === selectedAgent.toLowerCase()).length}
+              {entries.filter(
+                (e) =>
+                  matchesCreatorUser(e, selectedCreatorFilter) &&
+                  (selectedAgent === 'all' || (e.agent || '').toLowerCase() === selectedAgent.toLowerCase())
+              ).length}
             </span>
           </button>
 
@@ -2097,13 +2444,15 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
             );
           })}
 
-          <button
-            onClick={() => setShowMonthsModal(true)}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-700 bg-white/70 dark:bg-slate-800/50"
-          >
-            <Plus className="w-3 h-3" />
-            <span>New Month</span>
-          </button>
+          {canManageMonths && (
+            <button
+              onClick={() => setShowMonthsModal(true)}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-dashed border-slate-300 dark:border-slate-700 text-xs font-medium text-slate-600 dark:text-slate-300 hover:border-emerald-500 hover:text-emerald-700 bg-white/70 dark:bg-slate-800/50"
+            >
+              <Plus className="w-3 h-3" />
+              <span>New Month</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -2123,7 +2472,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               <span>{eligibleEntries.length} invoices ready</span>
             </p>
           </div>
-          {eligibleEntries.length > 0 && (
+          {canPayCommissions && eligibleEntries.length > 0 && (
             <button
               onClick={() => setShowPayoutModal(true)}
               className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs shrink-0"
@@ -2200,7 +2549,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
       {/* PERSON ACCOUNTS STRIP (Manual accounts via + Add) */}
       <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 px-4 py-3 shadow-xs">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <div className="w-6 h-6 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-700 dark:text-emerald-300 flex items-center justify-center">
               <Wallet className="w-3.5 h-3.5" />
             </div>
@@ -2208,11 +2557,46 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               Person Accounts ({personAccounts.length})
             </span>
             <span className="text-[11px] text-slate-500 dark:text-slate-400">
-              Manual person accounts only — use + Add to add, or edit/merge/delete anytime
+              {canAddPerson || canMergePerson || canDeletePerson
+                ? 'Manual person accounts only — controlled by Owner permissions'
+                : 'View only — Owner permission required to add, merge, or delete Persons'}
             </span>
+            {!isOwner && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700">
+                {canAddPerson || canEditPerson || canMergePerson || canDeletePerson ? (
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                ) : (
+                  <Lock className="w-3 h-3 text-amber-600" />
+                )}
+                <span>
+                  {[
+                    canAddPerson ? 'Add' : null,
+                    canEditPerson ? 'Edit' : null,
+                    canMergePerson ? 'Merge' : null,
+                    canDeletePerson ? 'Delete' : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || 'Owner Controlled'}
+                </span>
+              </span>
+            )}
           </div>
-          <div className="flex items-center gap-3">
-            {(availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
+          <div className="flex items-center gap-3 flex-wrap">
+            {canDeletePerson && availablePersons.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteAllClearEntryAgents(false);
+                  setShowDeleteAllPersonsModal(true);
+                }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-xs font-semibold text-rose-700 dark:text-rose-300 hover:bg-rose-100 cursor-pointer"
+                title="Delete every Person ID from the worksheet"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Delete All Persons</span>
+              </button>
+            )}
+            {canMergePerson && (availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
               <button
                 type="button"
                 onClick={() => openMergePersonsModal()}
@@ -2233,7 +2617,24 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
         {showAccountsStrip && (
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
-            {personAccounts.map((acc) => {
+            {personAccounts.length === 0 ? (
+              <div className="col-span-full rounded-xl border border-dashed border-slate-200 dark:border-slate-700 px-4 py-4 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500 dark:text-slate-400">
+                <span>
+                  No Person IDs created yet. {canAddPerson ? 'Click "+ Add" whenever a Person ID is needed.' : 'Owner can create a Person ID if needed later.'}
+                </span>
+                {canAddPerson && (
+                  <button
+                    type="button"
+                    onClick={openAddPersonModal}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-semibold cursor-pointer"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Add Person ID</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              personAccounts.map((acc) => {
               const isSelected =
                 selectedAgent !== 'all' &&
                 selectedAgent.trim().toLowerCase() === acc.name.trim().toLowerCase();
@@ -2271,23 +2672,25 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                           {acc.name}
                         </p>
                         <p className="text-[10px] text-slate-500 dark:text-slate-400 truncate">
-                          {acc.invoicesCount} invoice(s) • {acc.office || 'No office'}
+                          {acc.iqamaNo ? `ID: ${acc.iqamaNo} • ` : ''}{acc.invoicesCount} invoice(s) • {acc.office || 'No office'}
                         </p>
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          openEditSpecificPersonModal(acc);
-                        }}
-                        title="Edit person info & photo"
-                        className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-emerald-600 hover:border-emerald-400 transition"
-                      >
-                        {isOwner ? <Camera className="w-3.5 h-3.5" /> : <Edit2 className="w-3.5 h-3.5" />}
-                      </button>
-                      {availablePersons.length > 1 && (
+                      {canEditPerson && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditSpecificPersonModal(acc);
+                          }}
+                          title={canManagePersonPhoto ? 'Edit person info & photo' : 'Edit person info'}
+                          className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-emerald-600 hover:border-emerald-400 transition"
+                        >
+                          {canManagePersonPhoto ? <Camera className="w-3.5 h-3.5" /> : <Edit2 className="w-3.5 h-3.5" />}
+                        </button>
+                      )}
+                      {canDeletePerson && (
                         <button
                           type="button"
                           onClick={(e) => {
@@ -2318,7 +2721,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   </div>
                 </div>
               );
-            })}
+            }))}
           </div>
         )}
       </div>
@@ -2539,17 +2942,19 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               </select>
             </div>
 
-            <button
-              onClick={() => setDirectEditActive((p) => !p)}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-semibold transition-colors ${
-                directEditActive
-                  ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-700 dark:text-emerald-300'
-                  : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
-              }`}
-            >
-              <Edit2 className="w-3 h-3" />
-              <span>Direct Edit: {directEditActive ? 'Active' : 'Off'}</span>
-            </button>
+            {canEditRecords && (
+              <button
+                onClick={() => setDirectEditActive((p) => !p)}
+                className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border font-semibold transition-colors ${
+                  effectiveDirectEdit
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-700 dark:bg-emerald-950/60 dark:border-emerald-700 dark:text-emerald-300'
+                    : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                }`}
+              >
+                <Edit2 className="w-3 h-3" />
+                <span>Direct Edit: {effectiveDirectEdit ? 'Active' : 'Off'}</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -2573,7 +2978,20 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               </h2>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {(availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
+              {canDeletePerson && availablePersons.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeleteAllClearEntryAgents(false);
+                    setShowDeleteAllPersonsModal(true);
+                  }}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-semibold hover:bg-rose-100 cursor-pointer"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Delete All Persons</span>
+                </button>
+              )}
+              {canMergePerson && (availablePersons.length >= 2 || unlinkedEntryAgents.length > 0) && (
                 <button
                   type="button"
                   onClick={() => openMergePersonsModal()}
@@ -2583,13 +3001,15 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   <span>Merge Persons</span>
                 </button>
               )}
-              <button
-                onClick={openAddPersonModal}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 cursor-pointer"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Add Person Account</span>
-              </button>
+              {canAddPerson && (
+                <button
+                  onClick={openAddPersonModal}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-xs font-semibold hover:bg-emerald-700 cursor-pointer"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Add Person Account</span>
+                </button>
+              )}
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -2672,15 +3092,17 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                         >
                           Open Sheet
                         </button>
-                        <button
-                          onClick={() => openEditSpecificPersonModal(acc)}
-                          className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300 font-semibold hover:bg-amber-100 cursor-pointer"
-                          title={isOwner ? 'Edit Photo & Info' : 'Edit Info'}
-                        >
-                          {isOwner ? <Camera className="w-3 h-3" /> : <Edit2 className="w-3 h-3" />}
-                          <span>{isOwner ? 'Edit / Photo' : 'Edit'}</span>
-                        </button>
-                        {availablePersons.length >= 2 && (
+                        {canEditPerson && (
+                          <button
+                            onClick={() => openEditSpecificPersonModal(acc)}
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300 font-semibold hover:bg-amber-100 cursor-pointer"
+                            title={canManagePersonPhoto ? 'Edit Photo & Info' : 'Edit Info'}
+                          >
+                            {canManagePersonPhoto ? <Camera className="w-3 h-3" /> : <Edit2 className="w-3 h-3" />}
+                            <span>{canManagePersonPhoto ? 'Edit / Photo' : 'Edit'}</span>
+                          </button>
+                        )}
+                        {canMergePerson && availablePersons.length >= 2 && (
                           <button
                             onClick={() => openMergePersonsModal(acc.name)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-semibold hover:bg-blue-100 cursor-pointer"
@@ -2690,7 +3112,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                             <span>Merge</span>
                           </button>
                         )}
-                        {availablePersons.length > 1 && (
+                        {canDeletePerson && (
                           <button
                             onClick={() => openDeletePersonModal(acc)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 font-semibold hover:bg-rose-100 cursor-pointer"
@@ -2700,7 +3122,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                             <span>Delete</span>
                           </button>
                         )}
-                        {acc.toPayNow > 0 && (
+                        {canPayCommissions && acc.toPayNow > 0 && (
                           <button
                             onClick={() => handleSettlePayout(acc.name)}
                             className="px-2 py-1 rounded bg-emerald-600 text-white font-semibold hover:bg-emerald-700 cursor-pointer"
@@ -2882,22 +3304,24 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      setQuickAgent(selectedAgent !== 'all' ? selectedAgent : availablePersons[0]?.name || 'RH FAYSAL');
-                      setShowQuickRow((p) => !p);
-                    }}
-                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>{showQuickRow ? 'Close Quick Row' : 'Quick Entry Row'}</span>
-                  </button>
-                </div>
+                {canAddRecords && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setQuickAgent(selectedAgent !== 'all' ? selectedAgent : availablePersons[0]?.name || '');
+                        setShowQuickRow((p) => !p);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>{showQuickRow ? 'Close Quick Row' : 'Quick Entry Row'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* INLINE QUICK-ENTRY BAR (NO AUTO AMOUNT) */}
-              {showQuickRow && (
+              {canAddRecords && showQuickRow && (
                 <form
                   onSubmit={handleQuickSave}
                   className="p-3 bg-emerald-50/60 dark:bg-emerald-950/30 border-b border-emerald-200 dark:border-emerald-900 grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-12 gap-2 items-end text-xs"
@@ -2929,6 +3353,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       onChange={(e) => setQuickAgent(e.target.value)}
                       className="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
                     >
+                      <option value="">-- No Person (Optional) --</option>
                       {availablePersons.map((p) => (
                         <option key={p.id} value={p.name}>
                           {p.name}
@@ -3080,6 +3505,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   ) : (
                     displayedRecords.map((entry) => {
                       const comm = getRowCommission(entry);
+                      const matchedPerson = personByNameMap.get((entry.agent || '').trim().toLowerCase());
                       return (
                         <div
                           key={entry.id}
@@ -3094,7 +3520,18 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 {entry.client}
                               </h3>
                               <p className="text-[11px] text-slate-500">
-                                Person: <strong>{entry.agent}</strong> • {entry.date}
+                                Person: <strong>{entry.agent || '—'}</strong>
+                                {matchedPerson?.iqamaNo ? (
+                                  <span className="ml-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                    (ID: {matchedPerson.iqamaNo})
+                                  </span>
+                                ) : null}{' '}
+                                • {entry.date}
+                                {(isOwner || isAdmin) && entry.createdByName ? (
+                                  <span className="ml-1.5 text-[10px] text-slate-400">
+                                    (by {entry.createdByName})
+                                  </span>
+                                ) : null}
                               </p>
                             </div>
                             <span
@@ -3139,7 +3576,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                               {fmtMoney(comm)}
                             </span>
                             <div className="flex items-center gap-1.5">
-                              {entry.eligible && entry.payoutStatus === 'To pay' && !entry.isClawback && (
+                              {canPayCommissions && entry.eligible && entry.payoutStatus === 'To pay' && !entry.isClawback && (
                                 <button
                                   onClick={() => handleDirectCellUpdate(entry, { payoutStatus: 'Paid' })}
                                   className="px-2 py-1 rounded bg-emerald-600 text-white text-[11px] font-semibold"
@@ -3147,18 +3584,22 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                   Mark Paid
                                 </button>
                               )}
-                              <button
-                                onClick={() => openEditModal(entry)}
-                                className="p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-600 hover:text-emerald-700"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                onClick={() => setEntryToDelete(entry)}
-                                className="p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-600 hover:text-rose-600"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {canEditRecords && (
+                                <button
+                                  onClick={() => openEditModal(entry)}
+                                  className="p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-600 hover:text-emerald-700"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {canDeleteRecords && (
+                                <button
+                                  onClick={() => setEntryToDelete(entry)}
+                                  className="p-1.5 rounded border border-slate-200 dark:border-slate-700 text-slate-600 hover:text-rose-600"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -3228,7 +3669,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 {idx + 1}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 whitespace-nowrap">
-                                {directEditActive ? (
+                                {effectiveDirectEdit ? (
                                   <input
                                     type="date"
                                     defaultValue={entry.date}
@@ -3250,7 +3691,24 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 {entry.invoiceNo}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2.5 py-1.5 font-semibold text-emerald-700 dark:text-emerald-400 whitespace-nowrap">
-                                {entry.agent}
+                                {(() => {
+                                  const matchedPerson = personByNameMap.get((entry.agent || '').trim().toLowerCase());
+                                  return (
+                                    <>
+                                      <div>{entry.agent || '—'}</div>
+                                      {matchedPerson?.iqamaNo && (
+                                        <div className="text-[10px] font-medium text-slate-500 dark:text-slate-400">
+                                          ID: {matchedPerson.iqamaNo}
+                                        </div>
+                                      )}
+                                      {(isOwner || isAdmin) && entry.createdByName && (
+                                        <div className="text-[10px] font-normal text-slate-400">
+                                          by {entry.createdByName}
+                                        </div>
+                                      )}
+                                    </>
+                                  );
+                                })()}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2.5 py-1.5">
                                 <div className="font-semibold text-slate-900 dark:text-white">
@@ -3277,7 +3735,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 })()}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5">
-                                {directEditActive ? (
+                                {effectiveDirectEdit ? (
                                   <input
                                     type="text"
                                     defaultValue={entry.workerName || ''}
@@ -3297,7 +3755,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 {entry.service}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right">
-                                {directEditActive ? (
+                                {effectiveDirectEdit ? (
                                   <input
                                     type="number"
                                     min="1"
@@ -3315,7 +3773,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 )}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right font-medium text-slate-800 dark:text-slate-200">
-                                {directEditActive ? (
+                                {effectiveDirectEdit ? (
                                   <input
                                     type="number"
                                     min="0"
@@ -3334,7 +3792,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 )}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right font-bold text-rose-600 dark:text-rose-400">
-                                {directEditActive ? (
+                                {effectiveDirectEdit ? (
                                   <input
                                     type="number"
                                     min="0"
@@ -3360,7 +3818,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 )}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right">
-                                {directEditActive ? (
+                                {effectiveDirectEdit ? (
                                   <input
                                     type="number"
                                     min="0"
@@ -3381,7 +3839,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-right font-bold">
                                 {isCancelled ? (
                                   <span className="text-rose-600">{fmtMoney(rowClaw)}</span>
-                                ) : directEditActive ? (
+                                ) : effectiveDirectEdit ? (
                                   <input
                                     type="number"
                                     min="0"
@@ -3400,7 +3858,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                 )}
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-center">
-                                {directEditActive && !isCancelled ? (
+                                {effectiveDirectEdit && !isCancelled ? (
                                   <select
                                     value={entry.payoutStatus}
                                     onChange={(e) => {
@@ -3419,7 +3877,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                     }`}
                                   >
                                     <option value="To pay">To pay</option>
-                                    <option value="Paid">Paid</option>
+                                    <option value="Paid" disabled={!canPayCommissions}>Paid</option>
                                     <option value="Not eligible">Not eligible</option>
                                   </select>
                                 ) : (
@@ -3440,7 +3898,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                               </td>
                               <td className="border border-slate-200 dark:border-slate-700 px-2 py-1.5 text-center">
                                 <div className="flex items-center justify-center gap-1">
-                                  {entry.eligible && entry.payoutStatus === 'To pay' && !isCancelled && (
+                                  {canPayCommissions && entry.eligible && entry.payoutStatus === 'To pay' && !isCancelled && (
                                     <button
                                       onClick={() => handleDirectCellUpdate(entry, { payoutStatus: 'Paid' })}
                                       title="Mark Paid & Post to Ledger"
@@ -3449,20 +3907,27 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                                       Pay
                                     </button>
                                   )}
-                                  <button
-                                    onClick={() => openEditModal(entry)}
-                                    title="Edit Record"
-                                    className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-emerald-700"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button
-                                    onClick={() => setEntryToDelete(entry)}
-                                    title="Delete Record"
-                                    className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950 text-slate-500 hover:text-rose-600"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
+                                  {canEditRecords && (
+                                    <button
+                                      onClick={() => openEditModal(entry)}
+                                      title="Edit Record"
+                                      className="p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500 hover:text-emerald-700"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {canDeleteRecords && (
+                                    <button
+                                      onClick={() => setEntryToDelete(entry)}
+                                      title="Delete Record"
+                                      className="p-1 rounded hover:bg-rose-50 dark:hover:bg-rose-950 text-slate-500 hover:text-rose-600"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {!canPayCommissions && !canEditRecords && !canDeleteRecords && (
+                                    <span className="text-[10px] text-slate-400">View Only</span>
+                                  )}
                                 </div>
                               </td>
                             </tr>
@@ -3558,13 +4023,13 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Person / Agent *</label>
+                  <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Person / Agent (Optional)</label>
                   <select
-                    required
                     value={formAgent}
                     onChange={(e) => setFormAgent(e.target.value)}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
                   >
+                    <option value="">-- No Person (Optional) --</option>
                     {availablePersons.map((p) => (
                       <option key={p.id} value={p.name}>
                         {p.name}
@@ -3847,12 +4312,12 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-bold text-slate-800 dark:text-slate-100">Person Photo</span>
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
-                      {isOwner ? <ShieldCheck className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                      Owner Only
+                      {canManagePersonPhoto ? <ShieldCheck className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                      {isAdmin && !isOwner ? 'Admin Full Access' : 'Owner / Admin'}
                     </span>
                   </div>
 
-                  {isOwner ? (
+                  {canManagePersonPhoto ? (
                     <>
                       <input
                         ref={personPhotoFileRef}
@@ -3905,7 +4370,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   ) : (
                     <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1">
                       <Lock className="w-3 h-3 shrink-0" />
-                      <span>Only the Owner can add, change, or remove a person photo.</span>
+                      <span>Only Owner or Admin can add, change, or remove a person photo.</span>
                     </p>
                   )}
                 </div>
@@ -3953,7 +4418,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               </div>
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-1.5">
-                  {editingPerson && availablePersons.length >= 2 && (
+                  {canMergePerson && editingPerson && availablePersons.length >= 2 && (
                     <button
                       type="button"
                       onClick={() => openMergePersonsModal(editingPerson.name)}
@@ -3963,7 +4428,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       <span>Merge</span>
                     </button>
                   )}
-                  {editingPerson && availablePersons.length > 1 && (
+                  {canDeletePerson && editingPerson && (
                     <button
                       type="button"
                       onClick={() => openDeletePersonModal(editingPerson)}
@@ -4022,27 +4487,26 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     : ' This person has 0 commission records.';
                 })()}
               </p>
-              {availablePersons.filter((p) => p.id !== personToDelete.id).length > 0 && (
-                <div>
-                  <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
-                    Reassign Existing Records To (Optional)
-                  </label>
-                  <select
-                    value={deleteReassignTo}
-                    onChange={(e) => setDeleteReassignTo(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
-                  >
-                    <option value="">Keep existing records untouched</option>
-                    {availablePersons
-                      .filter((p) => p.id !== personToDelete.id)
-                      .map((p) => (
-                        <option key={p.id} value={p.name}>
-                          Move all records to {p.name}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              )}
+              <div>
+                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">
+                  Existing Commission Records Action
+                </label>
+                <select
+                  value={deleteReassignTo}
+                  onChange={(e) => setDeleteReassignTo(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 font-semibold"
+                >
+                  <option value="">Keep existing records untouched</option>
+                  <option value="__CLEAR__">Clear Person name from records (No Person)</option>
+                  {availablePersons
+                    .filter((p) => p.id !== personToDelete.id)
+                    .map((p) => (
+                      <option key={p.id} value={p.name}>
+                        Move all records to {p.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
               <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <button
                   type="button"
@@ -4059,6 +4523,62 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                 >
                   {isDeletingPerson && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   <span>Delete Person</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DELETE ALL PERSONS CONFIRMATION MODAL */}
+      {showDeleteAllPersonsModal && (
+        <div className="fixed inset-0 z-50 bg-black/55 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 max-w-md w-full shadow-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+              <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
+                <Trash2 className="w-4 h-4" />
+                <h3 className="text-base font-bold">Delete Every Person ID?</h3>
+              </div>
+              <button onClick={() => setShowDeleteAllPersonsModal(false)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3.5 text-xs">
+              <p className="text-slate-700 dark:text-slate-300">
+                Remove all <strong>{availablePersons.length}</strong> Person ID account(s) from the Commission Sheet? You can add new Person IDs later whenever needed via <strong>+ Add</strong>.
+              </p>
+              <label className="flex items-start gap-2 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={deleteAllClearEntryAgents}
+                  onChange={(e) => setDeleteAllClearEntryAgents(e.target.checked)}
+                  className="mt-0.5 rounded text-rose-600 focus:ring-rose-500"
+                />
+                <span>
+                  <strong className="block text-slate-800 dark:text-slate-100">
+                    Also clear Person names from existing commission records
+                  </strong>
+                  <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                    Leave unchecked to preserve historical Person names on all {entries.length} commission record(s).
+                  </span>
+                </span>
+              </label>
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteAllPersonsModal(false)}
+                  className="px-4 py-2 rounded-lg border border-slate-200 text-slate-600 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeletingAllPersons}
+                  onClick={handleConfirmDeleteAllPersons}
+                  className="px-4 py-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isDeletingAllPersons && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  <span>Delete All Persons</span>
                 </button>
               </div>
             </div>
@@ -4175,22 +4695,24 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               </button>
             </div>
             <div className="p-5 space-y-4 text-xs">
-              <form onSubmit={(e) => handleAddMonth(e)} className="flex gap-2">
-                <input
-                  type="month"
-                  required
-                  value={newMonthInput}
-                  onChange={(e) => setNewMonthInput(e.target.value)}
-                  className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-                <button
-                  type="submit"
-                  disabled={isSavingMonth}
-                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
-                >
-                  {isSavingMonth ? 'Adding...' : '+ Add Sheet'}
-                </button>
-              </form>
+              {canManageMonths && (
+                <form onSubmit={(e) => handleAddMonth(e)} className="flex gap-2">
+                  <input
+                    type="month"
+                    required
+                    value={newMonthInput}
+                    onChange={(e) => setNewMonthInput(e.target.value)}
+                    className="flex-1 px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSavingMonth}
+                    className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold"
+                  >
+                    {isSavingMonth ? 'Adding...' : '+ Add Sheet'}
+                  </button>
+                </form>
+              )}
 
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 {months.map((ym) => {
@@ -4209,7 +4731,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       >
                         {formatMonthLabel(ym)} ({count} records)
                       </button>
-                      {count === 0 && (
+                      {canManageMonths && count === 0 && (
                         <button
                           onClick={() => handleDeleteMonth(ym)}
                           className="text-rose-500 hover:text-rose-700 p-1"
@@ -4480,11 +5002,21 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   />
                 )}
                 <div>
-                  <h2 className="text-xl font-bold">{globalSettings.companyName || 'ZARA Accounting'}</h2>
+                  <h2 className="text-xl font-bold">{globalSettings.companyName || 'ZF Accounting'}</h2>
                   <p className="text-sm text-slate-600">Agent Commission Statement ({activeMonthLabel})</p>
                   <p className="text-xs text-slate-500 mt-1">
-                    Person: <strong>{selectedAgent === 'all' ? 'All Persons' : selectedAgent}</strong> • Period:{' '}
-                    {formatMonthPeriodRange(selectedPeriod)}
+                    Person: <strong>{selectedAgent === 'all' ? 'All Persons' : selectedAgent}</strong>
+                    {selectedAgent !== 'all' && activePersonProfile?.iqamaNo ? (
+                      <>
+                        {' '}• Person ID / Iqama: <strong>{activePersonProfile.iqamaNo}</strong>
+                      </>
+                    ) : null}
+                    {selectedAgent !== 'all' && activePersonProfile?.phone ? (
+                      <>
+                        {' '}• Phone: {activePersonProfile.phone}
+                      </>
+                    ) : null}
+                    {' '}• Period: {formatMonthPeriodRange(selectedPeriod)}
                   </p>
                 </div>
               </div>
@@ -4512,11 +5044,18 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((e) => (
+                {filtered.map((e) => {
+                  const matchedPerson = personByNameMap.get((e.agent || '').trim().toLowerCase());
+                  return (
                   <tr key={e.id}>
                     <td className="border border-slate-300 p-2">{e.date}</td>
                     <td className="border border-slate-300 p-2 font-semibold">{e.invoiceNo}</td>
-                    <td className="border border-slate-300 p-2">{e.agent}</td>
+                    <td className="border border-slate-300 p-2">
+                      {e.agent || '—'}
+                      {matchedPerson?.iqamaNo ? (
+                        <span className="block text-[10px] text-slate-500">ID: {matchedPerson.iqamaNo}</span>
+                      ) : null}
+                    </td>
                     <td className="border border-slate-300 p-2">{e.client}</td>
                     <td className="border border-slate-300 p-2">{e.service}</td>
                     <td className="border border-slate-300 p-2 text-right">{e.qty}</td>
@@ -4534,7 +5073,8 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     </td>
                     <td className="border border-slate-300 p-2 text-center">{e.payoutStatus}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
               <tfoot>
                 <tr className="bg-emerald-50 font-bold text-slate-900">

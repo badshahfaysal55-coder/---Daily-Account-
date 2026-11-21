@@ -216,7 +216,17 @@ export interface UserAccount {
   canViewLedger?: boolean;         // Permission: View ledger & transaction list
   canEditCustomers?: boolean;      // Permission: Add / edit customers & CRM
   canApproveInvoices?: boolean;    // Permission: Create invoices & record payments
-  canManageCommissions?: boolean;  // Permission: View & edit commission sheet
+  canManageCommissions?: boolean;  // Permission: View commission sheet
+  canAddCommissionRecords?: boolean; // Permission: Add commission records
+  canEditCommissionRecords?: boolean; // Permission: Edit commission records
+  canDeleteCommissionRecords?: boolean; // Permission: Delete commission records
+  canPayCommissions?: boolean;     // Permission: Settle payouts / Mark paid
+  canImportCommissions?: boolean;  // Permission: Import Excel / AI PDF into Commission Sheet
+  canManageCommissionMonths?: boolean; // Permission: Add / delete month sheets
+  canAddCommissionPersons?: boolean; // Permission: Add new Person accounts in Commission Sheet
+  canEditCommissionPersons?: boolean; // Permission: Edit existing Person accounts in Commission Sheet
+  canDeleteCommissionPersons?: boolean; // Permission: Delete Person accounts in Commission Sheet
+  canMergeCommissionPersons?: boolean; // Permission: Merge Person accounts in Commission Sheet
   canManageBazar?: boolean;        // Permission: Access & manage Daily Bazar ledger
   canManageBuyers?: boolean;       // Permission: Add/edit Buyer IDs & Buyer photos
   isCommissionOnly?: boolean;      // Permission: Restricted exclusively to Commission Sheet
@@ -258,6 +268,8 @@ export interface CommissionEntry {
   paidAt?: number;
   period?: string;            // e.g. "2026-11" or "2026-06 — 2026-09"
   notes?: string;
+  createdByUserId?: string;
+  createdByName?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -271,6 +283,8 @@ export interface CommissionPersonAccount {
   linkedUserId?: string;
   photoUrl?: string;
   photoData?: string;
+  createdByUserId?: string;
+  createdByName?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -303,6 +317,7 @@ export interface GlobalAppSettings {
   headerBgColor?: string;
   sidebarBgColor?: string;
   forceRefreshAt?: number;
+  dataUpdatedAt?: number;
   updatedAt: number;
   lastUpdatedBy: string;
 }
@@ -312,6 +327,7 @@ export interface AppVersionInfo {
   version: string;
   settingsUpdatedAt: number;
   forceRefreshAt: number;
+  dataUpdatedAt?: number;
   serverTime: number;
 }
 

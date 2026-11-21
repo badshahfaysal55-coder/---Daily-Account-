@@ -279,42 +279,42 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   }, [transactions, filterType, searchQuery]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* SECTION 1: Top 3 Financial Summary KPI Cards (Totals + Averages) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {/* Card 1: Total Balance + Avg per Transaction */}
-        <div className="bg-white dark:bg-[#101A2C] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden transition-all duration-200 hover:shadow-md flex flex-col justify-between">
+        <div className="bg-white dark:bg-[#101A2C] rounded-xl p-3 sm:p-3.5 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden transition-all duration-200 hover:shadow-md flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-heading">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-heading">
                 {isBn ? 'মোট বর্তমান ব্যালেন্স' : 'Total Balance'}
               </span>
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-[#D4AF37]">
-                <Wallet className="w-5 h-5" />
+              <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-[#D4AF37]">
+                <Wallet className="w-4 h-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className={`text-2xl sm:text-3xl font-black font-mono tracking-tight ${totalBalance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>
+            <div className="mt-1.5">
+              <div className={`text-lg sm:text-xl font-black font-mono tracking-tight ${totalBalance >= 0 ? 'text-slate-900 dark:text-white' : 'text-rose-600'}`}>
                 {formatCurrency(totalBalance, user.currency, user.useBanglaNumerals)}
               </div>
-              <div className="flex items-center justify-between gap-2 mt-2 text-xs">
-                <div className="flex items-center gap-1.5">
+              <div className="flex items-center justify-between gap-2 mt-1 text-[11px]">
+                <div className="flex items-center gap-1">
                   <span className={`inline-flex items-center font-bold ${netProfit >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600'}`}>
-                    {netProfit >= 0 ? <TrendingUp className="w-3.5 h-3.5 mr-0.5" /> : <TrendingDown className="w-3.5 h-3.5 mr-0.5" />}
+                    {netProfit >= 0 ? <TrendingUp className="w-3 h-3 mr-0.5" /> : <TrendingDown className="w-3 h-3 mr-0.5" />}
                     {profitMargin}%
                   </span>
                   <span className="text-slate-400">
                     {isBn ? 'নেট মার্জিন' : 'Net Margin'}
                   </span>
                 </div>
-                <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
                   {totalTxCount} {isBn ? 'টি লেনদেন' : 'Total tx'}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[11px]">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[10px]">
             <div>
               <span className="text-slate-400">{isBn ? 'গড় ব্যালেন্স/লেনদেন: ' : 'Avg Net / Tx: '}</span>
               <span className={`font-bold font-mono ${avgNetPerTx >= 0 ? 'text-slate-800 dark:text-slate-100' : 'text-rose-600'}`}>
@@ -328,25 +328,25 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               </span>
             </div>
           </div>
-          <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
+          <div className="absolute -bottom-6 -right-6 w-20 h-20 bg-amber-500/5 rounded-full blur-xl pointer-events-none" />
         </div>
 
         {/* Card 2: Total Income + Avg Income */}
-        <div className="bg-white dark:bg-[#101A2C] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden transition-all duration-200 hover:shadow-md flex flex-col justify-between">
+        <div className="bg-white dark:bg-[#101A2C] rounded-xl p-3 sm:p-3.5 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden transition-all duration-200 hover:shadow-md flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-heading">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-heading">
                 {isBn ? 'সর্বমোট আয় (ক্রেডিট)' : 'Total Income'}
               </span>
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
-                <ArrowDownRight className="w-5 h-5" />
+              <div className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-500">
+                <ArrowDownRight className="w-4 h-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-600 dark:text-emerald-400 tracking-tight">
+            <div className="mt-1.5">
+              <div className="text-lg sm:text-xl font-black font-mono text-emerald-600 dark:text-emerald-400 tracking-tight">
                 {formatCurrency(totalIncome, user.currency, user.useBanglaNumerals)}
               </div>
-              <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
                   {incomeCount}
                 </span>
@@ -355,7 +355,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
 
-          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[11px]">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[10px]">
             <span className="text-slate-400">
               {isBn ? 'গড় আয় (প্রতি লেনদেন)' : 'Avg per Income'}
             </span>
@@ -366,21 +366,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         </div>
 
         {/* Card 3: Total Expense + Avg Expense */}
-        <div className="bg-white dark:bg-[#101A2C] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden transition-all duration-200 hover:shadow-md flex flex-col justify-between">
+        <div className="bg-white dark:bg-[#101A2C] rounded-xl p-3 sm:p-3.5 border border-slate-200 dark:border-slate-800 shadow-xs relative overflow-hidden transition-all duration-200 hover:shadow-md flex flex-col justify-between">
           <div>
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-heading">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider font-heading">
                 {isBn ? 'সর্বমোট ব্যয় (ডেবিট)' : 'Total Expense'}
               </span>
-              <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500">
-                <ArrowUpRight className="w-5 h-5" />
+              <div className="w-7 h-7 rounded-lg bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-500">
+                <ArrowUpRight className="w-4 h-4" />
               </div>
             </div>
-            <div className="mt-3">
-              <div className="text-2xl sm:text-3xl font-black font-mono text-rose-600 dark:text-rose-400 tracking-tight">
+            <div className="mt-1.5">
+              <div className="text-lg sm:text-xl font-black font-mono text-rose-600 dark:text-rose-400 tracking-tight">
                 {formatCurrency(totalExpense, user.currency, user.useBanglaNumerals)}
               </div>
-              <div className="flex items-center gap-1.5 mt-2 text-xs text-slate-500 dark:text-slate-400">
+              <div className="flex items-center gap-1 mt-1 text-[11px] text-slate-500 dark:text-slate-400">
                 <span className="font-semibold text-slate-800 dark:text-slate-200">
                   {expenseCount}
                 </span>
@@ -389,7 +389,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
 
-          <div className="mt-3 pt-2.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[11px]">
+          <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between gap-2 text-[10px]">
             <span className="text-slate-400">
               {isBn ? 'গড় ব্যয় (প্রতি লেনদেন)' : 'Avg per Expense'}
             </span>
@@ -401,14 +401,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* SECTION 3: Quick Actions Bar */}
-      <div className="bg-gradient-to-r from-[#172F4D] to-[#101A2C] rounded-2xl p-4 sm:p-5 border border-slate-800 shadow-md text-white">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+      <div className="bg-gradient-to-r from-[#172F4D] to-[#101A2C] rounded-xl p-3 sm:p-3.5 border border-slate-800 shadow-md text-white">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
           <div>
-            <span className="font-bold text-sm tracking-tight font-heading flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-[#D4AF37]" />
+            <span className="font-bold text-xs sm:text-[13px] tracking-tight font-heading flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-[#D4AF37]" />
               <span>{isBn ? 'দ্রুত অ্যাকশন ও লেনদেন' : 'Quick Actions & Accounting Operations'}</span>
             </span>
-            <p className="text-xs text-slate-300 mt-0.5">
+            <p className="text-[11px] text-slate-300 mt-0.5">
               {isBn ? 'এক ক্লিকেই নতুন হিসাব যোগ অথবা ইনভয়েস তৈরি করুন' : 'Instant transaction entry, customer CRM and invoice generation.'}
             </p>
           </div>
@@ -416,28 +416,28 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={onOpenReport}
-              className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs flex items-center gap-1.5 transition cursor-pointer border border-white/10"
+              className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[11px] flex items-center gap-1.5 transition cursor-pointer border border-white/10"
             >
-              <Printer className="w-3.5 h-3.5 text-[#D4AF37]" />
+              <Printer className="w-3 h-3 text-[#D4AF37]" />
               <span>{isBn ? 'পূর্ণাঙ্গ রিপোর্ট প্রিন্ট' : 'Full Statement PDF'}</span>
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <button
             onClick={onQuickAddIncome}
-            className="p-3.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-left transition cursor-pointer group flex flex-col justify-between"
+            className="p-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-left transition cursor-pointer group flex flex-col justify-between"
           >
             <div className="flex items-center justify-between">
-              <PlusCircle className="w-5 h-5 text-emerald-400 group-hover:scale-110 transition-transform" />
-              <ArrowDownRight className="w-4 h-4 text-emerald-400/60" />
+              <PlusCircle className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+              <ArrowDownRight className="w-3.5 h-3.5 text-emerald-400/60" />
             </div>
-            <div className="mt-3">
-              <span className="font-bold text-xs text-white block">
+            <div className="mt-2">
+              <span className="font-bold text-[11px] text-white block leading-snug">
                 {isBn ? '+ আয় যোগ করুন' : '+ Add Income'}
               </span>
-              <span className="text-[10px] text-emerald-200/70 block mt-0.5">
+              <span className="text-[10px] text-emerald-200/70 block mt-0.5 leading-tight">
                 {isBn ? 'বিক্রয়, কালেকশন' : 'Sales, collection'}
               </span>
             </div>
@@ -445,17 +445,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
           <button
             onClick={onQuickAddExpense}
-            className="p-3.5 rounded-xl bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-left transition cursor-pointer group flex flex-col justify-between"
+            className="p-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-left transition cursor-pointer group flex flex-col justify-between"
           >
             <div className="flex items-center justify-between">
-              <PlusCircle className="w-5 h-5 text-rose-400 group-hover:scale-110 transition-transform" />
-              <ArrowUpRight className="w-4 h-4 text-rose-400/60" />
+              <PlusCircle className="w-4 h-4 text-rose-400 group-hover:scale-110 transition-transform" />
+              <ArrowUpRight className="w-3.5 h-3.5 text-rose-400/60" />
             </div>
-            <div className="mt-3">
-              <span className="font-bold text-xs text-white block">
+            <div className="mt-2">
+              <span className="font-bold text-[11px] text-white block leading-snug">
                 {isBn ? '+ ব্যয় যোগ করুন' : '+ Add Expense'}
               </span>
-              <span className="text-[10px] text-rose-200/70 block mt-0.5">
+              <span className="text-[10px] text-rose-200/70 block mt-0.5 leading-tight">
                 {isBn ? 'বাজার, বেতন, ইউটিলিটি' : 'Bills, payroll, supplies'}
               </span>
             </div>
@@ -463,17 +463,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
           <button
             onClick={() => onNavigateTab('customers')}
-            className="p-3.5 rounded-xl bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-left transition cursor-pointer group flex flex-col justify-between"
+            className="p-2.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-left transition cursor-pointer group flex flex-col justify-between"
           >
             <div className="flex items-center justify-between">
-              <Users className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
-              <ChevronRight className="w-4 h-4 text-purple-400/60" />
+              <Users className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
+              <ChevronRight className="w-3.5 h-3.5 text-purple-400/60" />
             </div>
-            <div className="mt-3">
-              <span className="font-bold text-xs text-white block">
+            <div className="mt-2">
+              <span className="font-bold text-[11px] text-white block leading-snug">
                 {isBn ? '+ গ্রাহক বা ভেন্ডর' : '+ Add Customer'}
               </span>
-              <span className="text-[10px] text-purple-200/70 block mt-0.5">
+              <span className="text-[10px] text-purple-200/70 block mt-0.5 leading-tight">
                 {isBn ? 'বাকি খাতা ও লেজার' : 'CRM dues & balances'}
               </span>
             </div>
@@ -487,17 +487,17 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                 onOpenReport();
               }
             }}
-            className="p-3.5 rounded-xl bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-left transition cursor-pointer group flex flex-col justify-between"
+            className="p-2.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-left transition cursor-pointer group flex flex-col justify-between"
           >
             <div className="flex items-center justify-between">
-              <Receipt className="w-5 h-5 text-[#D4AF37] group-hover:scale-110 transition-transform" />
-              <ChevronRight className="w-4 h-4 text-[#D4AF37]/60" />
+              <Receipt className="w-4 h-4 text-[#D4AF37] group-hover:scale-110 transition-transform" />
+              <ChevronRight className="w-3.5 h-3.5 text-[#D4AF37]/60" />
             </div>
-            <div className="mt-3">
-              <span className="font-bold text-xs text-white block">
+            <div className="mt-2">
+              <span className="font-bold text-[11px] text-white block leading-snug">
                 {isBn ? 'ইনভয়েস ও ভাউচার' : 'Generate Invoice'}
               </span>
-              <span className="text-[10px] text-amber-200/70 block mt-0.5">
+              <span className="text-[10px] text-amber-200/70 block mt-0.5 leading-tight">
                 {isBn ? 'গ্রাহক রসিদ ও চালান' : 'Instant corporate bill'}
               </span>
             </div>
@@ -628,7 +628,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* SECTION 5: Recent Transactions with Search, Filter & Quick Actions */}
-      <div className="bg-white dark:bg-[#101A2C] rounded-2xl p-5 border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
+      <div className="bg-white dark:bg-[#101A2C] rounded-2xl p-3.5 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs transition-all">
         <div className={`flex flex-col md:flex-row md:items-center justify-between gap-3 ${showRecentTransactions ? 'pb-4 border-b border-slate-100 dark:border-slate-800' : ''}`}>
           <div className="flex items-center gap-3">
             <div>
@@ -671,7 +671,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             {showRecentTransactions && (
               <>
                 {/* Search & Filter Controls */}
-                <div className="relative min-w-[200px]">
+                <div className="relative w-full sm:w-auto sm:min-w-[200px]">
                   <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input
                     type="text"

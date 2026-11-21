@@ -406,7 +406,7 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
     // Default buyer: current user ID & name
     const defaultId = currentUser.username || currentUser.id || 'rh.faysal007';
     setFormBuyerId(defaultId);
-    setFormPurchasedBy(currentUser.name || 'Faysal Ahmed');
+    setFormPurchasedBy(currentUser.name || 'Faysal');
     setIsCustomBuyerMode(false);
     setShowAddModal(true);
   };
@@ -689,11 +689,11 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   };
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-4 px-2 sm:px-4 pb-12">
+    <div className="w-full max-w-7xl mx-auto space-y-4">
       {/* Toast Alert */}
       {toastMessage && (
         <div
-          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-semibold border ${
+          className={`fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-5 left-3 right-3 sm:left-5 sm:right-auto sm:max-w-md z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-semibold border ${
             toastMessage.type === 'success'
               ? 'bg-emerald-600 text-white border-emerald-400'
               : 'bg-rose-600 text-white border-rose-400'
@@ -2036,7 +2036,7 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
             <div className="space-y-4">
               <div className="text-center pb-2 border-b border-slate-300">
                 <h2 className="text-lg font-bold text-slate-900">
-                  {globalSettings.appName || 'ZARA Accounting'} — Daily Bazar & Grocery Account
+                  {globalSettings.appName || 'ZF Accounting'} — Daily Bazar & Grocery Account
                 </h2>
                 <p className="text-[11px] text-slate-500">
                   Expense Statement • Printed on {new Date().toLocaleDateString()}

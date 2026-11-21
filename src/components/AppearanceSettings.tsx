@@ -193,14 +193,14 @@ export const AppearanceSettings: React.FC<AppearanceSettingsProps> = ({
     <div className="w-full max-w-5xl mx-auto space-y-6">
       {/* Toast */}
       {successToast && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white text-xs px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 border border-amber-500/40 animate-in fade-in slide-in-from-bottom-2">
+        <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-5 left-3 right-3 sm:left-5 sm:right-auto sm:max-w-md z-50 bg-slate-900 text-white text-xs px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2.5 border border-amber-500/40 animate-in fade-in slide-in-from-bottom-2">
           <CheckCircle2 className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="font-medium">{successToast}</span>
         </div>
       )}
 
       {/* Header Banner */}
-      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 relative overflow-hidden">
+      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 sm:p-6 relative overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-600">
@@ -328,8 +328,8 @@ export const AppearanceSettings: React.FC<AppearanceSettingsProps> = ({
         </div>
 
         {/* Currency Preference Section with Signs (BDT ৳ & SAR ⃁) */}
-        <div className="mt-5 p-4 rounded-xl bg-slate-50 border border-slate-200">
-          <div className="flex items-center justify-between mb-3">
+        <div className="mt-5 p-3.5 sm:p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
             <div>
               <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
                 <span className="text-sm font-black text-amber-500 font-mono">৳/⃁</span>
@@ -341,7 +341,7 @@ export const AppearanceSettings: React.FC<AppearanceSettingsProps> = ({
                   : 'Select active currency: Bangladeshi Taka (৳ BDT) or Saudi Riyal (⃁ SAR).'}
               </p>
             </div>
-            <span className="text-xs font-mono font-bold px-2 py-1 bg-amber-100 text-amber-900 rounded-lg">
+            <span className="text-xs font-mono font-bold px-2 py-1 bg-amber-100 text-amber-900 rounded-lg self-start sm:self-auto shrink-0">
               Active: {currentCurrency} ({getCurrencySymbol(currentCurrency)})
             </span>
           </div>
@@ -394,8 +394,8 @@ export const AppearanceSettings: React.FC<AppearanceSettingsProps> = ({
               </span>
               <p className="text-[11px] text-slate-500 mt-0.5">
                 {isBn 
-                  ? 'আপনার পছন্দমতো ওপরের হেডার ও বামপাশের অপশন বারের ব্যাকগ্রাউন্ড কালার কাস্টমাইজ করুন।' 
-                  : 'Customize the exact background colors for top Header and left Option Bar (Sidebar).'}
+                  ? 'আপনার পছন্দমতো ওপরের হেডার ও ডানপাশের অপশন বারের ব্যাকগ্রাউন্ড কালার কাস্টমাইজ করুন।' 
+                  : 'Customize the exact background colors for top Header and right Option Bar (Sidebar).'}
               </p>
             </div>
           </div>
@@ -462,7 +462,7 @@ export const AppearanceSettings: React.FC<AppearanceSettingsProps> = ({
             <div className="p-3.5 rounded-xl bg-white border border-slate-200 shadow-2xs space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-800">
-                  {isBn ? '২. বামপাশের অপশন বার (Sidebar) কালার' : '2. Left Option Bar (Sidebar) Color'}
+                  {isBn ? '২. ডানপাশের অপশন বার (Sidebar) কালার' : '2. Right Option Bar (Sidebar) Color'}
                 </span>
                 <span className="text-[11px] font-mono text-slate-500 uppercase">
                   {currentSidebarColor || (isBn ? 'থিম ডিফল্ট' : 'Theme Default')}
@@ -541,7 +541,7 @@ export const AppearanceSettings: React.FC<AppearanceSettingsProps> = ({
             return (
               <div
                 key={theme.id}
-                className={`bg-white rounded-2xl border-2 transition-all p-5 shadow-sm flex flex-col justify-between relative overflow-hidden ${
+                className={`bg-white rounded-2xl border-2 transition-all p-4 sm:p-5 shadow-sm flex flex-col justify-between relative overflow-hidden ${
                   isActive 
                     ? 'border-amber-500 ring-2 ring-amber-500/20 shadow-md' 
                     : theme.isAllUsersFeatured
@@ -602,7 +602,7 @@ export const AppearanceSettings: React.FC<AppearanceSettingsProps> = ({
                     >
                       <div className="flex items-center gap-1.5">
                         <span className="w-2 h-2 rounded-full" style={{ backgroundColor: theme.accentColor }} />
-                        <span>ZARA Accounting</span>
+                        <span>ZF Accounting</span>
                       </div>
                       <span
                         className="text-[10px] px-1.5 py-0.5 rounded"

@@ -10,6 +10,7 @@ export interface PersistentVaultSnapshot {
   commissionMonths?: string[];
   homeBazarEntries?: any[];
   deletedRecordIds?: Record<string, number>;
+  deletedCommissionMonths?: Record<string, number>;
   userPhotos?: Record<string, string>;
 }
 
@@ -104,16 +105,50 @@ export const VaultStorage = {
 
   async recordDeletion(recordId: string): Promise<void> {
     if (!recordId) return;
+    return this.recordDeletions([recordId]);
+  },
+
+  async recordDeletions(recordIds: string[]): Promise<void> {
+    const cleanIds = recordIds.filter((id) => typeof id === 'string' && id.trim().length > 0);
+    if (cleanIds.length === 0) return;
     try {
       const existing = (await this.loadVault()) || { savedAt: Date.now() };
-      const deletedRecordIds = {
-        ...(existing.deletedRecordIds || {}),
-        [recordId]: Date.now(),
-      };
+      const now = Date.now();
+      const deletedRecordIds = { ...(existing.deletedRecordIds || {}) };
+      cleanIds.forEach((id) => {
+        deletedRecordIds[id] = now;
+      });
+      const idSet = new Set(cleanIds);
       await this.saveVault({
         ...existing,
-        savedAt: Date.now(),
+        savedAt: now,
+        transactions: existing.transactions?.filter((x: any) => !idSet.has(x?.id)),
+        customers: existing.customers?.filter((x: any) => !idSet.has(x?.id)),
+        invoices: existing.invoices?.filter((x: any) => !idSet.has(x?.id)),
+        commissionEntries: existing.commissionEntries?.filter((x: any) => !idSet.has(x?.id)),
+        commissionPersons: existing.commissionPersons?.filter((x: any) => !idSet.has(x?.id)),
+        homeBazarEntries: existing.homeBazarEntries?.filter((x: any) => !idSet.has(x?.id)),
+        users: existing.users?.filter((x: any) => !idSet.has(x?.id)),
         deletedRecordIds,
+      });
+    } catch {
+      // non-fatal
+    }
+  },
+
+  async recordDeletedMonth(month: string): Promise<void> {
+    if (!month) return;
+    try {
+      const existing = (await this.loadVault()) || { savedAt: Date.now() };
+      const now = Date.now();
+      await this.saveVault({
+        ...existing,
+        savedAt: now,
+        commissionMonths: (existing.commissionMonths || []).filter((m) => m !== month),
+        deletedCommissionMonths: {
+          ...(existing.deletedCommissionMonths || {}),
+          [month]: now,
+        },
       });
     } catch {
       // non-fatal

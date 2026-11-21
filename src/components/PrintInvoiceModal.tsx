@@ -116,7 +116,7 @@ export const PrintInvoiceModal: React.FC<PrintInvoiceModalProps> = ({
                 </div>
                 <div className="text-right">
                   <div className="text-base font-black tracking-tight font-heading text-white">
-                    {globalSettings.appName || 'ZARA Accounting'}
+                    {globalSettings.appName || 'ZF Accounting'}
                   </div>
                   <div className="text-[10px] text-slate-300 font-medium tracking-wide">
                     {globalSettings.companyName || 'ZARA Group & Holdings Ltd.'}
@@ -347,7 +347,7 @@ export const PrintInvoiceModal: React.FC<PrintInvoiceModalProps> = ({
                   Thanks For Your Business
                 </span>
                 <span className="text-[10px] text-slate-400">
-                  ZARA Accounting Cloud Platform
+                  ZF Accounting Cloud Platform
                 </span>
               </div>
             </div>

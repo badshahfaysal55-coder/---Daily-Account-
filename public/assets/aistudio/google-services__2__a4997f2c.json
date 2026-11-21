@@ -1,0 +1,82 @@
+{
+  "project_info": {
+    "project_number": "807519312029",
+    "project_id": "gen-lang-client-0427609466",
+    "storage_bucket": "gen-lang-client-0427609466.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:807519312029:android:5a1288c1aacc5c2f369c74",
+        "android_client_info": {
+          "package_name": "com.zara.accounting"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "807519312029-ti1br80dlc7l1s5a0tbgpa01t7vfsnk9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANeBm2dTEUc8ZuawKywg2uNUsUWG3z0wU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "807519312029-ti1br80dlc7l1s5a0tbgpa01t7vfsnk9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "807519312029-d0e1fgl8iffl1ruhnj170u1ig9gibh5m.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.dailyaccount.zfaccount"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:807519312029:android:28f61828f059f33b369c74",
+        "android_client_info": {
+          "package_name": "com.zaraaccount.dailyaccount"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "807519312029-ti1br80dlc7l1s5a0tbgpa01t7vfsnk9.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyANeBm2dTEUc8ZuawKywg2uNUsUWG3z0wU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "807519312029-ti1br80dlc7l1s5a0tbgpa01t7vfsnk9.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "807519312029-d0e1fgl8iffl1ruhnj170u1ig9gibh5m.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.dailyaccount.zfaccount"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

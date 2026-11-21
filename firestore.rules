@@ -54,7 +54,7 @@ service cloud.firestore {
 
     function isValidUserAccount(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && isValidId(data.id)
         && data.username is string && data.username.size() >= 2 && data.username.size() <= 64
@@ -73,6 +73,16 @@ service cloud.firestore {
         && optBool(data, 'canEditCustomers')
         && optBool(data, 'canApproveInvoices')
         && optBool(data, 'canManageCommissions')
+        && optBool(data, 'canAddCommissionRecords')
+        && optBool(data, 'canEditCommissionRecords')
+        && optBool(data, 'canDeleteCommissionRecords')
+        && optBool(data, 'canPayCommissions')
+        && optBool(data, 'canImportCommissions')
+        && optBool(data, 'canManageCommissionMonths')
+        && optBool(data, 'canAddCommissionPersons')
+        && optBool(data, 'canEditCommissionPersons')
+        && optBool(data, 'canDeleteCommissionPersons')
+        && optBool(data, 'canMergeCommissionPersons')
         && optBool(data, 'canManageBazar')
         && optBool(data, 'canManageBuyers')
         && optBool(data, 'isCommissionOnly')
@@ -92,7 +102,7 @@ service cloud.firestore {
 
     function isValidAppSettings(data) {
       return data.keys().hasAll(['ownerUid', 'appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'lastUpdatedBy', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'lastUpdatedBy', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'forceRefreshAt', 'dataUpdatedAt', 'lastUpdatedBy', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && data.appName is string && data.appName.size() <= 120
         && data.companyName is string && data.companyName.size() <= 160
@@ -105,6 +115,8 @@ service cloud.firestore {
         && optStr(data, 'headerBgColor', 40)
         && optStr(data, 'sidebarBgColor', 40)
         && optNum(data, 'bazarMonthlyBudget')
+        && optNum(data, 'forceRefreshAt')
+        && optNum(data, 'dataUpdatedAt')
         && data.lastUpdatedBy is string && data.lastUpdatedBy.size() <= 120
         && data.clientUpdatedAt is number
         && data.createdAt is timestamp
@@ -199,7 +211,7 @@ service cloud.firestore {
 
     function isValidCommissionEntry(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'client', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'commissionAmount', 'payoutStatus', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'id', 'date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && isValidId(data.id)
         && data.date is string && data.date.size() <= 32
@@ -225,6 +237,8 @@ service cloud.firestore {
         && optNum(data, 'paidAt')
         && optStr(data, 'period', 64)
         && optStr(data, 'notes', 2000)
+        && optStr(data, 'createdByUserId', 128)
+        && optStr(data, 'createdByName', 120)
         && data.clientCreatedAt is number
         && data.clientUpdatedAt is number
         && data.createdAt is timestamp
@@ -233,7 +247,7 @@ service cloud.firestore {
 
     function isValidCommissionPerson(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'name', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'id', 'name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && isValidId(data.id)
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 160
@@ -242,6 +256,8 @@ service cloud.firestore {
         && optStr(data, 'office', 160)
         && optStr(data, 'linkedUserId', 128)
         && optStr(data, 'photoUrl', 512)
+        && optStr(data, 'createdByUserId', 128)
+        && optStr(data, 'createdByName', 120)
         && data.clientCreatedAt is number
         && data.clientUpdatedAt is number
         && data.createdAt is timestamp
@@ -317,7 +333,7 @@ service cloud.firestore {
       allow update: if isValidId(settingId) && isAdmin() && isValidAppSettings(incoming())
         && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'lastUpdatedBy', 'clientUpdatedAt', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'forceRefreshAt', 'dataUpdatedAt', 'lastUpdatedBy', 'clientUpdatedAt', 'updatedAt']);
       allow delete: if isValidId(settingId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -331,7 +347,7 @@ service cloud.firestore {
       allow update: if isValidId(userId) && isAdmin() && isValidUserAccount(incoming())
         && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
         && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'updatedAt']);
       allow delete: if isValidId(userId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -402,7 +418,7 @@ service cloud.firestore {
         && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
         && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
         && (existing().invoiceStatus != 'Cancelled' || isAdmin())
-        && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'clientUpdatedAt', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'updatedAt']);
       allow delete: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -416,7 +432,7 @@ service cloud.firestore {
       allow update: if isValidId(personId) && isAdmin() && isValidCommissionPerson(incoming())
         && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
         && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'clientUpdatedAt', 'updatedAt']);
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'updatedAt']);
       allow delete: if isValidId(personId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 

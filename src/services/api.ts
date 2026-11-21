@@ -2,7 +2,7 @@ import { Capacitor } from '@capacitor/core';
 import { Transaction, UserAccount, GlobalAppSettings, Customer, Invoice, InvoicePayment, CustomerStatement, CommissionEntry, CommissionPersonAccount, CommissionStatementSummary, HomeBazarEntry, HomeBazarSummary, BazarBuyer, AppVersionInfo } from '../types/accounting';
 import { VaultStorage, PersistentVaultSnapshot } from './vaultStorage';
 import { googleDriveService } from './googleDriveService';
-import { firestoreSyncService } from './firestoreSyncService';
+import { firebaseAuth, firestoreSyncService } from './firestoreSyncService';
 
 const TOKEN_KEY = 'zara_auth_token_v1';
 const CACHED_USER_KEY = 'zara_cached_user_v1';
@@ -52,6 +52,7 @@ const SSE_EVENT_NAMES = [
   'commissions_batch_updated',
   'commissions_payout_processed',
   'commission_person_updated',
+  'commission_person_deleted',
   'commission_month_updated',
   // Daily Home Bazar
   'home_bazar_added',
@@ -64,6 +65,7 @@ const SSE_EVENT_NAMES = [
   'user_updated',
   'user_deleted',
   'global_settings_updated',
+  'cloud_sync_pulse',
   'database_restored',
 ];
 
@@ -74,7 +76,37 @@ let sseReconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let broadcastChannel: BroadcastChannel | null = null;
 let crossTabBound = false;
 
+function applySseDeletionToVault(eventName: string, data: any) {
+  if (!data || typeof data !== 'object') return;
+  try {
+    if (eventName === 'transaction_deleted' && data.transactionId) {
+      VaultStorage.recordDeletion(data.transactionId).catch(() => {});
+    } else if (eventName === 'customer_deleted' && data.customerId) {
+      VaultStorage.recordDeletion(data.customerId).catch(() => {});
+    } else if (eventName === 'invoice_deleted' && data.invoiceId) {
+      VaultStorage.recordDeletion(data.invoiceId).catch(() => {});
+    } else if (eventName === 'commission_deleted' && data.id) {
+      VaultStorage.recordDeletion(data.id).catch(() => {});
+    } else if (eventName === 'commission_person_deleted') {
+      if (data.id === 'ALL' && Array.isArray(data.deletedIds)) {
+        VaultStorage.recordDeletions(data.deletedIds).catch(() => {});
+      } else if (data.id) {
+        VaultStorage.recordDeletion(data.id).catch(() => {});
+      }
+    } else if (eventName === 'home_bazar_deleted' && data.id) {
+      VaultStorage.recordDeletion(data.id).catch(() => {});
+    } else if ((eventName === 'user_updated' && data.type === 'deleted' && data.userId) || (eventName === 'user_deleted' && data.userId)) {
+      VaultStorage.recordDeletion(data.userId).catch(() => {});
+    } else if (eventName === 'commission_month_updated' && data.deletedMonth) {
+      VaultStorage.recordDeletedMonth(data.deletedMonth).catch(() => {});
+    }
+  } catch {
+    // non-fatal
+  }
+}
+
 function dispatchToListeners(eventName: string, data: any) {
+  applySseDeletionToVault(eventName, data);
   sseListeners.forEach((cb) => {
     try {
       cb(eventName, data);
@@ -463,6 +495,10 @@ export const ApiService = {
             ...(existingVault?.deletedRecordIds || {}),
             ...(bk.database.deletedRecordIds || {}),
           };
+          const mergedDeletedMonths: Record<string, number> = {
+            ...(existingVault?.deletedCommissionMonths || {}),
+            ...(bk.database.deletedCommissionMonths || {}),
+          };
 
           const mergedUsersRes = mergeCollectionSafe(existingVault?.users, bk.database.users, mergedDeleted);
           const mergedTxRes = mergeCollectionSafe(existingVault?.transactions, bk.database.transactions, mergedDeleted);
@@ -476,10 +512,11 @@ export const ApiService = {
           const mergedPersonsRes = mergeCollectionSafe(existingVault?.commissionPersons, bk.database.commissionPersons, mergedDeleted);
           const mergedBazarRes = mergeCollectionSafe(existingVault?.homeBazarEntries, bk.database.homeBazarEntries, mergedDeleted);
 
-          const monthSet = new Set<string>([
-            ...(existingVault?.commissionMonths || []),
-            ...(bk.database.commissionMonths || []),
-          ]);
+          const serverMonthSet = new Set<string>(bk.database.commissionMonths || []);
+          const monthSet = new Set<string>(serverMonthSet);
+          (existingVault?.commissionMonths || []).forEach((m: string) => {
+            if (!mergedDeletedMonths[m]) monthSet.add(m);
+          });
 
           const userPhotos: Record<string, string> = { ...(existingVault?.userPhotos || {}) };
           mergedUsersRes.merged.forEach((u: any) => {
@@ -505,6 +542,7 @@ export const ApiService = {
             commissionMonths: Array.from(monthSet).sort(),
             homeBazarEntries: mergedBazarRes.merged,
             deletedRecordIds: mergedDeleted,
+            deletedCommissionMonths: mergedDeletedMonths,
             userPhotos,
           };
           await VaultStorage.saveVault(snap);
@@ -538,6 +576,7 @@ export const ApiService = {
               commissionMonths: snap.commissionMonths,
               homeBazarEntries: snap.homeBazarEntries,
               deletedRecordIds: snap.deletedRecordIds,
+              deletedCommissionMonths: snap.deletedCommissionMonths,
             })
             .catch((err) => {
               console.warn('Cloud Firestore sync deferred:', err?.message || err);
@@ -556,15 +595,23 @@ export const ApiService = {
           }
         }
       } else {
-        const [txs, custs, invs, comms, bazarRes] = await Promise.all([
+        const [txs, custs, invs, comms, bazarRes, tombstones] = await Promise.all([
           this.getTransactions().catch(() => null),
           this.getCustomers().catch(() => null),
           this.getInvoices().catch(() => null),
           this.getCommissions().catch(() => null),
           this.getHomeBazar().catch(() => null),
+          this.getSyncTombstones().catch(() => null),
         ]);
         const existing = existingVault || { savedAt: Date.now() };
-        const deletedMap = existing.deletedRecordIds || {};
+        const deletedMap: Record<string, number> = {
+          ...(existing.deletedRecordIds || {}),
+          ...(tombstones?.deletedRecordIds || {}),
+        };
+        const deletedMonthsMap: Record<string, number> = {
+          ...(existing.deletedCommissionMonths || {}),
+          ...(tombstones?.deletedCommissionMonths || {}),
+        };
         const mergedTx = txs ? mergeCollectionSafe(existing.transactions, txs, deletedMap) : { merged: existing.transactions || [], vaultHadMissingOnServer: false };
         const mergedCust = custs ? mergeCollectionSafe(existing.customers, custs, deletedMap) : { merged: existing.customers || [], vaultHadMissingOnServer: false };
         const mergedInv = invs ? mergeCollectionSafe(existing.invoices, invs, deletedMap) : { merged: existing.invoices || [], vaultHadMissingOnServer: false };
@@ -581,6 +628,15 @@ export const ApiService = {
         const mergedPersons = comms?.persons ? mergeCollectionSafe(existing.commissionPersons, comms.persons, deletedMap) : { merged: existing.commissionPersons || [], vaultHadMissingOnServer: false };
         const mergedBazar = bazarRes ? mergeCollectionSafe(existing.homeBazarEntries, bazarRes.entries, deletedMap) : { merged: existing.homeBazarEntries || [], vaultHadMissingOnServer: false };
 
+        const resolvedMonths = comms?.months
+          ? Array.from(
+              new Set([
+                ...comms.months,
+                ...(existing.commissionMonths || []).filter((m) => !deletedMonthsMap[m]),
+              ])
+            ).sort()
+          : (existing.commissionMonths || []).filter((m) => !deletedMonthsMap[m]);
+
         const snap: PersistentVaultSnapshot = {
           ...existing,
           savedAt: Date.now(),
@@ -589,10 +645,10 @@ export const ApiService = {
           invoices: mergedInv.merged,
           commissionEntries: mergedComm.merged,
           commissionPersons: mergedPersons.merged,
-          commissionMonths: comms?.months
-            ? Array.from(new Set([...(existing.commissionMonths || []), ...comms.months])).sort()
-            : existing.commissionMonths || [],
+          commissionMonths: resolvedMonths,
           homeBazarEntries: mergedBazar.merged,
+          deletedRecordIds: deletedMap,
+          deletedCommissionMonths: deletedMonthsMap,
         };
         await VaultStorage.saveVault(snap);
 
@@ -601,6 +657,7 @@ export const ApiService = {
           mergedCust.vaultHadMissingOnServer ||
           mergedInv.vaultHadMissingOnServer ||
           mergedComm.vaultHadMissingOnServer ||
+          mergedPersons.vaultHadMissingOnServer ||
           mergedBazar.vaultHadMissingOnServer
         ) {
           await this.recoverIfEmpty({
@@ -732,6 +789,16 @@ export const ApiService = {
     canEditCustomers?: boolean;
     canApproveInvoices?: boolean;
     canManageCommissions?: boolean;
+    canAddCommissionRecords?: boolean;
+    canEditCommissionRecords?: boolean;
+    canDeleteCommissionRecords?: boolean;
+    canPayCommissions?: boolean;
+    canImportCommissions?: boolean;
+    canManageCommissionMonths?: boolean;
+    canAddCommissionPersons?: boolean;
+    canEditCommissionPersons?: boolean;
+    canDeleteCommissionPersons?: boolean;
+    canMergeCommissionPersons?: boolean;
     canManageBazar?: boolean;
     canManageBuyers?: boolean;
     isCommissionOnly?: boolean;
@@ -1104,13 +1171,15 @@ export const ApiService = {
   },
 
   async pushAppUpdate(version?: string): Promise<{ success: boolean; globalSettings: GlobalAppSettings; versionInfo: AppVersionInfo }> {
-    return this.request<{ success: boolean; globalSettings: GlobalAppSettings; versionInfo: AppVersionInfo }>(
+    const res = await this.request<{ success: boolean; globalSettings: GlobalAppSettings; versionInfo: AppVersionInfo }>(
       '/api/app-version/push-update',
       {
         method: 'POST',
         body: JSON.stringify(version ? { version } : {}),
       }
     );
+    this.syncVaultNow().catch(() => {});
+    return res;
   },
 
   // Global Settings (Owner Only)
@@ -1124,17 +1193,31 @@ export const ApiService = {
       method: 'PUT',
       body: JSON.stringify(settings),
     });
+    this.syncVaultNow().catch(() => {});
     return res.globalSettings;
   },
 
   // Commission Sheet Spreadsheet API
-  async getCommissions(params?: { agent?: string; period?: string; office?: string }): Promise<{ entries: CommissionEntry[]; summary: CommissionStatementSummary; persons?: CommissionPersonAccount[]; months?: string[] }> {
+  async getCommissions(params?: { agent?: string; period?: string; office?: string; createdByUserId?: string }): Promise<{
+    entries: CommissionEntry[];
+    summary: CommissionStatementSummary;
+    persons?: CommissionPersonAccount[];
+    months?: string[];
+    users?: Array<{ id: string; username: string; name: string; role: string }>;
+  }> {
     const query = new URLSearchParams();
     if (params?.agent) query.set('agent', params.agent);
     if (params?.period) query.set('period', params.period);
     if (params?.office) query.set('office', params.office);
+    if (params?.createdByUserId && params.createdByUserId !== 'all') query.set('createdByUserId', params.createdByUserId);
     const qs = query.toString() ? `?${query.toString()}` : '';
-    const res = await this.request<{ entries: CommissionEntry[]; summary: CommissionStatementSummary; persons?: CommissionPersonAccount[]; months?: string[] }>(`/api/commissions${qs}`);
+    const res = await this.request<{
+      entries: CommissionEntry[];
+      summary: CommissionStatementSummary;
+      persons?: CommissionPersonAccount[];
+      months?: string[];
+      users?: Array<{ id: string; username: string; name: string; role: string }>;
+    }>(`/api/commissions${qs}`);
     const filteredEntries = (res.entries || []).filter((entry) => {
       const id = String(entry?.id || '');
       const notes = String(entry?.notes || '');
@@ -1210,6 +1293,21 @@ export const ApiService = {
     return res;
   },
 
+  async deleteAllCommissionPersons(clearEntryAgents = false): Promise<{ success: boolean; deletedCount: number; deletedIds: string[] }> {
+    const res = await this.request<{ success: boolean; deletedCount: number; deletedIds: string[] }>(
+      '/api/commission-persons',
+      {
+        method: 'DELETE',
+        body: JSON.stringify({ clearEntryAgents }),
+      }
+    );
+    for (const pid of res.deletedIds || []) {
+      await VaultStorage.recordDeletion(pid);
+      this.setPhotoBackup(pid, null);
+    }
+    return res;
+  },
+
   async mergeCommissionPersons(payload: {
     sourceId?: string;
     sourceName?: string;
@@ -1249,6 +1347,7 @@ export const ApiService = {
     const res = await this.request<{ success: boolean; months: string[] }>(`/api/commission-months/${encodeURIComponent(month)}`, {
       method: 'DELETE',
     });
+    await VaultStorage.recordDeletedMonth(month);
     return res.months || [];
   },
 
@@ -1310,6 +1409,10 @@ export const ApiService = {
     });
   },
 
+  async getSyncTombstones(): Promise<{ deletedRecordIds: Record<string, number>; deletedCommissionMonths: Record<string, number> }> {
+    return this.request<{ deletedRecordIds: Record<string, number>; deletedCommissionMonths: Record<string, number> }>('/api/sync/tombstones');
+  },
+
   async recoverIfEmpty(payload: { userPhotoData?: string; userPhotos?: Record<string, string>; snapshot?: any }): Promise<{ success: boolean; recovered: boolean; user?: UserAccount }> {
     return this.request<{ success: boolean; recovered: boolean; user?: UserAccount }>('/api/sync/recover-if-empty', {
       method: 'POST',
@@ -1369,7 +1472,52 @@ export const ApiService = {
       }).catch(() => {});
     }
 
+    await this.syncAdminFirestore('both').catch(() => null);
+
     return { pulled: Boolean(cloudSnap), recovered, pushed };
+  },
+
+  async getAdminFirestoreStatus(): Promise<{
+    configured: boolean;
+    projectId: string;
+    databaseId: string;
+    status: 'unconfigured' | 'ready' | 'needs_owner_uid' | 'permission_denied' | 'error';
+    hasOwnerUid: boolean;
+    lastSyncedAt: number | null;
+    lastPushedAt: number | null;
+    lastPulledAt: number | null;
+    lastError: string | null;
+    syncing: boolean;
+  } | null> {
+    try {
+      const idToken = await firebaseAuth.currentUser?.getIdToken().catch(() => undefined);
+      const token = this.getToken();
+      const hasExplicitSession = Boolean(token && !token.startsWith('token_auto_'));
+      if (!idToken && !hasExplicitSession) return null;
+      const res = await fetch(resolveApiUrl('/api/admin/firestore/status'), {
+        cache: 'no-store',
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(idToken ? { 'X-Firebase-Id-Token': idToken } : {}),
+        },
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch {
+      return null;
+    }
+  },
+
+  async syncAdminFirestore(direction: 'push' | 'pull' | 'both' = 'both'): Promise<any> {
+    const idToken = await firebaseAuth.currentUser?.getIdToken().catch(() => undefined);
+    const token = this.getToken();
+    const hasExplicitSession = Boolean(token && !token.startsWith('token_auto_'));
+    if (!idToken && !hasExplicitSession) return null;
+    return this.request<any>('/api/admin/firestore/sync', {
+      method: 'POST',
+      headers: idToken ? { 'X-Firebase-Id-Token': idToken } : {},
+      body: JSON.stringify({ direction, ...(idToken ? { idToken } : {}) }),
+    });
   },
 
   // Real-Time Push Events Listener (Shared Singleton SSE + Cross-Tab BroadcastChannel)

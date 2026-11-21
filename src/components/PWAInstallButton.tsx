@@ -108,10 +108,10 @@ export const PWAInstallModal: React.FC<{
     if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
       try {
         await navigator.share({
-          title: 'ZARA Accounting',
+          title: 'ZF Accounting',
           text: isBn
-            ? 'ZARA Accounting অ্যাপটি ফোনে ইনস্টল করতে এই লিংকটি ওপেন করুন:'
-            : 'Open this link in Safari (iOS) or Chrome (Android) to install ZARA Accounting:',
+            ? 'ZF Accounting অ্যাপটি ফোনে ইনস্টল করতে এই লিংকটি ওপেন করুন:'
+            : 'Open this link in Safari (iOS) or Chrome (Android) to install ZF Accounting:',
           url: appUrlToShare,
         });
         return;
@@ -250,7 +250,7 @@ export const PWAInstallModal: React.FC<{
               {qrDataUrl ? (
                 <img
                   src={qrDataUrl}
-                  alt="Scan QR code to open ZARA Accounting on phone"
+                  alt="Scan QR code to open ZF Accounting on phone"
                   className="w-32 h-32 block"
                 />
               ) : (
@@ -553,14 +553,14 @@ export const MobileInstallBanner: React.FC<{ isBn?: boolean }> = ({ isBn = false
   }
 
   return (
-    <div className="mb-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-3.5 shadow-lg border border-emerald-400/40 flex items-center justify-between gap-3">
+    <div className="mb-4 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-3 sm:p-3.5 shadow-lg border border-emerald-400/40 flex items-center justify-between gap-2.5 sm:gap-3">
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-xl bg-white/15 flex items-center justify-center shrink-0">
           <Smartphone className="w-5 h-5 text-white" />
         </div>
         <div className="min-w-0">
           <div className="text-xs font-bold truncate">
-            {isBn ? 'ফোনে ZARA Accounting অ্যাপ ইনস্টল করুন' : 'Install ZARA Accounting App'}
+            {isBn ? 'ফোনে ZF Accounting অ্যাপ ইনস্টল করুন' : 'Install ZF Accounting App'}
           </div>
           <div className="text-[11px] text-emerald-100 truncate">
             {isIOS
@@ -608,7 +608,7 @@ export const OfflineIndicator: React.FC<{ isBn?: boolean }> = ({ isBn = false })
   if (isOnline) return null;
 
   return (
-    <div className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom,0px))] sm:bottom-4 left-4 right-4 sm:right-auto z-50 flex items-center gap-2 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-xl border border-amber-300">
+    <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-5 left-3 right-3 sm:right-auto sm:left-5 sm:max-w-md z-50 flex items-center gap-2 rounded-xl bg-amber-500 px-3.5 py-2 text-xs font-bold text-slate-950 shadow-xl border border-amber-300">
       <WifiOff className="w-4 h-4 shrink-0" />
       <span>
         {isBn

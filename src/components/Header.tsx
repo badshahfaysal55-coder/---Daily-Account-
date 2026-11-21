@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
-  Languages,
   Sun,
   Moon,
   Menu,
@@ -8,9 +7,9 @@ import {
   Camera,
   LogOut,
   Users,
-  Smartphone
+  Smartphone,
 } from 'lucide-react';
-import { UserProfile, UserAccount, GlobalAppSettings, AppTheme, DisplayMode, CurrencyCode } from '../types/accounting';
+import { UserProfile, UserAccount, GlobalAppSettings, AppTheme, DisplayMode } from '../types/accounting';
 import { Language } from '../utils/translations';
 import { formatDateBangla, formatDateEn } from '../utils/formatters';
 import { openPWAInstallGuide } from './PWAInstallButton';
@@ -25,13 +24,11 @@ interface HeaderProps {
   currentLang: Language;
   onApplyTheme?: (theme: AppTheme) => void;
   onToggleMode: () => void;
-  onToggleLang: () => void;
   onOpenAuthModal: () => void;
   onOpenPhotoModal: () => void;
   onLogout: () => void;
   onToggleSidebarMobile: () => void;
   headerBgColor?: string;
-  onSelectCurrency?: (curr: CurrencyCode) => void;
   isSyncing?: boolean;
   lastSyncedAt?: Date;
   onManualSync?: () => void;
@@ -45,13 +42,11 @@ export const Header: React.FC<HeaderProps> = ({
   currentMode,
   currentLang,
   onToggleMode,
-  onToggleLang,
   onOpenAuthModal,
   onOpenPhotoModal,
   onLogout,
   onToggleSidebarMobile,
   headerBgColor,
-  onSelectCurrency,
 }) => {
   const isBn = currentLang === 'bn';
 
@@ -78,43 +73,36 @@ export const Header: React.FC<HeaderProps> = ({
         backgroundColor: headerBgColor || 'var(--theme-primary)',
         borderColor: 'var(--theme-accent-border)',
       }}
-      className="sticky top-0 z-30 border-b shadow-md transition-colors safe-area-top"
+      className="sticky top-0 z-30 w-full border-b shadow-md transition-colors safe-area-top"
     >
-      {/* Main Top Header Bar: Shadowed Logo + App Name + Core Quick Controls */}
-      <div className="w-full px-3 sm:px-6 lg:px-8 xl:px-10 h-14 flex items-center justify-between gap-2 sm:gap-3">
-        {/* Left: Hamburger (mobile) + Shadowed Brand Logo & App Name */}
+      {/* Main Top Header Bar: Shadowed Logo + App Name + Mode + Profile Avatar */}
+      <div className="w-full px-2.5 sm:px-6 lg:px-8 xl:px-10 min-h-[58px] sm:min-h-[60px] py-1.5 flex items-center justify-between gap-2 sm:gap-3">
+        {/* Left: Shadowed Brand Logo & App Name */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
-          <button
-            onClick={onToggleSidebarMobile}
-            className="lg:hidden p-2 -ml-1 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer shrink-0"
-            aria-label="Open navigation menu"
-          >
-            <Menu className="w-5 h-5" />
-          </button>
-
-          <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 ml-0.5 sm:ml-4">
             {/* ZARA Brand Logo — Clean 3D Glowing Emblem */}
-            <ZaraLogo size="sm" showText={false} />
+            <ZaraLogo size="xs" showText={false} className="sm:hidden shrink-0" />
+            <ZaraLogo size="sm" showText={false} className="hidden sm:inline-flex shrink-0" />
 
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
-                <span className="font-bold text-white text-sm sm:text-base tracking-tight font-heading leading-tight truncate drop-shadow-xs">
-                  {globalSettings.appName || 'ZARA Accounting'}
+                <span className="font-bold text-white text-[13px] sm:text-base tracking-tight font-heading leading-tight truncate drop-shadow-xs">
+                  {globalSettings.appName || 'ZF Accounting'}
                 </span>
               </div>
-              <span className="text-[10px] text-slate-400 font-medium hidden sm:block truncate -mt-0.5">
+              <span className="text-[9px] sm:text-[10px] text-slate-300/85 sm:text-slate-400 font-medium block truncate -mt-0.5">
                 {isBn ? 'প্রিমিয়াম ক্লাউড প্ল্যাটফর্ম' : 'Enterprise Cloud Accounting'}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Right Zone: Dark/Light + Currency + Language + Profile Avatar */}
-        <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+        {/* Right Zone: Dark/Light + Profile Avatar + Mobile Right-Drawer Menu Trigger */}
+        <div className="flex items-center gap-1 sm:gap-2 shrink-0">
           {/* Display Mode Toggle (Sun/Moon) */}
           <button
             onClick={onToggleMode}
-            className="inline-flex p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
+            className="inline-flex items-center justify-center min-w-[36px] min-h-[36px] sm:min-w-[40px] sm:min-h-[40px] p-1.5 sm:p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800/80 transition cursor-pointer"
             title={currentMode === 'light' ? 'Switch to Dark Mode' : 'Switch to Light Mode'}
           >
             {currentMode === 'light' ? (
@@ -124,54 +112,14 @@ export const Header: React.FC<HeaderProps> = ({
             )}
           </button>
 
-          {/* Quick Currency Switcher Toggle: ৳ BDT & ⃁ SAR */}
-          <div className="flex items-center p-0.5 rounded-xl border border-slate-700 bg-slate-900/80 shadow-xs">
-            <button
-              type="button"
-              onClick={() => onSelectCurrency && onSelectCurrency('BDT')}
-              className={`px-1.5 sm:px-2 py-1 rounded-lg text-[11px] sm:text-xs font-black transition cursor-pointer flex items-center gap-1 ${
-                user.currency === 'BDT'
-                  ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-              title="Bangladeshi Taka (৳ BDT)"
-            >
-              <span>৳</span>
-              <span className="hidden sm:inline text-[10px]">BDT</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => onSelectCurrency && onSelectCurrency('SAR')}
-              className={`px-1.5 sm:px-2 py-1 rounded-lg text-[11px] sm:text-xs font-black transition cursor-pointer flex items-center gap-1 ${
-                user.currency === 'SAR'
-                  ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-xs'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-              title="Saudi Riyal (⃁ SAR)"
-            >
-              <span>⃁</span>
-              <span className="hidden sm:inline text-[10px]">SAR</span>
-            </button>
-          </div>
-
-          {/* Language Switcher Button (বাংলা / EN) */}
-          <button
-            onClick={onToggleLang}
-            className="flex px-2 sm:px-2.5 py-1.5 rounded-xl border border-slate-700 bg-slate-900/60 hover:bg-slate-800 text-slate-200 text-[11px] sm:text-xs font-bold items-center gap-1 sm:gap-1.5 transition cursor-pointer"
-            title={isBn ? 'Switch to English' : 'বাংলায় দেখুন'}
-          >
-            <Languages className="w-3.5 h-3.5 text-blue-400" />
-            <span>{isBn ? 'EN' : 'বাং'}</span>
-          </button>
-
           {/* User Profile Avatar with dropdown */}
-          <div className="relative ml-0.5 sm:ml-1" ref={profileRef}>
+          <div className="relative" ref={profileRef}>
             <button
               onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-              className="flex items-center gap-2 p-1 pl-1.5 pr-2 rounded-2xl bg-slate-900/70 hover:bg-slate-800/90 border border-slate-700/80 transition cursor-pointer group"
+              className="flex items-center gap-1.5 sm:gap-2 p-1 pl-1 sm:pl-1.5 pr-1.5 sm:pr-2 rounded-2xl bg-slate-900/70 hover:bg-slate-800/90 border border-slate-700/80 transition cursor-pointer group"
             >
               {/* Profile Photo Avatar */}
-              <div className="relative w-8 h-8 rounded-full p-0.5 bg-gradient-to-tr from-[#D4AF37] to-amber-200 shrink-0">
+              <div className="relative w-7 h-7 sm:w-8 sm:h-8 rounded-full p-0.5 bg-gradient-to-tr from-[#D4AF37] to-amber-200 shrink-0">
                 <div className="w-full h-full rounded-full bg-slate-950 overflow-hidden flex items-center justify-center">
                   {currentUserAccount?.photoUrl || currentUserAccount?.photoData ? (
                     <img
@@ -186,23 +134,23 @@ export const Header: React.FC<HeaderProps> = ({
                       className="w-full h-full object-cover"
                     />
                   ) : (
-                    <span className="text-xs font-black text-amber-400">
+                    <span className="text-[10px] sm:text-xs font-black text-amber-400">
                       {(currentUserAccount?.name || user.name).slice(0, 2).toUpperCase()}
                     </span>
                   )}
                 </div>
               </div>
 
-              <div className="hidden sm:flex flex-col text-left">
-                <span className="text-xs font-bold text-white truncate max-w-[100px]">
+              <div className="flex flex-col text-left leading-tight min-w-0">
+                <span className="text-[11px] sm:text-xs font-bold text-white truncate max-w-[54px] sm:max-w-[100px]">
                   {currentUserAccount?.name?.split(' ')[0] || user.name}
                 </span>
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                <span className="text-[9px] sm:text-[10px] text-slate-400 uppercase tracking-wider font-semibold truncate max-w-[54px] sm:max-w-[100px]">
                   {currentUserAccount?.role || 'user'}
                 </span>
               </div>
 
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400 group-hover:text-white transition-colors" />
+              <ChevronDown className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-slate-400 group-hover:text-white transition-colors shrink-0" />
             </button>
 
             {/* Profile Dropdown Menu */}
@@ -297,35 +245,38 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             )}
           </div>
+
+          {/* Mobile Menu Trigger (opens right-side navigation & option bar) */}
+          <button
+            onClick={onToggleSidebarMobile}
+            className="lg:hidden min-w-[40px] min-h-[40px] p-2 rounded-xl text-slate-300 hover:text-white hover:bg-slate-800 transition cursor-pointer shrink-0 flex items-center justify-center"
+            aria-label="Open navigation menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
         </div>
       </div>
 
-      {/* Clean Welcome Message Sub-Bar */}
+      {/* Sub-Bar: Welcome Message + Current Date */}
       <div
         style={{
           backgroundColor: headerBgColor ? undefined : 'var(--theme-secondary, var(--theme-primary))',
           borderColor: 'var(--theme-accent-border)',
         }}
-        className="border-t px-3 sm:px-6 py-1.5 sm:py-2 transition-colors"
+        className="border-t px-2.5 sm:px-6 lg:px-8 xl:px-10 py-1.5 sm:py-2 transition-colors"
       >
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 text-xs text-slate-400">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="flex items-center gap-1.5 min-w-0 truncate">
-              <span className="truncate">
-                {isBn ? 'স্বাগতম' : 'Welcome'},{' '}
-                <strong className="text-white font-semibold">
-                  {currentUserAccount?.name || user.name}
-                </strong>
-              </span>
-            </div>
+        <div className="w-full flex items-center justify-between gap-2 text-[11px] sm:text-xs text-slate-400">
+          <div className="flex items-center gap-1.5 min-w-0 flex-1">
+            <span className="truncate block">
+              {isBn ? 'স্বাগতম' : 'Welcome'},{' '}
+              <strong className="text-white font-semibold">
+                {currentUserAccount?.name || user.name}
+              </strong>
+            </span>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] text-slate-400 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 text-[10px] sm:text-[11px] text-slate-400 shrink-0 whitespace-nowrap">
             <span className="font-mono text-slate-300 sm:text-slate-400">{currentDateFormatted}</span>
-            <span className="text-slate-600 hidden sm:inline">·</span>
-            <span className="hidden sm:inline font-mono font-bold text-slate-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">
-              {user.currency}
-            </span>
           </div>
         </div>
       </div>

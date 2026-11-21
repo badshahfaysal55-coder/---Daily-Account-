@@ -3,8 +3,8 @@ export type Language = 'bn' | 'en';
 export const TRANSLATIONS = {
   // Brand & General
   appName: {
-    bn: 'ZARA অ্যাকাউন্টিং অ্যাপ',
-    en: 'ZARA Accounting App',
+    bn: 'ZF অ্যাকাউন্টিং',
+    en: 'ZF Accounting',
   },
   corporateSubtitle: {
     bn: 'প্রিমিয়াম কর্পোরেট ফাইন্যান্সিয়াল প্ল্যাটফর্ম',
@@ -405,8 +405,8 @@ export const TRANSLATIONS = {
 
   // Auth & Login
   loginTitle: {
-    bn: 'ZARA একাউন্ট সাইন-ইন',
-    en: 'ZARA Account Sign In',
+    bn: 'ZF অ্যাকাউন্ট সাইন-ইন',
+    en: 'ZF Accounting Sign In',
   },
   loginSubtitle: {
     bn: 'মালিক কর্তৃক নির্ধারিত ইউজার আইডি ও পাসওয়ার্ড দিয়ে প্রবেশ করুন।',
@@ -463,8 +463,8 @@ export const TRANSLATIONS = {
     en: 'Authorized Financial Signatory',
   },
   watermarkCompany: {
-    bn: 'ZARA কর্পোরেট ফাইনান্সিয়াল সিস্টেম',
-    en: 'ZARA Corporate Financial System',
+    bn: 'ZF অ্যাকাউন্টিং কর্পোরেট সিস্টেম',
+    en: 'ZF Accounting Corporate System',
   },
   verifiedCloudRecord: {
     bn: 'ক্লাউড সার্ভার ভেরিফাইড ও সংরক্ষিত ✓',

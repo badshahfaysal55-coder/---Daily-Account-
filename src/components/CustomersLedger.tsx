@@ -62,7 +62,7 @@ interface CustomersLedgerProps {
 export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
   currentUser,
   globalSettings = {
-    appName: 'ZARA Accounting',
+    appName: 'ZF Accounting',
     companyName: 'ZARA Group & Holdings Ltd.',
     version: '2.5.0-gold',
     currency: 'SAR',
@@ -192,11 +192,15 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
   useEffect(() => {
     loadInvoices();
 
-    const unsubscribe = ApiService.subscribeToEvents((event) => {
+    const unsubscribe = ApiService.subscribeToEvents((event, data) => {
       if (
+        (event === 'connected' && !data?.reused) ||
         event.startsWith('customer_') ||
         event.startsWith('invoice_') ||
+        event === 'transaction_deleted' ||
         event === 'user_updated' ||
+        event === 'user_created' ||
+        event === 'user_deleted' ||
         event === 'global_settings_updated' ||
         event === 'database_restored'
       ) {
@@ -602,11 +606,11 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
     .reduce((sum, inv) => sum + Math.abs(inv.balanceDue), 0);
 
   return (
-    <div className="w-full max-w-7xl mx-auto space-y-4 sm:space-y-6 px-2 sm:px-4">
+    <div className="w-full max-w-7xl mx-auto space-y-4 sm:space-y-6">
       {/* Toast Alert */}
       {toastMessage && (
         <div
-          className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-semibold transition-all transform animate-bounce-in border ${
+          className={`fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-5 left-3 right-3 sm:left-5 sm:right-auto sm:max-w-md z-50 px-4 py-3 rounded-2xl shadow-2xl flex items-center gap-3 text-xs sm:text-sm font-semibold transition-all transform animate-bounce-in border ${
             toastMessage.type === 'success'
               ? 'bg-emerald-600 text-white border-emerald-400'
               : 'bg-rose-600 text-white border-rose-400'

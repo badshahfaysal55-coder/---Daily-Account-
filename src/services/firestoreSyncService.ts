@@ -15,6 +15,7 @@ import {
   getDoc,
   getDocs,
   getDocFromServer,
+  onSnapshot,
   setDoc,
   deleteDoc,
   query,
@@ -142,6 +143,7 @@ class FirestoreSyncService {
   private cloudDocIdsByCollection: Map<string, Set<string>> = new Map();
   private adminVerifiedUid: string | null = null;
   private syncQueue: Promise<unknown> = Promise.resolve();
+  private lastPushedSettingsAt = 0;
 
   private runSerialized<T>(task: () => Promise<T>): Promise<T> {
     const next = this.syncQueue.then(task, task);
@@ -198,6 +200,50 @@ class FirestoreSyncService {
         l(s);
       } catch {}
     });
+  }
+
+  public subscribeToGlobalSettings(onRemoteUpdate: (remoteSettings: any) => void): () => void {
+    const uid = this.getVerifiedOwnerUid();
+    if (!uid) return () => {};
+    const settingsPath = 'appSettings/global';
+    const ref = doc(firestoreDb, 'appSettings', 'global');
+    let firstSnapshot = true;
+
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) {
+          firstSnapshot = false;
+          return;
+        }
+        const data = snap.data() as any;
+        if (data?.ownerUid && data.ownerUid !== uid) {
+          firstSnapshot = false;
+          return;
+        }
+        const remoteUpdatedAt = Number(data?.clientUpdatedAt) || 0;
+        const remoteForceAt = Number(data?.forceRefreshAt) || 0;
+        if (firstSnapshot) {
+          firstSnapshot = false;
+          // Still surface initial remote forceRefresh/update if newer than local baseline
+          if (remoteUpdatedAt <= this.lastPushedSettingsAt && remoteForceAt === 0) {
+            return;
+          }
+        }
+        if (this.syncing || remoteUpdatedAt <= this.lastPushedSettingsAt) {
+          return;
+        }
+        try {
+          onRemoteUpdate(data);
+        } catch {}
+      },
+      (error) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient')) {
+          handleFirestoreError(error, OperationType.GET, settingsPath);
+        }
+      }
+    );
   }
 
   private pendingVaultSignIn: Promise<FirebaseUser | null> | null = null;
@@ -564,7 +610,7 @@ class FirestoreSyncService {
       if (gs && typeof gs === 'object') {
         const settingsDoc: Record<string, any> = {
           ownerUid: uid,
-          appName: clampStr(gs.appName || 'ZARA Accounting', 120),
+          appName: clampStr(gs.appName || 'ZF Accounting', 120),
           companyName: clampStr(gs.companyName || 'ZARA Enterprises Ltd.', 160),
           version: clampStr(gs.version || 'v4.0 Enterprise', 40),
           currency: ['BDT', 'USD', 'EUR', 'SAR'].includes(gs.currency) ? gs.currency : 'SAR',
@@ -582,6 +628,11 @@ class FirestoreSyncService {
         if (typeof gs.bazarMonthlyBudget === 'number') {
           settingsDoc.bazarMonthlyBudget = clampNum(gs.bazarMonthlyBudget, 0);
         }
+        if (typeof gs.forceRefreshAt === 'number') {
+          settingsDoc.forceRefreshAt = clampNum(gs.forceRefreshAt, 0);
+        }
+        settingsDoc.dataUpdatedAt = clampNum(gs.dataUpdatedAt || database.savedAt || gs.updatedAt, Date.now());
+        this.lastPushedSettingsAt = Math.max(this.lastPushedSettingsAt, settingsDoc.clientUpdatedAt);
         await this.upsertDoc('appSettings', 'global', settingsDoc);
 
         // Bazar Buyers
@@ -643,6 +694,16 @@ class FirestoreSyncService {
         if (u.canEditCustomers !== undefined) userDoc.canEditCustomers = Boolean(u.canEditCustomers);
         if (u.canApproveInvoices !== undefined) userDoc.canApproveInvoices = Boolean(u.canApproveInvoices);
         if (u.canManageCommissions !== undefined) userDoc.canManageCommissions = Boolean(u.canManageCommissions);
+        if (u.canAddCommissionRecords !== undefined) userDoc.canAddCommissionRecords = Boolean(u.canAddCommissionRecords);
+        if (u.canEditCommissionRecords !== undefined) userDoc.canEditCommissionRecords = Boolean(u.canEditCommissionRecords);
+        if (u.canDeleteCommissionRecords !== undefined) userDoc.canDeleteCommissionRecords = Boolean(u.canDeleteCommissionRecords);
+        if (u.canPayCommissions !== undefined) userDoc.canPayCommissions = Boolean(u.canPayCommissions);
+        if (u.canImportCommissions !== undefined) userDoc.canImportCommissions = Boolean(u.canImportCommissions);
+        if (u.canManageCommissionMonths !== undefined) userDoc.canManageCommissionMonths = Boolean(u.canManageCommissionMonths);
+        if (u.canAddCommissionPersons !== undefined) userDoc.canAddCommissionPersons = Boolean(u.canAddCommissionPersons);
+        if (u.canEditCommissionPersons !== undefined) userDoc.canEditCommissionPersons = Boolean(u.canEditCommissionPersons);
+        if (u.canDeleteCommissionPersons !== undefined) userDoc.canDeleteCommissionPersons = Boolean(u.canDeleteCommissionPersons);
+        if (u.canMergeCommissionPersons !== undefined) userDoc.canMergeCommissionPersons = Boolean(u.canMergeCommissionPersons);
         if (u.canManageBazar !== undefined) userDoc.canManageBazar = Boolean(u.canManageBazar);
         if (u.canManageBuyers !== undefined) userDoc.canManageBuyers = Boolean(u.canManageBuyers);
         if (u.isCommissionOnly !== undefined) userDoc.isCommissionOnly = Boolean(u.isCommissionOnly);
@@ -818,6 +879,8 @@ class FirestoreSyncService {
         if (typeof ce.paidAt === 'number') ceDoc.paidAt = ce.paidAt;
         if (ce.period) ceDoc.period = clampStr(ce.period, 64);
         if (ce.notes) ceDoc.notes = clampStr(ce.notes, 2000);
+        if (ce.createdByUserId) ceDoc.createdByUserId = clampStr(ce.createdByUserId, 128);
+        if (ce.createdByName) ceDoc.createdByName = clampStr(ce.createdByName, 120);
         await this.upsertDoc('commissionEntries', docId, ceDoc);
       }
       for (const [recId] of Object.entries(deletedMap)) {
@@ -844,6 +907,8 @@ class FirestoreSyncService {
         if (cp.office) cpDoc.office = clampStr(cp.office, 160);
         if (cp.linkedUserId) cpDoc.linkedUserId = clampStr(cp.linkedUserId, 128);
         if (cp.photoUrl) cpDoc.photoUrl = clampStr(cp.photoUrl, 512);
+        if (cp.createdByUserId) cpDoc.createdByUserId = clampStr(cp.createdByUserId, 128);
+        if (cp.createdByName) cpDoc.createdByName = clampStr(cp.createdByName, 120);
         await this.upsertDoc('commissionPersons', docId, cpDoc);
       }
       for (const [recId] of Object.entries(deletedMap)) {
@@ -853,12 +918,20 @@ class FirestoreSyncService {
       }
 
       // 9. Commission Months
+      const activeMonths = new Set<string>();
       for (const m of database.commissionMonths || []) {
         if (typeof m === 'string' && /^\d{4}-\d{2}$/.test(m)) {
+          activeMonths.add(m);
           await this.upsertDoc('commissionMonths', toSafeDocId('month_', m), {
             ownerUid: uid,
             month: m,
           });
+        }
+      }
+      const deletedMonthsMap: Record<string, number> = database.deletedCommissionMonths || {};
+      for (const [ym] of Object.entries(deletedMonthsMap)) {
+        if (typeof ym === 'string' && /^\d{4}-\d{2}$/.test(ym) && !activeMonths.has(ym)) {
+          await this.removeDoc('commissionMonths', toSafeDocId('month_', ym));
         }
       }
 

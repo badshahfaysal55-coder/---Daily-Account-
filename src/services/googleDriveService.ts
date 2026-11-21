@@ -251,7 +251,7 @@ class GoogleDriveService {
     const payload = {
       exportedAt: new Date().toISOString(),
       timestamp: Date.now(),
-      appName: 'ZARA Accounting & Holding Systems',
+      appName: 'ZF Accounting & Holding Systems',
       user: cachedGoogleUser?.email,
       data: appData,
     };
@@ -285,7 +285,7 @@ class GoogleDriveService {
       const metadata = {
         name: fileName,
         mimeType: 'application/json',
-        description: 'Automated Real-Time Cloud Backup for ZARA Accounting App',
+        description: 'Automated Real-Time Cloud Backup for ZF Accounting',
       };
 
       const boundary = '-------314159265358979323846';

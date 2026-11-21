@@ -165,7 +165,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
           <h2 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight mt-3 font-heading">
-            ZARA Accounting App
+            ZF Accounting
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
             {isBn 

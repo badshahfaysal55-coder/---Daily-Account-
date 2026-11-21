@@ -88,7 +88,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
       : formatCurrency(statement.balanceDue, currency, useBanglaNumerals);
 
     const message = [
-      `*${globalSettings.companyName || 'ZARA Accounting'} - Customer Statement*`,
+      `*${globalSettings.companyName || 'ZF Accounting'} - Customer Statement*`,
       `Client: ${customer.name}`,
       customer.businessName ? `Company: ${customer.businessName}` : '',
       `Date: ${new Date().toLocaleDateString()}`,

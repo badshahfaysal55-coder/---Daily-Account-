@@ -28,8 +28,8 @@ export default defineConfig(() => {
         ],
         manifest: {
           id: '/',
-          name: 'ZARA Accounting - Cloud Ledger',
-          short_name: 'ZARA Acc',
+          name: 'ZF Accounting - Cloud Ledger',
+          short_name: 'ZF Accounting',
           description:
             'Enterprise cloud daily accounting ledger with real-time sync, daily invoices, and CRM.',
           theme_color: '#101A2C',

@@ -106,7 +106,7 @@ export const LedgerList: React.FC<LedgerListProps> = ({
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `zara_accounting_${user.userId}_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `zf_accounting_${user.userId}_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

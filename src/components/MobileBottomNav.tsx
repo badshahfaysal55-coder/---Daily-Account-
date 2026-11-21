@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, PlusCircle, FileSpreadsheet, ShoppingBag, Users, Menu } from 'lucide-react';
+import { LayoutDashboard, PlusCircle, FileSpreadsheet, ShoppingBag, Users } from 'lucide-react';
 import { NavTabId } from './Sidebar';
 import { Language } from '../utils/translations';
 import { UserAccount } from '../types/accounting';
@@ -8,7 +8,6 @@ import { getUserPagePermissions } from '../utils/permissions';
 interface MobileBottomNavProps {
   activeTab: NavTabId;
   setActiveTab: (tab: NavTabId) => void;
-  onOpenMobileMenu: () => void;
   currentLang: Language;
   currentUser: UserAccount;
 }
@@ -16,7 +15,6 @@ interface MobileBottomNavProps {
 export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
   activeTab,
   setActiveTab,
-  onOpenMobileMenu,
   currentLang,
   currentUser,
 }) => {
@@ -60,6 +58,8 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
     });
   }
 
+  if (items.length === 0) return null;
+
   return (
     <nav
       style={{
@@ -68,7 +68,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
       }}
       className="lg:hidden fixed bottom-0 left-0 right-0 z-40 border-t shadow-2xl safe-area-bottom safe-area-x"
     >
-      <div className="flex items-center justify-around px-1.5 py-1.5 max-w-md mx-auto">
+      <div className="flex items-center justify-around px-1 sm:px-2 py-1.5 max-w-lg mx-auto">
         {items.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -78,7 +78,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className="flex flex-col items-center -mt-4 cursor-pointer focus:outline-none min-w-[56px]"
+                className="flex flex-col items-center -mt-4 cursor-pointer focus:outline-none min-w-[52px] sm:min-w-[56px]"
               >
                 <div
                   style={{ backgroundColor: 'var(--theme-accent)' }}
@@ -90,7 +90,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
                 >
                   <Icon className="w-5 h-5 stroke-[2.2]" />
                 </div>
-                <span className="text-[10px] font-bold mt-1 leading-none" style={{ color: 'var(--theme-accent)' }}>
+                <span className="text-[10px] font-bold mt-1 leading-none whitespace-nowrap" style={{ color: 'var(--theme-accent)' }}>
                   {item.label}
                 </span>
               </button>
@@ -102,26 +102,17 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
               key={item.id}
               onClick={() => setActiveTab(item.id)}
               style={isActive ? { color: 'var(--theme-accent)' } : undefined}
-              className={`flex flex-col items-center justify-center min-h-[44px] py-1 px-2.5 rounded-xl transition-colors cursor-pointer active:scale-95 ${
+              className={`flex flex-col items-center justify-center min-h-[44px] py-1 px-1.5 sm:px-2.5 rounded-xl transition-colors cursor-pointer active:scale-95 ${
                 isActive ? '' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
               <Icon className="w-5 h-5 mb-0.5" />
-              <span className={`text-[10px] leading-none ${isActive ? 'font-bold' : 'font-medium'}`}>
+              <span className={`text-[10px] leading-none whitespace-nowrap ${isActive ? 'font-bold' : 'font-medium'}`}>
                 {item.label}
               </span>
             </button>
           );
         })}
-
-        {/* Hamburger Menu trigger */}
-        <button
-          onClick={onOpenMobileMenu}
-          className="flex flex-col items-center justify-center min-h-[44px] py-1 px-2.5 rounded-xl text-slate-400 hover:text-white transition-colors cursor-pointer active:scale-95"
-        >
-          <Menu className="w-5 h-5 mb-0.5" />
-          <span className="text-[10px] font-medium leading-none">{isBn ? 'মেনু' : 'Menu'}</span>
-        </button>
       </div>
     </nav>
   );

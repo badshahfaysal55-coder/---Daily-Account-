@@ -120,6 +120,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [newCanEditCustomers, setNewCanEditCustomers] = useState(true);
   const [newCanApproveInvoices, setNewCanApproveInvoices] = useState(true);
   const [newCanManageCommissions, setNewCanManageCommissions] = useState(false);
+  const [newCanAddCommissionRecords, setNewCanAddCommissionRecords] = useState(true);
+  const [newCanEditCommissionRecords, setNewCanEditCommissionRecords] = useState(true);
+  const [newCanDeleteCommissionRecords, setNewCanDeleteCommissionRecords] = useState(false);
+  const [newCanPayCommissions, setNewCanPayCommissions] = useState(true);
+  const [newCanImportCommissions, setNewCanImportCommissions] = useState(true);
+  const [newCanManageCommissionMonths, setNewCanManageCommissionMonths] = useState(true);
+  const [newCanAddCommissionPersons, setNewCanAddCommissionPersons] = useState(false);
+  const [newCanEditCommissionPersons, setNewCanEditCommissionPersons] = useState(false);
+  const [newCanMergeCommissionPersons, setNewCanMergeCommissionPersons] = useState(false);
+  const [newCanDeleteCommissionPersons, setNewCanDeleteCommissionPersons] = useState(false);
   const [newCanManageBazar, setNewCanManageBazar] = useState(true);
   const [newCanManageBuyers, setNewCanManageBuyers] = useState(false);
   const [newIsCommissionOnly, setNewIsCommissionOnly] = useState(false);
@@ -142,6 +152,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [editCanEditCustomers, setEditCanEditCustomers] = useState(true);
   const [editCanApproveInvoices, setEditCanApproveInvoices] = useState(true);
   const [editCanManageCommissions, setEditCanManageCommissions] = useState(false);
+  const [editCanAddCommissionRecords, setEditCanAddCommissionRecords] = useState(true);
+  const [editCanEditCommissionRecords, setEditCanEditCommissionRecords] = useState(true);
+  const [editCanDeleteCommissionRecords, setEditCanDeleteCommissionRecords] = useState(false);
+  const [editCanPayCommissions, setEditCanPayCommissions] = useState(true);
+  const [editCanImportCommissions, setEditCanImportCommissions] = useState(true);
+  const [editCanManageCommissionMonths, setEditCanManageCommissionMonths] = useState(true);
+  const [editCanAddCommissionPersons, setEditCanAddCommissionPersons] = useState(false);
+  const [editCanEditCommissionPersons, setEditCanEditCommissionPersons] = useState(false);
+  const [editCanMergeCommissionPersons, setEditCanMergeCommissionPersons] = useState(false);
+  const [editCanDeleteCommissionPersons, setEditCanDeleteCommissionPersons] = useState(false);
   const [editCanManageBazar, setEditCanManageBazar] = useState(true);
   const [editCanManageBuyers, setEditCanManageBuyers] = useState(false);
   const [editIsCommissionOnly, setEditIsCommissionOnly] = useState(false);
@@ -152,6 +172,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setNewIsCommissionOnly(true);
     setNewIsCommissionBazarOnly(false);
     setNewCanManageCommissions(true);
+    setNewCanAddCommissionRecords(true);
+    setNewCanEditCommissionRecords(true);
+    setNewCanDeleteCommissionRecords(false);
+    setNewCanPayCommissions(true);
+    setNewCanImportCommissions(true);
+    setNewCanManageCommissionMonths(true);
+    setNewCanAddCommissionPersons(false);
+    setNewCanEditCommissionPersons(false);
+    setNewCanMergeCommissionPersons(false);
+    setNewCanDeleteCommissionPersons(false);
     setNewCanAddTransactions(false);
     setNewCanViewLedger(false);
     setNewCanEditCustomers(false);
@@ -167,6 +197,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setNewIsCommissionOnly(false);
     setNewIsCommissionBazarOnly(true);
     setNewCanManageCommissions(true);
+    setNewCanAddCommissionRecords(true);
+    setNewCanEditCommissionRecords(true);
+    setNewCanDeleteCommissionRecords(false);
+    setNewCanPayCommissions(true);
+    setNewCanImportCommissions(true);
+    setNewCanManageCommissionMonths(true);
+    setNewCanAddCommissionPersons(false);
+    setNewCanEditCommissionPersons(false);
+    setNewCanMergeCommissionPersons(false);
+    setNewCanDeleteCommissionPersons(false);
     setNewCanManageBazar(true);
     setNewCanAddTransactions(false);
     setNewCanViewLedger(false);
@@ -182,6 +222,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditIsCommissionOnly(true);
     setEditIsCommissionBazarOnly(false);
     setEditCanManageCommissions(true);
+    setEditCanAddCommissionRecords(true);
+    setEditCanEditCommissionRecords(true);
+    setEditCanDeleteCommissionRecords(false);
+    setEditCanPayCommissions(true);
+    setEditCanImportCommissions(true);
+    setEditCanManageCommissionMonths(true);
+    setEditCanAddCommissionPersons(false);
+    setEditCanEditCommissionPersons(false);
+    setEditCanMergeCommissionPersons(false);
+    setEditCanDeleteCommissionPersons(false);
     setEditCanAddTransactions(false);
     setEditCanViewLedger(false);
     setEditCanEditCustomers(false);
@@ -197,6 +247,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditIsCommissionOnly(false);
     setEditIsCommissionBazarOnly(true);
     setEditCanManageCommissions(true);
+    setEditCanAddCommissionRecords(true);
+    setEditCanEditCommissionRecords(true);
+    setEditCanDeleteCommissionRecords(false);
+    setEditCanPayCommissions(true);
+    setEditCanImportCommissions(true);
+    setEditCanManageCommissionMonths(true);
+    setEditCanAddCommissionPersons(false);
+    setEditCanEditCommissionPersons(false);
+    setEditCanMergeCommissionPersons(false);
+    setEditCanDeleteCommissionPersons(false);
     setEditCanManageBazar(true);
     setEditCanAddTransactions(false);
     setEditCanViewLedger(false);
@@ -246,11 +306,13 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
 
   useEffect(() => {
     loadData();
-    const unsubscribe = ApiService.subscribeToEvents((event) => {
+    const unsubscribe = ApiService.subscribeToEvents((event, data) => {
       if (
+        (event === 'connected' && !data?.reused) ||
         event === 'user_updated' ||
         event === 'user_created' ||
         event === 'user_deleted' ||
+        event === 'bazar_buyers_updated' ||
         event === 'global_settings_updated' ||
         event === 'database_restored'
       ) {
@@ -307,6 +369,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canEditCustomers: newCanEditCustomers,
         canApproveInvoices: newCanApproveInvoices,
         canManageCommissions: newCanManageCommissions,
+        canAddCommissionRecords: newCanAddCommissionRecords,
+        canEditCommissionRecords: newCanEditCommissionRecords,
+        canDeleteCommissionRecords: newCanDeleteCommissionRecords,
+        canPayCommissions: newCanPayCommissions,
+        canImportCommissions: newCanImportCommissions,
+        canManageCommissionMonths: newCanManageCommissionMonths,
+        canAddCommissionPersons: newCanAddCommissionPersons,
+        canEditCommissionPersons: newCanEditCommissionPersons,
+        canMergeCommissionPersons: newCanMergeCommissionPersons,
+        canDeleteCommissionPersons: newCanDeleteCommissionPersons,
         canManageBazar: newCanManageBazar,
         canManageBuyers: newCanManageBuyers,
         isCommissionOnly: newIsCommissionOnly,
@@ -324,6 +396,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setNewName('');
       setNewPassword('');
       setNewWorkspace('');
+      setNewCanAddCommissionRecords(true);
+      setNewCanEditCommissionRecords(true);
+      setNewCanDeleteCommissionRecords(false);
+      setNewCanPayCommissions(true);
+      setNewCanImportCommissions(true);
+      setNewCanManageCommissionMonths(true);
+      setNewCanAddCommissionPersons(false);
+      setNewCanEditCommissionPersons(false);
+      setNewCanMergeCommissionPersons(false);
+      setNewCanDeleteCommissionPersons(false);
       setNewIsCommissionOnly(false);
       setNewIsCommissionBazarOnly(false);
       triggerToast(isBn ? `ইউজার "${created.name}" সফলভাবে তৈরি ও অটো-সিঙ্ক হয়েছে!` : `User "${created.name}" created & auto-synced!`);
@@ -350,6 +432,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanEditCustomers(u.canEditCustomers ?? true);
     setEditCanApproveInvoices(u.canApproveInvoices ?? true);
     setEditCanManageCommissions(u.canManageCommissions ?? false);
+    setEditCanAddCommissionRecords(u.canAddCommissionRecords ?? Boolean(u.canManageCommissions));
+    setEditCanEditCommissionRecords(u.canEditCommissionRecords ?? Boolean(u.canManageCommissions));
+    setEditCanDeleteCommissionRecords(u.canDeleteCommissionRecords ?? (Boolean(u.canManageCommissions) && Boolean(u.canDelete)));
+    setEditCanPayCommissions(u.canPayCommissions ?? Boolean(u.canManageCommissions));
+    setEditCanImportCommissions(u.canImportCommissions ?? Boolean(u.canManageCommissions));
+    setEditCanManageCommissionMonths(u.canManageCommissionMonths ?? Boolean(u.canManageCommissions));
+    setEditCanAddCommissionPersons(u.canAddCommissionPersons ?? false);
+    setEditCanEditCommissionPersons(u.canEditCommissionPersons ?? Boolean(u.canAddCommissionPersons));
+    setEditCanMergeCommissionPersons(u.canMergeCommissionPersons ?? false);
+    setEditCanDeleteCommissionPersons(u.canDeleteCommissionPersons ?? false);
     setEditCanManageBazar(u.canManageBazar ?? true);
     setEditCanManageBuyers(u.canManageBuyers ?? (u.role === 'owner' || u.role === 'admin'));
     setEditIsCommissionOnly(Boolean(u.isCommissionOnly));
@@ -390,6 +482,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canEditCustomers: editCanEditCustomers,
         canApproveInvoices: editCanApproveInvoices,
         canManageCommissions: editCanManageCommissions,
+        canAddCommissionRecords: editCanAddCommissionRecords,
+        canEditCommissionRecords: editCanEditCommissionRecords,
+        canDeleteCommissionRecords: editCanDeleteCommissionRecords,
+        canPayCommissions: editCanPayCommissions,
+        canImportCommissions: editCanImportCommissions,
+        canManageCommissionMonths: editCanManageCommissionMonths,
+        canAddCommissionPersons: editCanAddCommissionPersons,
+        canEditCommissionPersons: editCanEditCommissionPersons,
+        canMergeCommissionPersons: editCanMergeCommissionPersons,
+        canDeleteCommissionPersons: editCanDeleteCommissionPersons,
         canManageBazar: editCanManageBazar,
         canManageBuyers: editCanManageBuyers,
         isCommissionOnly: editIsCommissionOnly,
@@ -415,6 +517,12 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
           isCommissionOnly: true,
           isCommissionBazarOnly: false,
           canManageCommissions: true,
+          canAddCommissionRecords: true,
+          canEditCommissionRecords: true,
+          canDeleteCommissionRecords: false,
+          canPayCommissions: true,
+          canImportCommissions: true,
+          canManageCommissionMonths: true,
           canAddTransactions: false,
           canViewLedger: false,
           canEditCustomers: false,
@@ -465,6 +573,12 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
           isCommissionOnly: false,
           isCommissionBazarOnly: true,
           canManageCommissions: true,
+          canAddCommissionRecords: true,
+          canEditCommissionRecords: true,
+          canDeleteCommissionRecords: false,
+          canPayCommissions: true,
+          canImportCommissions: true,
+          canManageCommissionMonths: true,
           canManageBazar: true,
           canAddTransactions: false,
           canViewLedger: false,
@@ -564,14 +678,45 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       | 'canEditCustomers'
       | 'canApproveInvoices'
       | 'canManageCommissions'
+      | 'canAddCommissionRecords'
+      | 'canEditCommissionRecords'
+      | 'canDeleteCommissionRecords'
+      | 'canPayCommissions'
+      | 'canImportCommissions'
+      | 'canManageCommissionMonths'
+      | 'canAddCommissionPersons'
+      | 'canEditCommissionPersons'
+      | 'canMergeCommissionPersons'
+      | 'canDeleteCommissionPersons'
       | 'canManageBazar'
       | 'canManageBuyers'
       | 'canExport'
       | 'canDelete'
   ) => {
     if (targetUser.role === 'owner') return;
-    const defaultFalse = permKey === 'canDelete' || permKey === 'canManageCommissions' || permKey === 'canManageBuyers';
-    const currentVal = targetUser[permKey] ?? !defaultFalse;
+    const resolveCurrentPerm = (): boolean => {
+      if (targetUser[permKey] !== undefined) return Boolean(targetUser[permKey]);
+      if (permKey === 'canDelete' || permKey === 'canManageCommissions' || permKey === 'canAddCommissionPersons' || permKey === 'canMergeCommissionPersons' || permKey === 'canDeleteCommissionPersons' || permKey === 'canManageBuyers') {
+        return false;
+      }
+      if (permKey === 'canEditCommissionPersons') {
+        return Boolean(targetUser.canAddCommissionPersons);
+      }
+      if (permKey === 'canDeleteCommissionRecords') {
+        return Boolean(targetUser.canManageCommissions) && Boolean(targetUser.canDelete);
+      }
+      if (
+        permKey === 'canAddCommissionRecords' ||
+        permKey === 'canEditCommissionRecords' ||
+        permKey === 'canPayCommissions' ||
+        permKey === 'canImportCommissions' ||
+        permKey === 'canManageCommissionMonths'
+      ) {
+        return Boolean(targetUser.canManageCommissions);
+      }
+      return true;
+    };
+    const currentVal = resolveCurrentPerm();
     const newVal = !currentVal;
 
     const extraUpdates: Partial<UserAccount> = {};
@@ -636,9 +781,11 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         broadcastType,
         broadcastActive,
         currency,
+        forceRefreshClients: true,
       });
       onUpdateGlobalSettings(updated);
-      triggerToast(isBn ? 'গ্লোবাল সেটিংস ও ব্রডকাস্ট নোটিশ সকল ইউজারের অ্যাপে আপডেট হয়েছে!' : 'Global app settings & broadcast updated across all user apps!');
+      ApiService.syncVaultNow().catch(() => {});
+      triggerToast(isBn ? 'গ্লোবাল সেটিংস ও ব্রডকাস্ট নোটিশ সকল ইউজারের অ্যাপে অটো-আপডেট হয়েছে!' : 'Global app settings saved — all user apps auto-updating now!');
     } catch (err: any) {
       setActionError(err.message);
     }
@@ -658,6 +805,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         forceRefreshClients: true,
       });
       onUpdateGlobalSettings(updated);
+      await ApiService.syncVaultNow().catch(() => {});
       triggerToast(
         isBn
           ? 'সকল ইউজারের অ্যাপে অটো-আপডেট ও রিফ্রেশ পাঠানো হয়েছে!'
@@ -725,7 +873,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       )}
 
       {/* Owner Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-xl relative overflow-hidden border border-amber-500/30">
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-4 sm:p-6 text-white shadow-xl relative overflow-hidden border border-amber-500/30">
         <div className="absolute right-0 top-0 translate-x-8 -translate-y-8 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
         <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
@@ -1073,14 +1221,154 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           type="button"
                           disabled={isOwner}
                           onClick={() => handleTogglePermission(u, 'canManageCommissions')}
-                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন শিট পারমিশন পরিবর্তন করুন' : 'Click to toggle Commission Sheet permission')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন শিট দেখার পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Commission Sheet access')}
                           className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
                             !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
                           } ${
                             u.canManageCommissions ? 'bg-teal-50 text-teal-700 border border-teal-200 hover:bg-teal-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
                           }`}
                         >
-                          {u.canManageCommissions ? '✓' : '✕'} {isBn ? 'কমিশন' : 'Commission'}
+                          {u.canManageCommissions ? '✓' : '✕'} {isBn ? 'কমিশন শিট' : 'View Comm'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canAddCommissionRecords')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন রেকর্ড যোগ করার পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Add Commission Records')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canAddCommissionRecords ?? Boolean(u.canManageCommissions)) ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canAddCommissionRecords ?? Boolean(u.canManageCommissions)) ? '✓' : '✕'} {isBn ? '+ রেকর্ড' : '+ Record'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canEditCommissionRecords')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন রেকর্ড এডিট পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Edit Commission Records')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canEditCommissionRecords ?? Boolean(u.canManageCommissions)) ? 'bg-sky-50 text-sky-700 border border-sky-200 hover:bg-sky-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canEditCommissionRecords ?? Boolean(u.canManageCommissions)) ? '✓' : '✕'} {isBn ? 'এডিট রেকর্ড' : 'Edit Rec'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canDeleteCommissionRecords')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন রেকর্ড ডিলিট পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Delete Commission Records')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canDeleteCommissionRecords ?? (Boolean(u.canManageCommissions) && Boolean(u.canDelete))) ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canDeleteCommissionRecords ?? (Boolean(u.canManageCommissions) && Boolean(u.canDelete))) ? '✓' : '✕'} {isBn ? 'ডিলিট রেকর্ড' : 'Del Rec'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canPayCommissions')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন পেমেন্ট / Paid করার পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Pay / Mark Paid permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canPayCommissions ?? Boolean(u.canManageCommissions)) ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canPayCommissions ?? Boolean(u.canManageCommissions)) ? '✓' : '✕'} {isBn ? 'পে কমিশন' : 'Pay Comm'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canImportCommissions')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে Excel / PDF ইমপোর্ট পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Import Excel/PDF permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canImportCommissions ?? Boolean(u.canManageCommissions)) ? 'bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canImportCommissions ?? Boolean(u.canManageCommissions)) ? '✓' : '✕'} {isBn ? 'ইমপোর্ট' : 'Import Comm'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canManageCommissionMonths')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে মাসিক শিট খোলা/মুছা পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Manage Month Files permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canManageCommissionMonths ?? Boolean(u.canManageCommissions)) ? 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canManageCommissionMonths ?? Boolean(u.canManageCommissions)) ? '✓' : '✕'} {isBn ? 'মাস ফাইল' : 'Months'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canAddCommissionPersons')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে নতুন Person যোগ পারমিশন দিন/বন্ধ করুন' : 'Click to toggle + Add Person permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            u.canAddCommissionPersons ? 'bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {u.canAddCommissionPersons ? '✓' : '✕'} {isBn ? '+ পার্সন' : '+ Person'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canEditCommissionPersons')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে Person তথ্য এডিট পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Edit Person permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canEditCommissionPersons ?? Boolean(u.canAddCommissionPersons)) ? 'bg-teal-50 text-teal-800 border border-teal-200 hover:bg-teal-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canEditCommissionPersons ?? Boolean(u.canAddCommissionPersons)) ? '✓' : '✕'} {isBn ? 'এডিট পার্সন' : 'Edit Person'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canMergeCommissionPersons')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন Person মার্জ করার পারমিশন দিন' : 'Click to toggle Merge Commission Persons permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            u.canMergeCommissionPersons ? 'bg-cyan-50 text-cyan-800 border border-cyan-200 hover:bg-cyan-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {u.canMergeCommissionPersons ? '✓' : '✕'} {isBn ? 'মার্জ পার্সন' : 'Merge Person'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canDeleteCommissionPersons')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে কমিশন Person ডিলিট করার পারমিশন দিন' : 'Click to toggle Delete Commission Persons permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            u.canDeleteCommissionPersons ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {u.canDeleteCommissionPersons ? '✓' : '✕'} {isBn ? 'ডিলিট পার্সন' : 'Del Person'}
                         </button>
 
                         <button
@@ -1174,7 +1462,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 self-end sm:self-auto">
+                  <div className="flex flex-wrap items-center gap-2 self-end sm:self-auto">
                     {/* Photo Management button */}
                     <button
                       onClick={() => setPhotoModalUser(u)}
@@ -1825,15 +2113,182 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                       <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
                     </label>
 
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                      <input
-                        type="checkbox"
-                        checked={newCanManageCommissions}
-                        onChange={(e) => setNewCanManageCommissions(e.target.checked)}
-                        className="rounded text-amber-600 focus:ring-amber-500"
-                      />
-                      <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
-                    </label>
+                    <div className="sm:col-span-2 p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                          {isBn ? 'কমিশন শিট আলাদা পারমিশন (Commission Sheet Actions)' : 'Commission Sheet Actions (Separate)'}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewCanManageCommissions(true);
+                              setNewCanAddCommissionRecords(true);
+                              setNewCanEditCommissionRecords(true);
+                              setNewCanDeleteCommissionRecords(true);
+                              setNewCanPayCommissions(true);
+                              setNewCanImportCommissions(true);
+                              setNewCanManageCommissionMonths(true);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-bold cursor-pointer hover:bg-emerald-700"
+                          >
+                            All On
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewCanManageCommissions(false);
+                              setNewCanAddCommissionRecords(false);
+                              setNewCanEditCommissionRecords(false);
+                              setNewCanDeleteCommissionRecords(false);
+                              setNewCanPayCommissions(false);
+                              setNewCanImportCommissions(false);
+                              setNewCanManageCommissionMonths(false);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] font-bold cursor-pointer hover:bg-slate-300"
+                          >
+                            All Off
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-slate-800 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanManageCommissions}
+                            onChange={(e) => setNewCanManageCommissions(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>{isBn ? 'কমিশন শিট ট্যাব দেখুন' : 'View Commission Sheet'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanAddCommissionRecords}
+                            onChange={(e) => setNewCanAddCommissionRecords(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>{isBn ? '+ রেকর্ড যোগ (Add Record)' : '+ Add Records'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanEditCommissionRecords}
+                            onChange={(e) => setNewCanEditCommissionRecords(e.target.checked)}
+                            className="rounded text-sky-600 focus:ring-sky-500"
+                          />
+                          <span>{isBn ? 'রেকর্ড এডিট / ডাইরেক্ট এডিট' : 'Edit & Inline Edit Records'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanDeleteCommissionRecords}
+                            onChange={(e) => setNewCanDeleteCommissionRecords(e.target.checked)}
+                            className="rounded text-rose-600 focus:ring-rose-500"
+                          />
+                          <span>{isBn ? 'কমিশন রেকর্ড ডিলিট' : 'Delete Records'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanPayCommissions}
+                            onChange={(e) => setNewCanPayCommissions(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>{isBn ? 'পেমেন্ট / Paid করা' : 'Pay & Mark Paid'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanImportCommissions}
+                            onChange={(e) => setNewCanImportCommissions(e.target.checked)}
+                            className="rounded text-violet-600 focus:ring-violet-500"
+                          />
+                          <span>{isBn ? 'Excel / PDF ইমপোর্ট' : 'Import Excel / PDF'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 sm:col-span-2 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanManageCommissionMonths}
+                            onChange={(e) => setNewCanManageCommissionMonths(e.target.checked)}
+                            className="rounded text-amber-600 focus:ring-amber-500"
+                          />
+                          <span>{isBn ? 'মাসিক শিট তৈরি ও ডিলিট (Month Files)' : 'Add / Delete Month Files'}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-2 p-2.5 rounded-lg bg-teal-50/70 border border-teal-200 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-teal-800">
+                          {isBn ? 'কমিশন Person অ্যাকাউন্ট (আলাদা পারমিশন)' : 'Person Accounts (Separate)'}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewCanAddCommissionPersons(true);
+                              setNewCanEditCommissionPersons(true);
+                              setNewCanMergeCommissionPersons(true);
+                              setNewCanDeleteCommissionPersons(true);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-teal-600 text-white text-[9px] font-bold cursor-pointer hover:bg-teal-700"
+                          >
+                            All On
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNewCanAddCommissionPersons(false);
+                              setNewCanEditCommissionPersons(false);
+                              setNewCanMergeCommissionPersons(false);
+                              setNewCanDeleteCommissionPersons(false);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] font-bold cursor-pointer hover:bg-slate-300"
+                          >
+                            All Off
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanAddCommissionPersons}
+                            onChange={(e) => setNewCanAddCommissionPersons(e.target.checked)}
+                            className="rounded text-teal-600 focus:ring-teal-500"
+                          />
+                          <span>{isBn ? '+ পার্সন যোগ' : '+ Add Person'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanEditCommissionPersons}
+                            onChange={(e) => setNewCanEditCommissionPersons(e.target.checked)}
+                            className="rounded text-teal-600 focus:ring-teal-500"
+                          />
+                          <span>{isBn ? 'পার্সন এডিট' : 'Edit Person'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanMergeCommissionPersons}
+                            onChange={(e) => setNewCanMergeCommissionPersons(e.target.checked)}
+                            className="rounded text-cyan-600 focus:ring-cyan-500"
+                          />
+                          <span>{isBn ? 'পার্সন মার্জ' : 'Merge Persons'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanDeleteCommissionPersons}
+                            onChange={(e) => setNewCanDeleteCommissionPersons(e.target.checked)}
+                            className="rounded text-rose-600 focus:ring-rose-500"
+                          />
+                          <span>{isBn ? 'পার্সন ডিলিট' : 'Delete Persons'}</span>
+                        </label>
+                      </div>
+                    </div>
 
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
                       <input
@@ -2000,7 +2455,32 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                     <select
                       disabled={editingUser.role === 'owner'}
                       value={editRole}
-                      onChange={(e) => setEditRole(e.target.value)}
+                      onChange={(e) => {
+                        const nextRole = e.target.value;
+                        setEditRole(nextRole);
+                        if (nextRole === 'admin') {
+                          setEditIsCommissionOnly(false);
+                          setEditIsCommissionBazarOnly(false);
+                          setEditCanAddTransactions(true);
+                          setEditCanViewLedger(true);
+                          setEditCanEditCustomers(true);
+                          setEditCanApproveInvoices(true);
+                          setEditCanManageCommissions(true);
+                          setEditCanAddCommissionRecords(true);
+                          setEditCanEditCommissionRecords(true);
+                          setEditCanDeleteCommissionRecords(true);
+                          setEditCanPayCommissions(true);
+                          setEditCanImportCommissions(true);
+                          setEditCanManageCommissionMonths(true);
+                          setEditCanAddCommissionPersons(true);
+                          setEditCanEditCommissionPersons(true);
+                          setEditCanMergeCommissionPersons(true);
+                          setEditCanDeleteCommissionPersons(true);
+                          setEditCanManageBazar(true);
+                          setEditCanManageBuyers(true);
+                          setEditCanDelete(true);
+                        }
+                      }}
                       className="w-full px-3 py-2 border border-slate-300 rounded-xl bg-white disabled:bg-slate-100"
                     >
                       {editingUser.role === 'owner' && <option value="owner">Owner (মালিক)</option>}
@@ -2136,15 +2616,182 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                       <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
                     </label>
 
-                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
-                      <input
-                        type="checkbox"
-                        checked={editCanManageCommissions}
-                        onChange={(e) => setEditCanManageCommissions(e.target.checked)}
-                        className="rounded text-blue-600 focus:ring-blue-500"
-                      />
-                      <span>{isBn ? 'কমিশন শিট (Commissions)' : 'Manage Commissions'}</span>
-                    </label>
+                    <div className="sm:col-span-2 p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">
+                          {isBn ? 'কমিশন শিট আলাদা পারমিশন (Commission Sheet Actions)' : 'Commission Sheet Actions (Separate)'}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditCanManageCommissions(true);
+                              setEditCanAddCommissionRecords(true);
+                              setEditCanEditCommissionRecords(true);
+                              setEditCanDeleteCommissionRecords(true);
+                              setEditCanPayCommissions(true);
+                              setEditCanImportCommissions(true);
+                              setEditCanManageCommissionMonths(true);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-emerald-600 text-white text-[9px] font-bold cursor-pointer hover:bg-emerald-700"
+                          >
+                            All On
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditCanManageCommissions(false);
+                              setEditCanAddCommissionRecords(false);
+                              setEditCanEditCommissionRecords(false);
+                              setEditCanDeleteCommissionRecords(false);
+                              setEditCanPayCommissions(false);
+                              setEditCanImportCommissions(false);
+                              setEditCanManageCommissionMonths(false);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] font-bold cursor-pointer hover:bg-slate-300"
+                          >
+                            All Off
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-slate-800 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanManageCommissions}
+                            onChange={(e) => setEditCanManageCommissions(e.target.checked)}
+                            className="rounded text-blue-600 focus:ring-blue-500"
+                          />
+                          <span>{isBn ? 'কমিশন শিট ট্যাব দেখুন' : 'View Commission Sheet'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanAddCommissionRecords}
+                            onChange={(e) => setEditCanAddCommissionRecords(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>{isBn ? '+ রেকর্ড যোগ (Add Record)' : '+ Add Records'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanEditCommissionRecords}
+                            onChange={(e) => setEditCanEditCommissionRecords(e.target.checked)}
+                            className="rounded text-sky-600 focus:ring-sky-500"
+                          />
+                          <span>{isBn ? 'রেকর্ড এডিট / ডাইরেক্ট এডিট' : 'Edit & Inline Edit Records'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanDeleteCommissionRecords}
+                            onChange={(e) => setEditCanDeleteCommissionRecords(e.target.checked)}
+                            className="rounded text-rose-600 focus:ring-rose-500"
+                          />
+                          <span>{isBn ? 'কমিশন রেকর্ড ডিলিট' : 'Delete Records'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanPayCommissions}
+                            onChange={(e) => setEditCanPayCommissions(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>{isBn ? 'পেমেন্ট / Paid করা' : 'Pay & Mark Paid'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanImportCommissions}
+                            onChange={(e) => setEditCanImportCommissions(e.target.checked)}
+                            className="rounded text-violet-600 focus:ring-violet-500"
+                          />
+                          <span>{isBn ? 'Excel / PDF ইমপোর্ট' : 'Import Excel / PDF'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 sm:col-span-2 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanManageCommissionMonths}
+                            onChange={(e) => setEditCanManageCommissionMonths(e.target.checked)}
+                            className="rounded text-amber-600 focus:ring-amber-500"
+                          />
+                          <span>{isBn ? 'মাসিক শিট তৈরি ও ডিলিট (Month Files)' : 'Add / Delete Month Files'}</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    <div className="sm:col-span-2 p-2.5 rounded-lg bg-teal-50/70 border border-teal-200 space-y-2">
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-teal-800">
+                          {isBn ? 'কমিশন Person অ্যাকাউন্ট (আলাদা পারমিশন)' : 'Person Accounts (Separate)'}
+                        </span>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditCanAddCommissionPersons(true);
+                              setEditCanEditCommissionPersons(true);
+                              setEditCanMergeCommissionPersons(true);
+                              setEditCanDeleteCommissionPersons(true);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-teal-600 text-white text-[9px] font-bold cursor-pointer hover:bg-teal-700"
+                          >
+                            All On
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditCanAddCommissionPersons(false);
+                              setEditCanEditCommissionPersons(false);
+                              setEditCanMergeCommissionPersons(false);
+                              setEditCanDeleteCommissionPersons(false);
+                            }}
+                            className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 text-[9px] font-bold cursor-pointer hover:bg-slate-300"
+                          >
+                            All Off
+                          </button>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanAddCommissionPersons}
+                            onChange={(e) => setEditCanAddCommissionPersons(e.target.checked)}
+                            className="rounded text-teal-600 focus:ring-teal-500"
+                          />
+                          <span>{isBn ? '+ পার্সন যোগ' : '+ Add Person'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanEditCommissionPersons}
+                            onChange={(e) => setEditCanEditCommissionPersons(e.target.checked)}
+                            className="rounded text-teal-600 focus:ring-teal-500"
+                          />
+                          <span>{isBn ? 'পার্সন এডিট' : 'Edit Person'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanMergeCommissionPersons}
+                            onChange={(e) => setEditCanMergeCommissionPersons(e.target.checked)}
+                            className="rounded text-cyan-600 focus:ring-cyan-500"
+                          />
+                          <span>{isBn ? 'পার্সন মার্জ' : 'Merge Persons'}</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanDeleteCommissionPersons}
+                            onChange={(e) => setEditCanDeleteCommissionPersons(e.target.checked)}
+                            className="rounded text-rose-600 focus:ring-rose-500"
+                          />
+                          <span>{isBn ? 'পার্সন ডিলিট' : 'Delete Persons'}</span>
+                        </label>
+                      </div>
+                    </div>
 
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
                       <input

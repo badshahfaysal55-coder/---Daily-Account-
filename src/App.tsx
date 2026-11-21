@@ -53,7 +53,7 @@ export default function App() {
     return {
       id: 'usr_owner_faisal',
       username: 'rh.faysal007',
-      name: 'Faysal Ahmed (Main Owner)',
+      name: 'Faysal (Main Owner)',
       role: 'owner',
       workspaceName: 'Executive HQ Workspace',
       status: 'active',
@@ -161,11 +161,11 @@ export default function App() {
   };
 
   const [globalSettings, setGlobalSettings] = useState<GlobalAppSettings>({
-    appName: 'ZARA Accounting App',
+    appName: 'ZF Accounting',
     companyName: 'ZARA Group & Holdings Ltd.',
     version: '2.5.0-gold',
     currency: (localStorage.getItem('zara_preferred_currency') as CurrencyCode) || 'SAR',
-    broadcastMessage: 'Welcome to ZARA Accounting Cloud System. All records are automatically synced to the cloud database.',
+    broadcastMessage: 'Welcome to ZF Accounting Cloud System. All records are automatically synced to the cloud database.',
     broadcastType: 'info',
     broadcastActive: true,
     defaultTheme: 'midnight-gold',
@@ -177,7 +177,7 @@ export default function App() {
     const savedCurr = (localStorage.getItem('zara_preferred_currency') as CurrencyCode) || 'SAR';
     return {
       userId: 'usr_owner_faisal',
-      name: 'Faysal Ahmed (Main Owner)',
+      name: 'Faysal (Main Owner)',
       phoneOrEmail: 'rh.faysal007@gmail.com',
       currency: savedCurr,
       useBanglaNumerals: false,
@@ -217,13 +217,20 @@ export default function App() {
   const [lastAppSyncedAt, setLastAppSyncedAt] = useState<Date>(new Date());
   const [isApplyingAppUpdate, setIsApplyingAppUpdate] = useState<boolean>(false);
   const [broadcastDismissedAt, setBroadcastDismissedAt] = useState<number>(0);
-  const baselineVersionRef = useRef<{ buildId: string | null; forceRefreshAt: number | null }>({
+  const baselineVersionRef = useRef<{
+    buildId: string | null;
+    forceRefreshAt: number | null;
+    settingsUpdatedAt: number;
+    dataUpdatedAt: number;
+  }>({
     buildId: null,
     forceRefreshAt: null,
+    settingsUpdatedAt: 0,
+    dataUpdatedAt: 0,
   });
   const isReloadingForUpdateRef = useRef<boolean>(false);
 
-  // Sync DOM with theme & mode
+  // Sync DOM with theme, mode, title & status-bar theme-color
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', currentTheme);
     document.documentElement.setAttribute('data-mode', currentMode);
@@ -232,7 +239,18 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-  }, [currentTheme, currentMode]);
+    const metaTheme = document.querySelector('meta[name="theme-color"]');
+    if (metaTheme) {
+      const computedPrimary = getComputedStyle(document.documentElement).getPropertyValue('--theme-primary').trim();
+      metaTheme.setAttribute('content', headerBgColor || computedPrimary || '#083f2a');
+    }
+  }, [currentTheme, currentMode, headerBgColor]);
+
+  useEffect(() => {
+    if (globalSettings.appName) {
+      document.title = `${globalSettings.appName} - Cloud Accounting`;
+    }
+  }, [globalSettings.appName]);
 
   // Enforce strict per-page & sub-tab permissions (e.g. Commission Only, Commission + Bazar Only, Bazar Only)
   useEffect(() => {
@@ -451,11 +469,15 @@ export default function App() {
 
     const incomingBuildId = String(info.buildId);
     const incomingForceAt = Number(info.forceRefreshAt) || 0;
+    const incomingSettingsAt = Number(info.settingsUpdatedAt) || 0;
+    const incomingDataAt = Number(info.dataUpdatedAt) || 0;
 
     if (baselineVersionRef.current.buildId === null) {
       baselineVersionRef.current = {
         buildId: incomingBuildId,
         forceRefreshAt: incomingForceAt,
+        settingsUpdatedAt: incomingSettingsAt,
+        dataUpdatedAt: incomingDataAt,
       };
       try {
         sessionStorage.setItem('zara_applied_build_id', incomingBuildId);
@@ -468,8 +490,25 @@ export default function App() {
     const ownerPushedUpdate =
       baselineVersionRef.current.forceRefreshAt !== null &&
       incomingForceAt > baselineVersionRef.current.forceRefreshAt;
+    const dataOrSettingsChanged =
+      incomingSettingsAt > baselineVersionRef.current.settingsUpdatedAt ||
+      incomingDataAt > baselineVersionRef.current.dataUpdatedAt;
 
-    if (!buildChanged && !ownerPushedUpdate) return;
+    if (!buildChanged && !ownerPushedUpdate) {
+      if (dataOrSettingsChanged) {
+        baselineVersionRef.current.settingsUpdatedAt = Math.max(
+          baselineVersionRef.current.settingsUpdatedAt,
+          incomingSettingsAt
+        );
+        baselineVersionRef.current.dataUpdatedAt = Math.max(
+          baselineVersionRef.current.dataUpdatedAt,
+          incomingDataAt
+        );
+        loadInitialDataRef.current();
+        window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
+      }
+      return;
+    }
 
     // Guard against reload loops on mobile Safari / PWA / slow connections
     try {
@@ -480,7 +519,12 @@ export default function App() {
         Date.now() - lastReloadAt < 10000 ||
         (appliedBuild === incomingBuildId && incomingForceAt <= appliedForce)
       ) {
-        baselineVersionRef.current = { buildId: incomingBuildId, forceRefreshAt: incomingForceAt };
+        baselineVersionRef.current = {
+          buildId: incomingBuildId,
+          forceRefreshAt: incomingForceAt,
+          settingsUpdatedAt: incomingSettingsAt,
+          dataUpdatedAt: incomingDataAt,
+        };
         return;
       }
       sessionStorage.setItem('zara_last_app_update_reload_at', String(Date.now()));
@@ -497,6 +541,9 @@ export default function App() {
         const reg = await navigator.serviceWorker.getRegistration().catch(() => undefined);
         if (reg) {
           await reg.update().catch(() => {});
+          if (reg.waiting) {
+            reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+          }
         }
       }
     } catch {}
@@ -519,43 +566,88 @@ export default function App() {
   const hasSyncedCloudOnAuthRef = useRef<string | null>(null);
 
   useEffect(() => {
+    let unsubCloudSnapshot: (() => void) | null = null;
     const unsubFirestore = firestoreSyncService.subscribe((fsStatus) => {
       if (
         fsStatus.isVerifiedOwner &&
         fsStatus.uid &&
-        currentUserRef.current.role === 'owner' &&
-        hasSyncedCloudOnAuthRef.current !== fsStatus.uid
+        currentUserRef.current.role === 'owner'
       ) {
-        hasSyncedCloudOnAuthRef.current = fsStatus.uid;
-        ApiService.syncCloudFirestoreNow()
-          .then((res) => {
-            if (res.recovered) {
-              loadInitialData();
-              window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
-            }
-          })
-          .catch((err) => {
-            console.warn('Initial Firestore cloud sync error:', err?.message || err);
+        if (hasSyncedCloudOnAuthRef.current !== fsStatus.uid) {
+          hasSyncedCloudOnAuthRef.current = fsStatus.uid;
+          ApiService.syncCloudFirestoreNow()
+            .then((res) => {
+              if (res.recovered) {
+                loadInitialDataRef.current();
+                window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
+              }
+            })
+            .catch((err) => {
+              console.warn('Initial Firestore cloud sync error:', err?.message || err);
+            });
+        }
+        if (!unsubCloudSnapshot) {
+          unsubCloudSnapshot = firestoreSyncService.subscribeToGlobalSettings(async (remoteSettings) => {
+            try {
+              const res = await ApiService.syncCloudFirestoreNow();
+              if (res.recovered) {
+                loadInitialDataRef.current();
+                window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
+              }
+              if (remoteSettings?.forceRefreshAt) {
+                handleIncomingVersionInfo({
+                  buildId: baselineVersionRef.current.buildId || 'cloud',
+                  forceRefreshAt: Number(remoteSettings.forceRefreshAt) || 0,
+                  settingsUpdatedAt: Number(remoteSettings.clientUpdatedAt) || 0,
+                  dataUpdatedAt: Number(remoteSettings.dataUpdatedAt) || 0,
+                });
+              }
+            } catch {}
           });
+        }
       } else if (!fsStatus.isAuthenticated) {
         hasSyncedCloudOnAuthRef.current = null;
+        if (unsubCloudSnapshot) {
+          unsubCloudSnapshot();
+          unsubCloudSnapshot = null;
+        }
       }
     });
     return () => {
       unsubFirestore();
+      if (unsubCloudSnapshot) unsubCloudSnapshot();
     };
   }, [currentUserAccount.id]);
 
+  const loadInitialDataRef = useRef(loadInitialData);
+  loadInitialDataRef.current = loadInitialData;
+
   useEffect(() => {
-    loadInitialData();
+    loadInitialDataRef.current();
     checkAppVersionNow();
     checkSupabase();
 
     // Global real-time event subscription for all modules, all User IDs & app updates
     const unsubscribe = ApiService.subscribeToEvents((event, data) => {
-      if ((event === 'connected' || event === 'app_update_available') && data?.buildId) {
+      if (event === 'connected') {
+        if (data?.buildId) {
+          handleIncomingVersionInfo(data);
+        }
+        if (data?.reused) return;
+        loadInitialDataRef.current();
+        return;
+      }
+
+      if (event === 'app_update_available' && data?.buildId) {
         handleIncomingVersionInfo(data);
-        if (event === 'connected' && data?.reused) return;
+        return;
+      }
+
+      if (event === 'cloud_sync_pulse' && data) {
+        handleIncomingVersionInfo(data);
+        loadInitialDataRef.current();
+        window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
+        return;
       }
 
       if (event === 'global_settings_updated' && data?.globalSettings) {
@@ -564,14 +656,16 @@ export default function App() {
           handleIncomingVersionInfo({
             buildId: baselineVersionRef.current.buildId || 'push',
             forceRefreshAt: data.globalSettings.forceRefreshAt,
+            settingsUpdatedAt: data.globalSettings.updatedAt,
           });
         }
       }
 
-      if (event === 'user_updated' && data) {
+      if ((event === 'user_updated' || event === 'user_created' || event === 'user_deleted') && data) {
         const targetId = data.userId;
+        const isDeleted = event === 'user_deleted' || data.type === 'deleted';
         if (targetId === currentUserRef.current.id) {
-          if (data.type === 'deleted' || data.user?.status === 'disabled') {
+          if (isDeleted || data.user?.status === 'disabled') {
             ApiService.clearToken();
             setAuthModalOpen(true);
             return;
@@ -582,7 +676,7 @@ export default function App() {
         } else if (data.user) {
           // Immediately reflect updates to other User IDs in allUsersList
           setAllUsersList((prev) => {
-            if (data.type === 'deleted') {
+            if (isDeleted) {
               return prev.filter((u) => u.id !== targetId);
             }
             const exists = prev.some((u) => u.id === data.user.id);
@@ -591,39 +685,48 @@ export default function App() {
             }
             return [...prev, data.user];
           });
-        } else if (data.type === 'deleted' && targetId) {
+        } else if (isDeleted && targetId) {
           setAllUsersList((prev) => prev.filter((u) => u.id !== targetId));
         }
       }
 
+      if (event === 'transaction_deleted' && data?.transactionId) {
+        setTransactions((prev) => prev.filter((t) => t.id !== data.transactionId));
+      }
+
+      if (event === 'customer_deleted' && data?.customerId) {
+        setCustomers((prev) => prev.filter((c) => c.id !== data.customerId));
+      }
+
       // Any data change across invoices, transactions, commissions, customers, bazar, or workspaces triggers instant state synchronization
-      if (event !== 'connected') {
-        loadInitialData();
-        if (currentUserRef.current.role === 'owner' && event !== 'app_update_available') {
-          ApiService.scheduleVaultSync();
-        }
+      loadInitialDataRef.current();
+      if (event === 'database_restored' || event === 'user_updated' || event === 'global_settings_updated') {
+        window.dispatchEvent(new CustomEvent('zara-vault-recovered'));
+      }
+      if (currentUserRef.current.role === 'owner') {
+        ApiService.scheduleVaultSync();
       }
     });
 
-    // Background heartbeat sync every 10 seconds + version check every 10 seconds
+    // Fast cloud version & mutation pulse check every 4 seconds + full sync every 15 seconds
     const syncInterval = setInterval(() => {
-      loadInitialData();
-    }, 10000);
+      loadInitialDataRef.current();
+    }, 15000);
 
     const versionInterval = setInterval(() => {
       checkAppVersionNow();
-    }, 10000);
+    }, 4000);
 
     // Auto-sync & auto-update check when window / browser tab gains focus, visibility, or reconnects online
     const handleFocusSync = () => {
-      loadInitialData();
+      loadInitialDataRef.current();
       checkAppVersionNow();
     };
     window.addEventListener('focus', handleFocusSync);
     window.addEventListener('online', handleFocusSync);
     const handleVisibilitySync = () => {
       if (document.visibilityState === 'visible') {
-        loadInitialData();
+        loadInitialDataRef.current();
         checkAppVersionNow();
       } else {
         ApiService.syncVaultNow().catch(() => {});
@@ -859,7 +962,7 @@ export default function App() {
       }}
       className="min-h-[100dvh] w-full overflow-x-clip flex font-sans transition-colors duration-200"
     >
-      {/* 1. Collapsible Sidebar Navigation */}
+      {/* 1. Collapsible Right-Side Navigation & Option Bar */}
       <Sidebar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -884,12 +987,15 @@ export default function App() {
         lastSyncedAt={lastAppSyncedAt}
         onManualSync={loadInitialData}
         onOpenGoogleDriveModal={() => setDriveModalOpen(true)}
+        currentCurrency={user.currency}
+        onSelectCurrency={handleSelectCurrency}
+        onToggleLang={handleToggleLang}
       />
 
-      {/* 2. Main Content Canvas with dynamic left padding for Sidebar */}
+      {/* 2. Main Content Canvas with dynamic right padding for Right-Side Sidebar */}
       <div
-        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))] lg:pb-0 ${
-          sidebarOpen ? 'lg:pl-64' : 'lg:pl-20'
+        className={`flex-1 flex flex-col min-w-0 overflow-x-clip transition-all duration-300 pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))] lg:pb-0 ${
+          sidebarOpen ? 'lg:pr-64' : 'lg:pr-20'
         }`}
       >
         {/* Top Header */}
@@ -902,13 +1008,11 @@ export default function App() {
           currentLang={currentLang}
           onApplyTheme={handleApplyTheme}
           onToggleMode={handleToggleMode}
-          onToggleLang={handleToggleLang}
           onOpenAuthModal={() => setAuthModalOpen(true)}
           onOpenPhotoModal={() => setPhotoModalOpen(true)}
           onLogout={handleLogout}
           onToggleSidebarMobile={() => setMobileMenuOpen(true)}
           headerBgColor={headerBgColor}
-          onSelectCurrency={handleSelectCurrency}
           isSyncing={isAppSyncing}
           lastSyncedAt={lastAppSyncedAt}
           onManualSync={loadInitialData}
@@ -957,8 +1061,8 @@ export default function App() {
           <main
             className={`relative z-10 flex-1 w-full mx-auto py-3 sm:py-6 space-y-4 sm:space-y-6 transition-all duration-200 ${
               activeTab === 'commission'
-                ? 'max-w-none px-2 sm:px-4 lg:px-6 xl:px-8 2xl:px-10'
-                : 'max-w-7xl px-3 sm:px-6'
+                ? 'max-w-none px-3 sm:px-6 lg:px-8 xl:px-10'
+                : 'max-w-7xl px-3 sm:px-6 lg:px-8'
             }`}
           >
             <MobileInstallBanner isBn={isBn} />
@@ -1006,6 +1110,27 @@ export default function App() {
                   </button>
                 </div>
               )}
+
+            {/* Owner Filtered Workspace Notice (shows only when Owner clicked "View Ledger" for a specific user) */}
+            {currentUserAccount.role === 'owner' && selectedWorkspaceUserId && (
+              <div className="rounded-2xl px-4 py-2.5 border border-amber-300 dark:border-amber-700/60 bg-amber-50 dark:bg-amber-950/40 text-amber-950 dark:text-amber-200 flex flex-wrap items-center justify-between gap-2 text-xs shadow-xs">
+                <span className="font-semibold">
+                  {(() => {
+                    const filteredUser = allUsersList.find((u) => u.id === selectedWorkspaceUserId);
+                    return isBn
+                      ? `শুধুমাত্র @${filteredUser?.username || selectedWorkspaceUserId} এর হিসাব দেখানো হচ্ছে`
+                      : `Viewing workspace data for @${filteredUser?.username || selectedWorkspaceUserId}`;
+                  })()}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setSelectedWorkspaceUserId(null)}
+                  className="px-3 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold transition cursor-pointer"
+                >
+                  {isBn ? 'সকল ইউজারের ডেটা দেখুন' : 'Show All Users Data'}
+                </button>
+              </div>
+            )}
 
           {/* TAB 1: World-Class Financial Dashboard Overview */}
           {activeTab === 'dashboard' && userPerms.canAccessDashboard && (
@@ -1184,6 +1309,9 @@ export default function App() {
               globalSettings={globalSettings}
               currentLang={currentLang}
               useBanglaNumerals={useBanglaNumerals}
+              allUsers={allUsersList}
+              selectedWorkspaceUserId={selectedWorkspaceUserId}
+              onNavigateTab={setActiveTab}
             />
           )}
 
@@ -1201,23 +1329,31 @@ export default function App() {
             backgroundColor: 'var(--theme-card-bg)',
             borderColor: 'var(--theme-card-border)',
           }}
-          className="border-t py-4 mt-auto text-xs text-slate-500 dark:text-slate-400 transition-colors"
+          className="border-t py-3.5 sm:py-4 mt-auto text-xs text-slate-500 dark:text-slate-400 transition-colors"
         >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 flex flex-col sm:flex-row items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="font-bold text-slate-800 dark:text-white font-heading">
-                {globalSettings.appName || 'ZARA Accounting'}
+          <div
+            className={`w-full mx-auto flex flex-col sm:flex-row items-center justify-between gap-1.5 sm:gap-4 text-center sm:text-left ${
+              activeTab === 'commission'
+                ? 'max-w-none px-3 sm:px-6 lg:px-8 xl:px-10'
+                : 'max-w-7xl px-3 sm:px-6 lg:px-8'
+            }`}
+          >
+            <div className="flex items-center justify-center sm:justify-start flex-wrap gap-x-2 gap-y-0.5 min-w-0 max-w-full">
+              <span className="font-bold text-slate-800 dark:text-white font-heading truncate max-w-[200px] sm:max-w-none">
+                {globalSettings.appName || 'ZF Accounting'}
               </span>
-              <span>•</span>
-              <span className="font-medium capitalize" style={{ color: 'var(--theme-accent)' }}>
+              <span aria-hidden="true">•</span>
+              <span className="font-medium capitalize truncate" style={{ color: 'var(--theme-accent)' }}>
                 {currentTheme.replace('-', ' ')} Corporate System
               </span>
             </div>
 
-            <div className="flex items-center gap-3">
-              <span className="font-mono text-slate-400">User: @{currentUserAccount.username}</span>
-              <span>•</span>
-              <span className="capitalize font-bold text-slate-700 dark:text-slate-300">
+            <div className="flex items-center justify-center sm:justify-end flex-wrap gap-x-2.5 gap-y-0.5 min-w-0 max-w-full">
+              <span className="font-mono text-slate-400 truncate max-w-[220px] sm:max-w-xs">
+                User: @{currentUserAccount.username}
+              </span>
+              <span aria-hidden="true">•</span>
+              <span className="capitalize font-bold text-slate-700 dark:text-slate-300 shrink-0">
                 {currentUserAccount.role}
               </span>
             </div>
@@ -1229,7 +1365,6 @@ export default function App() {
       <MobileBottomNav
         activeTab={activeTab}
         setActiveTab={setActiveTab}
-        onOpenMobileMenu={() => setMobileMenuOpen(true)}
         currentLang={currentLang}
         currentUser={currentUserAccount}
       />
@@ -1258,8 +1393,8 @@ export default function App() {
 
       {/* Undo Toast */}
       {undoToast && (
-        <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] sm:bottom-5 left-4 right-4 sm:left-auto sm:right-5 z-50 bg-slate-900 text-white text-xs px-4 py-3 rounded-xl shadow-xl flex items-center justify-between gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
-          <span>{undoToast.message}</span>
+        <div className="fixed bottom-[calc(5.5rem+env(safe-area-inset-bottom,0px))] lg:bottom-5 left-3 right-3 sm:right-auto sm:left-5 sm:max-w-md z-50 bg-slate-900 text-white text-xs px-4 py-3 rounded-xl shadow-xl flex items-center justify-between gap-3 border border-slate-700 animate-in fade-in slide-in-from-bottom-2">
+          <span className="min-w-0 truncate">{undoToast.message}</span>
           <button
             onClick={handleUndoDelete}
             className="text-amber-400 font-bold hover:underline cursor-pointer shrink-0"

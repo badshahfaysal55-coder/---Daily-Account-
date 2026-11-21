@@ -87,7 +87,7 @@ define(['./workbox-43e44e5a'], (function (workbox) { 'use strict';
     "revision": "42bc8b95674066871d6eb66800b37050"
   }, {
     "url": "index.html",
-    "revision": "08b202636d737c8b275264bd0e6f92a0"
+    "revision": "26df7838836baed8e689df3f2dda57a8"
   }, {
     "url": "apple-touch-icon.png",
     "revision": "078b956d4e657b30c5f05273cfc55b21"
@@ -98,16 +98,16 @@ define(['./workbox-43e44e5a'], (function (workbox) { 'use strict';
     "url": "assets/purify.es-Dzkdzyfv.js",
     "revision": null
   }, {
-    "url": "assets/index.es-WTItpRKO.js",
+    "url": "assets/index.es-CtOKRfT8.js",
     "revision": null
   }, {
-    "url": "assets/index-CQ8RAA2F.css",
+    "url": "assets/index-CO5_IY0I.css",
     "revision": null
   }, {
-    "url": "assets/index-B2_nkbxY.js",
+    "url": "assets/index-7C80VWIU.js",
     "revision": null
   }, {
-    "url": "assets/html2canvas-DkRcwtWb.js",
+    "url": "assets/html2canvas-CwDQxptH.js",
     "revision": null
   }, {
     "url": "assets/aistudio/gemini-code-1794029464620_4b1b55ea.js",

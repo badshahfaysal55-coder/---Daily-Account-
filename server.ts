@@ -4,6 +4,15 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
+import {
+  getAdminFirestoreStatus,
+  initFirebaseAdmin,
+  pullFromFirestoreAdmin,
+  pushToFirestoreAdmin,
+  scheduleAdminFirestoreSync,
+  setKnownOwnerUid,
+  verifyFirebaseOwnerIdToken,
+} from './serverFirebaseAdmin';
 
 async function getAiClient() {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -62,7 +71,17 @@ export interface DbUser {
   canViewLedger?: boolean;         // Permission: View ledger
   canEditCustomers?: boolean;      // Permission: Add / edit customers
   canApproveInvoices?: boolean;    // Permission: Invoices & payments
-  canManageCommissions?: boolean;  // Permission: Commission sheets
+  canManageCommissions?: boolean;  // Permission: View commission sheet
+  canAddCommissionRecords?: boolean; // Permission: Add commission records
+  canEditCommissionRecords?: boolean; // Permission: Edit commission records
+  canDeleteCommissionRecords?: boolean; // Permission: Delete commission records
+  canPayCommissions?: boolean;     // Permission: Settle payouts / Mark paid
+  canImportCommissions?: boolean;  // Permission: Import Excel / AI PDF into Commission Sheet
+  canManageCommissionMonths?: boolean; // Permission: Add / delete month sheets
+  canAddCommissionPersons?: boolean; // Permission: Add new Commission Person accounts
+  canEditCommissionPersons?: boolean; // Permission: Edit Commission Person accounts
+  canDeleteCommissionPersons?: boolean; // Permission: Delete Commission Person accounts
+  canMergeCommissionPersons?: boolean; // Permission: Merge Commission Person accounts
   canManageBazar?: boolean;        // Permission: Daily Bazar ledger
   canManageBuyers?: boolean;       // Permission: Buyer IDs & Buyer photos
   isCommissionOnly?: boolean;      // Permission: Commission sheet only
@@ -105,6 +124,8 @@ export interface DbCommissionEntry {
   paidAt?: number;
   period?: string;            // e.g. "2026-11" or "2026-06 — 2026-09"
   notes?: string;
+  createdByUserId?: string;
+  createdByName?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -118,6 +139,8 @@ export interface DbCommissionPersonAccount {
   linkedUserId?: string;
   photoUrl?: string;
   photoData?: string;
+  createdByUserId?: string;
+  createdByName?: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -268,6 +291,11 @@ export interface DatabaseSchema {
   drafts: Record<string, { description: string; amount: string; category?: string; type?: 'income' | 'expense'; updatedAt: number }>;
   sessions?: Record<string, string>;
   deletedRecordIds?: Record<string, number>;
+  deletedCommissionMonths?: Record<string, number>;
+  migrationsApplied?: {
+    removedDefaultOwnerCommissionPerson?: boolean;
+  };
+  ownerFirebaseUid?: string;
   globalSettings: DbGlobalSettings;
   auditLogs: Array<{ id: string; timestamp: number; action: string; performedBy: string; details: any }>;
 }
@@ -282,7 +310,7 @@ const INITIAL_DATABASE: DatabaseSchema = {
     {
       id: 'usr_owner_faisal',
       username: 'rh.faysal007',
-      name: 'Faysal Ahmed (Main Owner)',
+      name: 'Faysal (Main Owner)',
       passwordHash: hashPassword('zara@owner2026'),
       role: 'owner',
       workspaceName: 'Executive HQ Workspace',
@@ -294,6 +322,16 @@ const INITIAL_DATABASE: DatabaseSchema = {
       canEditCustomers: true,
       canApproveInvoices: true,
       canManageCommissions: true,
+      canAddCommissionRecords: true,
+      canEditCommissionRecords: true,
+      canDeleteCommissionRecords: true,
+      canPayCommissions: true,
+      canImportCommissions: true,
+      canManageCommissionMonths: true,
+      canAddCommissionPersons: true,
+      canEditCommissionPersons: true,
+      canDeleteCommissionPersons: true,
+      canMergeCommissionPersons: true,
       canManageBazar: true,
       canManageBuyers: true,
       theme: 'midnight-gold',
@@ -314,7 +352,7 @@ const INITIAL_DATABASE: DatabaseSchema = {
       paymentMethod: 'bank',
       timestamp: Date.now() - 86400000 * 3,
       notes: 'হেড অফিস মাস্টার ফান্ড',
-      createdByName: 'Faysal Ahmed (Main Owner)',
+      createdByName: 'Faysal (Main Owner)',
       customerName: 'ZARA Holdings',
     },
     {
@@ -328,7 +366,7 @@ const INITIAL_DATABASE: DatabaseSchema = {
       paymentMethod: 'bank',
       timestamp: Date.now() - 86400000 * 1,
       notes: 'AWS & Cloud Infrastructure',
-      createdByName: 'Faysal Ahmed (Main Owner)',
+      createdByName: 'Faysal (Main Owner)',
       customerName: 'Cloud Provider Inc.',
     },
   ],
@@ -354,34 +392,26 @@ const INITIAL_DATABASE: DatabaseSchema = {
   ],
   invoices: [],
   commissionEntries: [],
-  commissionPersons: [
-    {
-      id: 'person_rh_faysal',
-      name: 'RH FAYSAL',
-      iqamaNo: '',
-      phone: '',
-      office: 'JUB5 - Jubail - Al Madrasa',
-      linkedUserId: 'usr_owner_faisal',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    },
-  ],
+  commissionPersons: [],
   commissionMonths: [new Date().toISOString().slice(0, 7)],
+  migrationsApplied: {
+    removedDefaultOwnerCommissionPerson: true,
+  },
   homeBazarEntries: [],
   drafts: {},
   sessions: {},
   globalSettings: {
-    appName: 'ZARA Accounting App',
+    appName: 'ZF Accounting',
     companyName: 'ZARA Group & Holdings Ltd.',
     version: '2.5.0-gold',
     currency: 'SAR',
-    broadcastMessage: 'স্বাগতম ZARA Accounting ক্লাউড সিস্টেমে। সকল হিসাব স্বয়ংক্রিয়ভাবে ক্লাউড ডাটাবেজে সংরক্ষিত হচ্ছে।',
+    broadcastMessage: 'স্বাগতম ZF Accounting ক্লাউড সিস্টেমে। সকল হিসাব স্বয়ংক্রিয়ভাবে ক্লাউড ডাটাবেজে সংরক্ষিত হচ্ছে।',
     broadcastType: 'info',
     broadcastActive: true,
     defaultTheme: 'midnight-gold',
     bazarMonthlyBudget: 0,
     bazarBuyers: [
-      { buyerId: 'rh.faysal007', name: 'Faysal Ahmed (Main Owner)', role: 'Owner' },
+      { buyerId: 'rh.faysal007', name: 'Faysal (Main Owner)', role: 'Owner' },
     ],
     updatedAt: Date.now(),
     lastUpdatedBy: 'rh.faysal007 (Owner)',
@@ -424,6 +454,7 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   if (!parsed.drafts || typeof parsed.drafts !== 'object') parsed.drafts = {};
   if (!parsed.sessions || typeof parsed.sessions !== 'object') parsed.sessions = {};
   if (!parsed.deletedRecordIds || typeof parsed.deletedRecordIds !== 'object') parsed.deletedRecordIds = {};
+  if (!parsed.deletedCommissionMonths || typeof parsed.deletedCommissionMonths !== 'object') parsed.deletedCommissionMonths = {};
 
   // Exclude and tombstone any legacy auto-synced 0-commission customer invoices from Commission Sheet
   const purgeTs = Date.now();
@@ -451,95 +482,56 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   }
   if (!Array.isArray(parsed.globalSettings.bazarBuyers)) {
     parsed.globalSettings.bazarBuyers = [
-      { buyerId: 'rh.faysal007', name: 'Faysal Ahmed (Main Owner)', role: 'Owner' },
+      { buyerId: 'rh.faysal007', name: 'Faysal (Main Owner)', role: 'Owner' },
     ];
   }
 
-  // Consolidate legacy "FAYSAL" records & profile into "RH FAYSAL" (one-time / idempotent)
-  // and NEVER auto-create new Person accounts from commissionEntries or user profiles
+  // One-time idempotent migration: remove the seeded default Owner ID Person ("person_rh_faysal" / linked to "usr_owner_faisal")
+  // without touching any existing commissionEntries. If Owner manually creates a Person later via "+ Add", it gets a new ID and persists.
   const nowTs = Date.now();
-  const hasExplicitFaysalOnly = parsed.commissionPersons.some(
-    (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'faysal'
-  );
-  const hasRhFaysal = parsed.commissionPersons.some(
-    (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'rh faysal'
-  );
-
-  if (hasExplicitFaysalOnly || !hasRhFaysal) {
-    const faysalPersons = parsed.commissionPersons.filter(
-      (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'faysal'
-    );
-    const existingRh = parsed.commissionPersons.find(
-      (p: any) => typeof p?.name === 'string' && p.name.trim().toLowerCase() === 'rh faysal'
-    );
-
-    if (faysalPersons.length > 0) {
-      const primarySource = faysalPersons[0];
-      const mergedRh: any = existingRh
-        ? {
-            ...existingRh,
-            name: 'RH FAYSAL',
-            iqamaNo: existingRh.iqamaNo || primarySource.iqamaNo || '',
-            phone: existingRh.phone || primarySource.phone || '',
-            office: existingRh.office || primarySource.office || 'JUB5 - Jubail - Al Madrasa',
-            linkedUserId: existingRh.linkedUserId || primarySource.linkedUserId || 'usr_owner_faisal',
-            photoUrl: existingRh.photoUrl || primarySource.photoUrl,
-            photoData: existingRh.photoData || primarySource.photoData,
-            updatedAt: nowTs,
-          }
-        : {
-            ...primarySource,
-            id: 'person_rh_faysal',
-            name: 'RH FAYSAL',
-            updatedAt: nowTs,
-          };
-
-      faysalPersons.forEach((fp: any) => {
-        if (fp?.id && fp.id !== mergedRh.id) {
-          parsed.deletedRecordIds[fp.id] = nowTs;
+  if (!parsed.migrationsApplied || typeof parsed.migrationsApplied !== 'object') {
+    parsed.migrationsApplied = {};
+  }
+  if (!parsed.migrationsApplied.removedDefaultOwnerCommissionPerson) {
+    const remainingPersons: any[] = [];
+    (parsed.commissionPersons || []).forEach((p: any) => {
+      if (p && (p.id === 'person_rh_faysal' || p.linkedUserId === 'usr_owner_faisal')) {
+        if (p.id) {
+          parsed.deletedRecordIds[p.id] = nowTs;
         }
-      });
-
-      parsed.commissionPersons = parsed.commissionPersons.filter(
-        (p: any) =>
-          typeof p?.name === 'string' &&
-          p.name.trim().toLowerCase() !== 'faysal' &&
-          p.name.trim().toLowerCase() !== 'rh faysal'
-      );
-      parsed.commissionPersons.unshift(mergedRh);
-      parsed.__migratedPersons = true;
-    } else if (!existingRh && parsed.commissionPersons.length === 0) {
-      parsed.commissionPersons.push({
-        id: 'person_rh_faysal',
-        name: 'RH FAYSAL',
-        iqamaNo: '',
-        phone: '',
-        office: 'JUB5 - Jubail - Al Madrasa',
-        linkedUserId: 'usr_owner_faisal',
-        createdAt: nowTs,
-        updatedAt: nowTs,
-      });
-      parsed.__migratedPersons = true;
-    }
+      } else if (p) {
+        remainingPersons.push(p);
+      }
+    });
+    parsed.commissionPersons = remainingPersons;
+    parsed.migrationsApplied.removedDefaultOwnerCommissionPerson = true;
+    parsed.__migratedPersons = true;
   }
 
-  // Ensure any "FAYSAL" commission records are merged into "RH FAYSAL"
+  // Extract commission months & safely backfill creator attribution if missing and agentId matches an existing user
+  const userLookup = new Map<string, any>();
+  (parsed.users || []).forEach((u: any) => {
+    if (u?.id) userLookup.set(u.id, u);
+  });
   parsed.commissionEntries.forEach((entry: any) => {
     const ym = typeof entry?.date === 'string' && /^\d{4}-\d{2}/.test(entry.date) ? entry.date.slice(0, 7) : null;
     if (ym && !parsed.commissionMonths.includes(ym)) {
       parsed.commissionMonths.push(ym);
     }
-    const agName = typeof entry?.agent === 'string' ? entry.agent.trim() : '';
-    if (agName && (agName.toLowerCase() === 'faysal' || agName.toLowerCase() === 'rh faysal') && entry.agent !== 'RH FAYSAL') {
-      entry.agent = 'RH FAYSAL';
-      entry.updatedAt = nowTs;
-      parsed.__migratedPersons = true;
+    if (!entry.createdByUserId && entry.agentId && userLookup.has(entry.agentId)) {
+      const creatorUser = userLookup.get(entry.agentId);
+      entry.createdByUserId = creatorUser.id;
+      entry.createdByName = creatorUser.name;
     }
   });
 
   // Only backfill missing user fields — never overwrite existing saved user preferences/settings
   parsed.users.forEach((u: any) => {
     if (u.role === 'cashier' || u.role === 'user') u.role = 'staff';
+    if (u.role === 'admin') {
+      u.isCommissionOnly = false;
+      u.isCommissionBazarOnly = false;
+    }
     if (!u.theme) u.theme = 'midnight-gold';
     if (!u.displayMode) u.displayMode = 'light';
     if (!u.language) u.language = 'en';
@@ -549,7 +541,17 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
     if (u.canEditCustomers === undefined) u.canEditCustomers = u.role !== 'viewer';
     if (u.canApproveInvoices === undefined) u.canApproveInvoices = u.role === 'owner' || u.role === 'admin' || u.role === 'manager';
     if (u.canManageCommissions === undefined) u.canManageCommissions = u.role === 'owner' || u.role === 'admin' || u.role === 'manager';
-    if (u.canManageBazar === undefined) u.canManageBazar = u.role === 'owner' || !u.isCommissionOnly;
+    if (u.canAddCommissionRecords === undefined) u.canAddCommissionRecords = u.role === 'owner' || u.role === 'admin' || Boolean(u.canManageCommissions);
+    if (u.canEditCommissionRecords === undefined) u.canEditCommissionRecords = u.role === 'owner' || u.role === 'admin' || Boolean(u.canManageCommissions);
+    if (u.canDeleteCommissionRecords === undefined) u.canDeleteCommissionRecords = u.role === 'owner' || u.role === 'admin' || (Boolean(u.canManageCommissions) && Boolean(u.canDelete));
+    if (u.canPayCommissions === undefined) u.canPayCommissions = u.role === 'owner' || u.role === 'admin' || Boolean(u.canManageCommissions);
+    if (u.canImportCommissions === undefined) u.canImportCommissions = u.role === 'owner' || u.role === 'admin' || Boolean(u.canManageCommissions);
+    if (u.canManageCommissionMonths === undefined) u.canManageCommissionMonths = u.role === 'owner' || u.role === 'admin' || Boolean(u.canManageCommissions);
+    if (u.canAddCommissionPersons === undefined) u.canAddCommissionPersons = u.role === 'owner' || u.role === 'admin';
+    if (u.canEditCommissionPersons === undefined) u.canEditCommissionPersons = u.role === 'owner' || u.role === 'admin' || Boolean(u.canAddCommissionPersons);
+    if (u.canDeleteCommissionPersons === undefined) u.canDeleteCommissionPersons = u.role === 'owner' || u.role === 'admin';
+    if (u.canMergeCommissionPersons === undefined) u.canMergeCommissionPersons = u.role === 'owner' || u.role === 'admin';
+    if (u.canManageBazar === undefined) u.canManageBazar = u.role === 'owner' || u.role === 'admin' || !u.isCommissionOnly;
     if (u.canManageBuyers === undefined) u.canManageBuyers = u.role === 'owner' || u.role === 'admin';
     if (u.isCommissionBazarOnly) {
       u.isCommissionOnly = false;
@@ -557,6 +559,77 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
       if (u.canManageBazar === undefined) u.canManageBazar = true;
     }
   });
+
+  // One-time idempotent migration: ensure @faysal_jubail (rh.faysal@icloud.com) is Admin with full Commission edit/delete & non-restricted visibility
+  if (!parsed.migrationsApplied.grantedFaysalJubailAdminFullPerms) {
+    const faysalJubail = (parsed.users || []).find(
+      (u: any) =>
+        u &&
+        (u.id === 'usr_1794966238667_20' ||
+          String(u.username || '').toLowerCase() === 'faysal_jubail' ||
+          String(u.email || '').toLowerCase() === 'rh.faysal@icloud.com' ||
+          String(u.appleId || '').toLowerCase() === 'rh.faysal@icloud.com')
+    );
+    if (faysalJubail) {
+      faysalJubail.role = 'admin';
+      faysalJubail.isCommissionOnly = false;
+      faysalJubail.isCommissionBazarOnly = false;
+      faysalJubail.canExport = true;
+      faysalJubail.canDelete = true;
+      faysalJubail.canAddTransactions = true;
+      faysalJubail.canViewLedger = true;
+      faysalJubail.canEditCustomers = true;
+      faysalJubail.canApproveInvoices = true;
+      faysalJubail.canManageCommissions = true;
+      faysalJubail.canAddCommissionRecords = true;
+      faysalJubail.canEditCommissionRecords = true;
+      faysalJubail.canDeleteCommissionRecords = true;
+      faysalJubail.canPayCommissions = true;
+      faysalJubail.canImportCommissions = true;
+      faysalJubail.canManageCommissionMonths = true;
+      faysalJubail.canAddCommissionPersons = true;
+      faysalJubail.canEditCommissionPersons = true;
+      faysalJubail.canDeleteCommissionPersons = true;
+      faysalJubail.canMergeCommissionPersons = true;
+      faysalJubail.canManageBazar = true;
+      faysalJubail.canManageBuyers = true;
+      faysalJubail.updatedAt = nowTs;
+    }
+    parsed.migrationsApplied.grantedFaysalJubailAdminFullPerms = true;
+    parsed.__migratedPersons = true;
+  }
+
+  // One-time idempotent migration: remove "Ahmed" from Owner display name ("Faysal (Main Owner)")
+  if (!parsed.migrationsApplied.removedAhmedFromOwnerName) {
+    const ownerAcc = (parsed.users || []).find((u: any) => u && (u.id === 'usr_owner_faisal' || u.role === 'owner'));
+    if (ownerAcc && typeof ownerAcc.name === 'string' && /faysal\s+ahmed/i.test(ownerAcc.name)) {
+      ownerAcc.name = ownerAcc.name.replace(/faysal\s+ahmed/i, 'Faysal').trim();
+      ownerAcc.updatedAt = nowTs;
+    }
+    if (Array.isArray(parsed.globalSettings?.bazarBuyers)) {
+      parsed.globalSettings.bazarBuyers.forEach((b: any) => {
+        if (b && b.buyerId === 'rh.faysal007' && typeof b.name === 'string' && /faysal\s+ahmed/i.test(b.name)) {
+          b.name = b.name.replace(/faysal\s+ahmed/i, 'Faysal').trim();
+        }
+      });
+    }
+    parsed.migrationsApplied.removedAhmedFromOwnerName = true;
+    parsed.__migratedPersons = true;
+  }
+
+  // One-time idempotent migration: rename appName to "ZF Accounting"
+  if (!parsed.migrationsApplied.renamedAppToZFAccounting) {
+    if (!parsed.globalSettings) parsed.globalSettings = {};
+    const curApp = String(parsed.globalSettings.appName || '').trim();
+    if (!curApp || /^zara\s+accounting(\s+app)?$/i.test(curApp)) {
+      parsed.globalSettings.appName = 'ZF Accounting';
+    }
+    if (typeof parsed.globalSettings.broadcastMessage === 'string' && /ZARA Accounting/i.test(parsed.globalSettings.broadcastMessage)) {
+      parsed.globalSettings.broadcastMessage = parsed.globalSettings.broadcastMessage.replace(/ZARA Accounting/gi, 'ZF Accounting');
+    }
+    parsed.migrationsApplied.renamedAppToZFAccounting = true;
+    parsed.__migratedPersons = true;
+  }
 
   // Self-heal profile & customer photos between PHOTOS_DIR and embedded photoData
   const rehydrateRecordPhoto = (rec: any) => {
@@ -714,6 +787,7 @@ function saveDatabase(database: DatabaseSchema) {
     fs.renameSync(tempPath, DB_FILE);
     lastServerSaveAt = Date.now();
     writeRollingCheckpoint(serialized, false);
+    scheduleAdminFirestoreSync(database);
   } catch (err) {
     console.error('Error persisting database:', err);
   }
@@ -721,6 +795,9 @@ function saveDatabase(database: DatabaseSchema) {
 
 // In-memory active database
 let db = loadDatabase();
+if (db.ownerFirebaseUid) {
+  setKnownOwnerUid(db.ownerFirebaseUid);
+}
 
 // Continuous background checkpoint backup every 5 minutes
 setInterval(() => {
@@ -818,6 +895,7 @@ function getAppVersionInfo() {
     version: db.globalSettings?.version || '2.5.0-gold',
     settingsUpdatedAt: Number(db.globalSettings?.updatedAt) || 0,
     forceRefreshAt: Number(db.globalSettings?.forceRefreshAt) || 0,
+    dataUpdatedAt: lastServerSaveAt,
     serverTime: Date.now(),
   };
 }
@@ -840,7 +918,7 @@ async function startServer() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Firebase-Id-Token');
       res.setHeader('Access-Control-Expose-Headers', 'x-auth-token');
     }
     if (req.method === 'OPTIONS') {
@@ -975,6 +1053,63 @@ async function startServer() {
       return res.status(403).json({ error: 'Access Denied: Only the Main Owner has administrative authority for this action' });
     }
     next();
+  };
+
+  // Helper middleware for Owner or Admin routes (e.g. Commission Person Photo management)
+  const ownerOrAdminMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const user = (req as any).user as DbUser;
+    if (user.role !== 'owner' && user.role !== 'admin') {
+      return res.status(403).json({ error: 'Access Denied: Owner or Admin authority required for this action' });
+    }
+    next();
+  };
+
+  // Strict authorization guard for Admin SDK Firestore routes (bypasses firestore.rules, so enforces explicit verification)
+  const verifiedFirebaseOwnerMiddleware = async (
+    req: express.Request,
+    res: express.Response,
+    next: express.NextFunction
+  ) => {
+    const rawHeaderIdToken = req.headers['x-firebase-id-token'];
+    const bodyIdToken = typeof req.body?.idToken === 'string' ? req.body.idToken : undefined;
+    const candidateIdToken =
+      typeof rawHeaderIdToken === 'string' && rawHeaderIdToken.trim()
+        ? rawHeaderIdToken.trim()
+        : bodyIdToken?.trim();
+
+    if (candidateIdToken) {
+      const verified = await verifyFirebaseOwnerIdToken(candidateIdToken);
+      if (!verified) {
+        return res.status(403).json({ error: 'Access Denied: Invalid or unauthorized Firebase ID token' });
+      }
+      (req as any).verifiedFirebaseOwnerUid = verified.uid;
+      if (db.ownerFirebaseUid !== verified.uid) {
+        db.ownerFirebaseUid = verified.uid;
+      }
+      return next();
+    }
+
+    const authHeader = req.headers.authorization;
+    const bearerToken =
+      authHeader && authHeader.startsWith('Bearer ')
+        ? authHeader.slice(7).trim()
+        : typeof req.query?.token === 'string'
+          ? req.query.token.trim()
+          : '';
+
+    if (!bearerToken || bearerToken.startsWith('token_auto_')) {
+      return res.status(401).json({
+        error: 'Authentication required: Sign in as Main Owner or provide a verified Firebase ID token',
+      });
+    }
+
+    const sessionUser = SESSIONS.get(bearerToken);
+    if (!sessionUser || sessionUser.role !== 'owner' || sessionUser.status === 'disabled') {
+      return res.status(403).json({ error: 'Access Denied: Verified Main Owner session required' });
+    }
+
+    (req as any).user = sessionUser;
+    return next();
   };
 
   /* ------------------- AUTH ROUTES ------------------- */
@@ -1258,6 +1393,16 @@ async function startServer() {
       canEditCustomers,
       canApproveInvoices,
       canManageCommissions,
+      canAddCommissionRecords,
+      canEditCommissionRecords,
+      canDeleteCommissionRecords,
+      canPayCommissions,
+      canImportCommissions,
+      canManageCommissionMonths,
+      canAddCommissionPersons,
+      canEditCommissionPersons,
+      canDeleteCommissionPersons,
+      canMergeCommissionPersons,
       canManageBazar,
       canManageBuyers,
       isCommissionOnly,
@@ -1313,8 +1458,9 @@ async function startServer() {
     }
 
     const assignedRole = role || 'staff';
-    const commBazarOnlyFlag = Boolean(isCommissionBazarOnly);
-    const commOnlyFlag = !commBazarOnlyFlag && Boolean(isCommissionOnly);
+    const isNewAdmin = assignedRole === 'admin';
+    const commBazarOnlyFlag = !isNewAdmin && Boolean(isCommissionBazarOnly);
+    const commOnlyFlag = !isNewAdmin && !commBazarOnlyFlag && Boolean(isCommissionOnly);
     const restrictedFlag = commOnlyFlag || commBazarOnlyFlag;
     const newUser: DbUser = {
       id: 'usr_' + Date.now() + '_' + Math.floor(Math.random() * 1000),
@@ -1328,14 +1474,24 @@ async function startServer() {
       workspaceName: workspaceName?.trim() || `${name.trim()}'s Workspace`,
       status: 'active',
       canExport: canExport !== undefined ? canExport : true,
-      canDelete: canDelete !== undefined ? canDelete : false,
+      canDelete: canDelete !== undefined ? canDelete : isNewAdmin,
       canAddTransactions: canAddTransactions !== undefined ? canAddTransactions : !restrictedFlag,
       canViewLedger: canViewLedger !== undefined ? canViewLedger : !restrictedFlag,
       canEditCustomers: canEditCustomers !== undefined ? canEditCustomers : (!restrictedFlag && assignedRole !== 'viewer'),
-      canApproveInvoices: canApproveInvoices !== undefined ? canApproveInvoices : (!restrictedFlag && (assignedRole === 'admin' || assignedRole === 'manager')),
-      canManageCommissions: canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || assignedRole === 'admin'),
-      canManageBazar: canManageBazar !== undefined ? canManageBazar : (commBazarOnlyFlag || !commOnlyFlag),
-      canManageBuyers: canManageBuyers !== undefined ? canManageBuyers : (assignedRole === 'admin'),
+      canApproveInvoices: canApproveInvoices !== undefined ? canApproveInvoices : (!restrictedFlag && (isNewAdmin || assignedRole === 'manager')),
+      canManageCommissions: canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin),
+      canAddCommissionRecords: canAddCommissionRecords !== undefined ? Boolean(canAddCommissionRecords) : Boolean(canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin)),
+      canEditCommissionRecords: canEditCommissionRecords !== undefined ? Boolean(canEditCommissionRecords) : Boolean(canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin)),
+      canDeleteCommissionRecords: canDeleteCommissionRecords !== undefined ? Boolean(canDeleteCommissionRecords) : (isNewAdmin || Boolean(canDelete)),
+      canPayCommissions: canPayCommissions !== undefined ? Boolean(canPayCommissions) : Boolean(canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin)),
+      canImportCommissions: canImportCommissions !== undefined ? Boolean(canImportCommissions) : Boolean(canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin)),
+      canManageCommissionMonths: canManageCommissionMonths !== undefined ? Boolean(canManageCommissionMonths) : Boolean(canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin)),
+      canAddCommissionPersons: canAddCommissionPersons !== undefined ? Boolean(canAddCommissionPersons) : isNewAdmin,
+      canEditCommissionPersons: canEditCommissionPersons !== undefined ? Boolean(canEditCommissionPersons) : isNewAdmin,
+      canDeleteCommissionPersons: canDeleteCommissionPersons !== undefined ? Boolean(canDeleteCommissionPersons) : isNewAdmin,
+      canMergeCommissionPersons: canMergeCommissionPersons !== undefined ? Boolean(canMergeCommissionPersons) : isNewAdmin,
+      canManageBazar: canManageBazar !== undefined ? canManageBazar : (isNewAdmin || commBazarOnlyFlag || !commOnlyFlag),
+      canManageBuyers: canManageBuyers !== undefined ? canManageBuyers : isNewAdmin,
       isCommissionOnly: commOnlyFlag,
       isCommissionBazarOnly: commBazarOnlyFlag,
       theme: theme || db.globalSettings.defaultTheme || 'midnight-gold',
@@ -1396,6 +1552,16 @@ async function startServer() {
       canEditCustomers,
       canApproveInvoices,
       canManageCommissions,
+      canAddCommissionRecords,
+      canEditCommissionRecords,
+      canDeleteCommissionRecords,
+      canPayCommissions,
+      canImportCommissions,
+      canManageCommissionMonths,
+      canAddCommissionPersons,
+      canEditCommissionPersons,
+      canDeleteCommissionPersons,
+      canMergeCommissionPersons,
       canManageBazar,
       canManageBuyers,
       theme, 
@@ -1462,6 +1628,7 @@ async function startServer() {
       targetUser.idProvider = idProvider;
     }
 
+    const prevRole = targetUser.role;
     if (name) targetUser.name = name.trim();
     if (password && password.trim().length >= 4) {
       targetUser.passwordHash = hashPassword(password.trim());
@@ -1476,10 +1643,31 @@ async function startServer() {
     if (canEditCustomers !== undefined) targetUser.canEditCustomers = canEditCustomers;
     if (canApproveInvoices !== undefined) targetUser.canApproveInvoices = canApproveInvoices;
     if (canManageCommissions !== undefined) targetUser.canManageCommissions = canManageCommissions;
+    if (canAddCommissionRecords !== undefined) targetUser.canAddCommissionRecords = Boolean(canAddCommissionRecords);
+    if (canEditCommissionRecords !== undefined) targetUser.canEditCommissionRecords = Boolean(canEditCommissionRecords);
+    if (canDeleteCommissionRecords !== undefined) targetUser.canDeleteCommissionRecords = Boolean(canDeleteCommissionRecords);
+    if (canPayCommissions !== undefined) targetUser.canPayCommissions = Boolean(canPayCommissions);
+    if (canImportCommissions !== undefined) targetUser.canImportCommissions = Boolean(canImportCommissions);
+    if (canManageCommissionMonths !== undefined) targetUser.canManageCommissionMonths = Boolean(canManageCommissionMonths);
+    if (canAddCommissionPersons !== undefined) targetUser.canAddCommissionPersons = Boolean(canAddCommissionPersons);
+    if (canEditCommissionPersons !== undefined) targetUser.canEditCommissionPersons = Boolean(canEditCommissionPersons);
+    if (canDeleteCommissionPersons !== undefined) targetUser.canDeleteCommissionPersons = Boolean(canDeleteCommissionPersons);
+    if (canMergeCommissionPersons !== undefined) targetUser.canMergeCommissionPersons = Boolean(canMergeCommissionPersons);
     if (canManageBazar !== undefined) targetUser.canManageBazar = canManageBazar;
     if (canManageBuyers !== undefined) targetUser.canManageBuyers = canManageBuyers;
     if (req.body.isCommissionOnly !== undefined) targetUser.isCommissionOnly = Boolean(req.body.isCommissionOnly);
     if (req.body.isCommissionBazarOnly !== undefined) targetUser.isCommissionBazarOnly = Boolean(req.body.isCommissionBazarOnly);
+    if (targetUser.role === 'admin') {
+      targetUser.isCommissionOnly = false;
+      targetUser.isCommissionBazarOnly = false;
+      if (prevRole !== 'admin') {
+        if (canDeleteCommissionRecords === undefined) targetUser.canDeleteCommissionRecords = true;
+        if (canAddCommissionPersons === undefined) targetUser.canAddCommissionPersons = true;
+        if (canEditCommissionPersons === undefined) targetUser.canEditCommissionPersons = true;
+        if (canDeleteCommissionPersons === undefined) targetUser.canDeleteCommissionPersons = true;
+        if (canMergeCommissionPersons === undefined) targetUser.canMergeCommissionPersons = true;
+      }
+    }
     if (theme) targetUser.theme = theme;
     if (displayMode) targetUser.displayMode = displayMode;
     if (language) targetUser.language = language;
@@ -2729,7 +2917,10 @@ async function startServer() {
   // 1. Get All Home Bazar Entries, Summary & Buyers
   app.get('/api/home-bazar', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
-    if (currentUser.role !== 'owner' && (currentUser.isCommissionOnly || currentUser.canManageBazar === false)) {
+    if (
+      currentUser.role !== 'owner' &&
+      ((currentUser.role !== 'admin' && currentUser.isCommissionOnly) || currentUser.canManageBazar === false)
+    ) {
       return res.status(403).json({ error: 'Permission denied: Daily Bazar access is disabled for this user.' });
     }
     const list = db.homeBazarEntries || [];
@@ -3225,7 +3416,7 @@ async function startServer() {
   /* ------------------- COMMISSION SHEET SPREADSHEET API ------------------- */
   function ensureCommissionPersonAccount(
     personName: string,
-    extra?: { iqamaNo?: string; phone?: string; office?: string; linkedUserId?: string }
+    extra?: { iqamaNo?: string; phone?: string; office?: string; linkedUserId?: string; createdByUserId?: string; createdByName?: string }
   ): DbCommissionPersonAccount | null {
     const cleanName = (personName || '').trim();
     if (!cleanName || cleanName.toLowerCase() === 'all' || cleanName.toLowerCase() === 'all persons') return null;
@@ -3271,6 +3462,8 @@ async function startServer() {
       phone: extra?.phone?.trim() || '',
       office: extra?.office?.trim() || '',
       linkedUserId: extra?.linkedUserId || matchedUser?.id,
+      ...(extra?.createdByUserId ? { createdByUserId: extra.createdByUserId } : {}),
+      ...(extra?.createdByName ? { createdByName: extra.createdByName } : {}),
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -3285,6 +3478,9 @@ async function startServer() {
       db.commissionMonths.push(ym);
       db.commissionMonths.sort();
     }
+    if (ym && db.deletedCommissionMonths && db.deletedCommissionMonths[ym]) {
+      delete db.deletedCommissionMonths[ym];
+    }
   }
 
   // Auto-sync Commission Payouts & Person Account Ledger Entries in db.transactions
@@ -3298,8 +3494,8 @@ async function startServer() {
       const txObj: DbTransaction = {
         id: txId,
         userId: actor.id,
-        workspaceUserId: entry.agentId || actor.id,
-        description: `Commission Account (${entry.agent}): Invoice #${entry.invoiceNo} - ${entry.client}`,
+        workspaceUserId: entry.createdByUserId || entry.agentId || actor.id,
+        description: `Commission Account (${entry.agent || 'Unassigned'}): Invoice #${entry.invoiceNo} - ${entry.client}`,
         amount,
         type: 'expense',
         category: 'salary',
@@ -3308,7 +3504,7 @@ async function startServer() {
         updatedAt: Date.now(),
         notes: `Auto-synced from Commission Statement • Service: ${entry.service}`,
         createdByName: actor.name,
-        customerName: entry.agent,
+        customerName: entry.agent || entry.client,
         syncedToCloud: true,
       };
       if (existingIdx !== -1) {
@@ -3325,30 +3521,37 @@ async function startServer() {
     }
   }
 
-  // Resolve a record's agent name against manually registered Persons without ever auto-creating new Persons
+  // Resolve a record's agent name against manually registered Persons without ever auto-creating new Persons or falling back to Owner
   function resolveExplicitCommissionPerson(rawName?: string): { name: string; linkedUserId?: string } {
     const persons = db.commissionPersons || [];
     const trimmed = String(rawName || '').trim();
     if (!trimmed) {
-      const primary = persons[0];
-      return { name: primary?.name || 'RH FAYSAL', linkedUserId: primary?.linkedUserId };
+      return { name: '' };
     }
     const lower = trimmed.toLowerCase();
     const directMatch = persons.find((p) => p.name.trim().toLowerCase() === lower);
     if (directMatch) {
       return { name: directMatch.name, linkedUserId: directMatch.linkedUserId };
     }
-    if (lower === 'faysal') {
-      const rhMatch = persons.find((p) => p.name.trim().toLowerCase() === 'rh faysal');
-      if (rhMatch) {
-        return { name: rhMatch.name, linkedUserId: rhMatch.linkedUserId };
-      }
-    }
     return { name: trimmed };
   }
 
+  function hasCommissionSheetAccess(u: DbUser): boolean {
+    return (
+      u.role === 'owner' ||
+      u.role === 'admin' ||
+      Boolean(u.canManageCommissions) ||
+      Boolean(u.isCommissionOnly) ||
+      Boolean(u.isCommissionBazarOnly)
+    );
+  }
+
   // Commission Person Accounts API (Manual Persons only — NEVER auto-generated from entries or user profiles)
-  app.get('/api/commission-persons', authMiddleware, (_req, res) => {
+  app.get('/api/commission-persons', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (!hasCommissionSheetAccess(currentUser)) {
+      return res.status(403).json({ error: 'Permission denied: Commission Sheet access is disabled for this user.' });
+    }
     const persons = db.commissionPersons || [];
     const entries = (db.commissionEntries || []).filter((c) => !isAutoSyncedCustomerInvoiceCommission(c));
 
@@ -3425,22 +3628,44 @@ async function startServer() {
     person.photoData = undefined;
   }
 
+  function canPerformCommissionAction(u: DbUser, specificFlag?: boolean): boolean {
+    if (u.role === 'owner') return true;
+    if (u.role === 'admin') {
+      return u.canManageCommissions !== false && specificFlag !== false;
+    }
+    return Boolean(u.canManageCommissions) && specificFlag !== false;
+  }
+
+  function canPerformPersonAction(u: DbUser, specificFlag?: boolean): boolean {
+    if (u.role === 'owner') return true;
+    if (u.role === 'admin') return specificFlag !== false;
+    return specificFlag === true;
+  }
+
   app.post('/api/commission-persons', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (!canPerformPersonAction(currentUser, currentUser.canAddCommissionPersons)) {
+      return res.status(403).json({
+        error: 'Permission denied: Owner permission required to add Commission Person accounts.',
+      });
+    }
     const { name, iqamaNo, phone, office, linkedUserId, photoBase64 } = req.body;
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Person name is required' });
     }
-    if (photoBase64 && currentUser.role !== 'owner') {
-      return res.status(403).json({ error: 'Owner Only: Only the Owner can add or change a person photo.' });
+    const canManagePhoto = currentUser.role === 'owner' || (currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
+    if (photoBase64 && !canManagePhoto) {
+      return res.status(403).json({ error: 'Owner / Admin Only: Permission required to add or change a person photo.' });
     }
     const person = ensureCommissionPersonAccount(String(name).trim(), {
       iqamaNo: iqamaNo !== undefined ? String(iqamaNo) : undefined,
       phone: phone !== undefined ? String(phone) : undefined,
       office: office !== undefined ? String(office) : undefined,
       linkedUserId,
+      createdByUserId: currentUser.id,
+      createdByName: currentUser.name,
     });
-    if (person && photoBase64 && typeof photoBase64 === 'string' && currentUser.role === 'owner') {
+    if (person && photoBase64 && typeof photoBase64 === 'string' && canManagePhoto) {
       try {
         applyCommissionPersonPhoto(person, photoBase64);
         person.updatedAt = Date.now();
@@ -3455,6 +3680,11 @@ async function startServer() {
 
   app.put('/api/commission-persons/:id', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (!canPerformPersonAction(currentUser, currentUser.canEditCommissionPersons)) {
+      return res.status(403).json({
+        error: 'Permission denied: Owner permission required to edit Commission Person accounts.',
+      });
+    }
     const targetId = req.params.id;
     db.commissionPersons = db.commissionPersons || [];
     const idx = db.commissionPersons.findIndex((p) => p.id === targetId);
@@ -3465,8 +3695,9 @@ async function startServer() {
     const oldName = existing.name;
     const { name, iqamaNo, phone, office, photoBase64, removePhoto } = req.body;
 
-    if ((photoBase64 || removePhoto) && currentUser.role !== 'owner') {
-      return res.status(403).json({ error: 'Owner Only: Only the Owner can change or remove a person photo.' });
+    const canManagePhoto = currentUser.role === 'owner' || (currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
+    if ((photoBase64 || removePhoto) && !canManagePhoto) {
+      return res.status(403).json({ error: 'Owner / Admin Only: Permission required to change or remove a person photo.' });
     }
 
     if (name && String(name).trim()) existing.name = String(name).trim();
@@ -3474,9 +3705,9 @@ async function startServer() {
     if (phone !== undefined) existing.phone = String(phone).trim();
     if (office !== undefined) existing.office = String(office).trim();
 
-    if (removePhoto && currentUser.role === 'owner') {
+    if (removePhoto && canManagePhoto) {
       removeCommissionPersonPhotoFiles(existing);
-    } else if (photoBase64 && typeof photoBase64 === 'string' && currentUser.role === 'owner') {
+    } else if (photoBase64 && typeof photoBase64 === 'string' && canManagePhoto) {
       try {
         applyCommissionPersonPhoto(existing, photoBase64);
       } catch (err: any) {
@@ -3499,12 +3730,20 @@ async function startServer() {
 
     saveDatabase(db);
     notifySubscribers('commission_person_updated', { person: existing });
+    if (name && oldName.toLowerCase() !== existing.name.toLowerCase()) {
+      notifySubscribers('commission_updated', { type: 'person_renamed', oldName, newName: existing.name });
+    }
     return res.json({ success: true, person: existing });
   });
 
   // Delete Person Account (with optional record reassignment)
   app.delete('/api/commission-persons/:id', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (!canPerformPersonAction(currentUser, currentUser.canDeleteCommissionPersons)) {
+      return res.status(403).json({
+        error: 'Permission denied: Owner permission required to delete Commission Person accounts.',
+      });
+    }
     const targetId = req.params.id;
     const reassignTo = String((req.body && req.body.reassignTo) || req.query.reassignTo || '').trim();
     db.commissionPersons = db.commissionPersons || [];
@@ -3515,7 +3754,15 @@ async function startServer() {
     const target = db.commissionPersons[idx];
     const oldNameLower = target.name.trim().toLowerCase();
 
-    if (reassignTo && reassignTo.toLowerCase() !== oldNameLower) {
+    if (reassignTo === '__CLEAR__') {
+      (db.commissionEntries || []).forEach((e) => {
+        if ((e.agent || '').trim().toLowerCase() === oldNameLower) {
+          e.agent = '';
+          e.agentId = undefined;
+          e.updatedAt = Date.now();
+        }
+      });
+    } else if (reassignTo && reassignTo.toLowerCase() !== oldNameLower) {
       const targetMatch = resolveExplicitCommissionPerson(reassignTo);
       (db.commissionEntries || []).forEach((e) => {
         if ((e.agent || '').trim().toLowerCase() === oldNameLower) {
@@ -3546,9 +3793,60 @@ async function startServer() {
     return res.json({ success: true, deletedId: targetId, deletedName: target.name });
   });
 
+  // Bulk delete EVERY Commission Person account (Owner or Delete-Person permitted users)
+  app.delete('/api/commission-persons', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (!canPerformPersonAction(currentUser, currentUser.canDeleteCommissionPersons)) {
+      return res.status(403).json({
+        error: 'Permission denied: Owner permission required to delete Commission Person accounts.',
+      });
+    }
+    const clearEntryAgents = Boolean((req.body && req.body.clearEntryAgents) || req.query.clearEntryAgents === 'true');
+    const existingList = [...(db.commissionPersons || [])];
+    const now = Date.now();
+    const deletedIds: string[] = [];
+
+    db.deletedRecordIds = db.deletedRecordIds || {};
+    existingList.forEach((p) => {
+      removeCommissionPersonPhotoFiles(p);
+      db.deletedRecordIds![p.id] = now;
+      deletedIds.push(p.id);
+    });
+    db.commissionPersons = [];
+
+    if (clearEntryAgents) {
+      (db.commissionEntries || []).forEach((e) => {
+        if (e.agent || e.agentId) {
+          e.agent = '';
+          e.agentId = undefined;
+          e.updatedAt = now;
+        }
+      });
+    }
+
+    db.auditLogs.unshift({
+      id: 'audit-' + now,
+      timestamp: now,
+      action: 'ALL_COMMISSION_PERSONS_DELETED',
+      performedBy: currentUser.name,
+      details: { deletedCount: deletedIds.length, clearEntryAgents },
+    });
+    saveDatabase(db);
+    notifySubscribers('commission_person_deleted', { id: 'ALL', deletedIds });
+    if (clearEntryAgents) {
+      notifySubscribers('commission_updated', { type: 'all_persons_cleared' });
+    }
+    return res.json({ success: true, deletedCount: deletedIds.length, deletedIds });
+  });
+
   // Merge one Person (and all their commission records) into another Person
   app.post('/api/commission-persons/merge', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (!canPerformPersonAction(currentUser, currentUser.canMergeCommissionPersons)) {
+      return res.status(403).json({
+        error: 'Permission denied: Owner permission required to merge Commission Person accounts.',
+      });
+    }
     const { sourceId, sourceName, targetId, targetName } = req.body || {};
     db.commissionPersons = db.commissionPersons || [];
 
@@ -3638,9 +3936,12 @@ async function startServer() {
     });
   });
 
-  // Owner-Only Person Photo Upload & Delete endpoints
-  app.post('/api/commission-persons/:id/photo', authMiddleware, ownerOnlyMiddleware, (req, res) => {
+  // Owner & Admin Person Photo Upload & Delete endpoints
+  app.post('/api/commission-persons/:id/photo', authMiddleware, ownerOrAdminMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && currentUser.canEditCommissionPersons === false) {
+      return res.status(403).json({ error: 'Permission denied: Person photo edit permission disabled.' });
+    }
     const targetId = req.params.id;
     db.commissionPersons = db.commissionPersons || [];
     const person = db.commissionPersons.find((p) => p.id === targetId);
@@ -3669,8 +3970,11 @@ async function startServer() {
     return res.json({ success: true, photoUrl: person.photoUrl, person });
   });
 
-  app.delete('/api/commission-persons/:id/photo', authMiddleware, ownerOnlyMiddleware, (req, res) => {
+  app.delete('/api/commission-persons/:id/photo', authMiddleware, ownerOrAdminMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role !== 'owner' && currentUser.canEditCommissionPersons === false) {
+      return res.status(403).json({ error: 'Permission denied: Person photo delete permission disabled.' });
+    }
     const targetId = req.params.id;
     db.commissionPersons = db.commissionPersons || [];
     const person = db.commissionPersons.find((p) => p.id === targetId);
@@ -3692,7 +3996,11 @@ async function startServer() {
   });
 
   // Monthly Sheet Files API
-  app.get('/api/commission-months', authMiddleware, (_req, res) => {
+  app.get('/api/commission-months', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (!hasCommissionSheetAccess(currentUser)) {
+      return res.status(403).json({ error: 'Permission denied: Commission Sheet access is disabled for this user.' });
+    }
     const months = Array.from(
       new Set([...(db.commissionMonths || []), new Date().toISOString().slice(0, 7)])
     ).sort();
@@ -3700,6 +4008,10 @@ async function startServer() {
   });
 
   app.post('/api/commission-months', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (!canPerformCommissionAction(currentUser, currentUser.canManageCommissionMonths)) {
+      return res.status(403).json({ error: 'Permission denied: Month management permission required.' });
+    }
     const { month } = req.body;
     if (!month || !/^\d{4}-\d{2}$/.test(String(month).trim())) {
       return res.status(400).json({ error: 'Month must be in YYYY-MM format (e.g. 2026-11)' });
@@ -3712,20 +4024,36 @@ async function startServer() {
   });
 
   app.delete('/api/commission-months/:month', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (!canPerformCommissionAction(currentUser, currentUser.canManageCommissionMonths)) {
+      return res.status(403).json({ error: 'Permission denied: Month management permission required.' });
+    }
     const ym = req.params.month;
     db.commissionMonths = (db.commissionMonths || []).filter((m) => m !== ym);
+    db.deletedCommissionMonths = db.deletedCommissionMonths || {};
+    db.deletedCommissionMonths[ym] = Date.now();
     saveDatabase(db);
-    notifySubscribers('commission_month_updated', { months: db.commissionMonths });
+    notifySubscribers('commission_month_updated', { months: db.commissionMonths, deletedMonth: ym });
     return res.json({ success: true, months: db.commissionMonths });
   });
 
   app.get('/api/commissions', authMiddleware, (req, res) => {
-    const { agent, period, office } = req.query;
+    const currentUser = (req as any).user as DbUser;
+    if (!hasCommissionSheetAccess(currentUser)) {
+      return res.status(403).json({ error: 'Permission denied: Commission Sheet access is disabled for this user.' });
+    }
+    const { agent, period, office, createdByUserId } = req.query;
     let list = (db.commissionEntries || []).filter((c) => !isAutoSyncedCustomerInvoiceCommission(c));
+
+    // Owner and Admins share full worksheet visibility and can filter by a creator ID.
+    if ((currentUser.role === 'owner' || currentUser.role === 'admin') && createdByUserId && createdByUserId !== 'all') {
+      const targetUid = String(createdByUserId).trim();
+      list = list.filter((c) => (c.createdByUserId || c.agentId) === targetUid);
+    }
 
     if (agent && agent !== 'all') {
       const qAgent = String(agent).trim().toLowerCase();
-      list = list.filter((c) => c.agent.toLowerCase() === qAgent);
+      list = list.filter((c) => (c.agent || '').toLowerCase() === qAgent);
     }
     if (period && period !== 'all') {
       const p = String(period);
@@ -3773,16 +4101,30 @@ async function startServer() {
       currency: db.globalSettings.currency || 'SAR',
     };
 
+    const safeUsersSummary =
+      currentUser.role === 'owner' || currentUser.role === 'admin'
+        ? (db.users || []).map((u) => ({
+            id: u.id,
+            username: u.username,
+            name: u.name,
+            role: u.role,
+          }))
+        : [{ id: currentUser.id, username: currentUser.username, name: currentUser.name, role: currentUser.role }];
+
     return res.json({
       entries: list,
       summary,
       persons: db.commissionPersons || [],
       months: Array.from(new Set([...(db.commissionMonths || []), new Date().toISOString().slice(0, 7)])).sort(),
+      users: safeUsersSummary,
     });
   });
 
   app.post('/api/commissions', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (!canPerformCommissionAction(currentUser, currentUser.canAddCommissionRecords)) {
+      return res.status(403).json({ error: 'Permission denied: Add Commission Record permission required.' });
+    }
     const {
       date,
       office,
@@ -3826,9 +4168,11 @@ async function startServer() {
     const resolvedDate = date || new Date().toISOString().slice(0, 10);
 
     ensureCommissionMonth(resolvedDate);
-    const personAcc = (db.commissionPersons || []).find(
-      (p) => p.name.trim().toLowerCase() === resolvedAgent.toLowerCase()
-    );
+    const personAcc = resolvedAgent
+      ? (db.commissionPersons || []).find(
+          (p) => p.name.trim().toLowerCase() === resolvedAgent.toLowerCase()
+        )
+      : undefined;
 
     const newEntry: DbCommissionEntry = {
       id: 'comm-' + Date.now() + '-' + Math.floor(Math.random() * 1000),
@@ -3837,7 +4181,9 @@ async function startServer() {
       invoiceNo: String(invoiceNo).trim(),
       invoiceStatus: clawbackFlag ? 'Cancelled' : invoiceStatus || (eligibleFlag ? 'Active' : 'Pending'),
       agent: resolvedAgent,
-      agentId: resolvedPerson.linkedUserId || personAcc?.linkedUserId || currentUser.id,
+      ...(resolvedPerson.linkedUserId || personAcc?.linkedUserId
+        ? { agentId: resolvedPerson.linkedUserId || personAcc?.linkedUserId }
+        : {}),
       client: String(client).trim(),
       workerName: workerName?.trim() || undefined,
       clientMobile: clientMobile?.trim() || undefined,
@@ -3857,6 +4203,8 @@ async function startServer() {
       paidAt: payoutStatus === 'Paid' ? Date.now() : undefined,
       period: period || resolvedDate.slice(0, 7),
       notes: notes || undefined,
+      createdByUserId: currentUser.id,
+      createdByName: currentUser.name,
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -3872,7 +4220,7 @@ async function startServer() {
       action: 'COMMISSION_ENTRY_ADDED',
       performedBy: currentUser.name,
       details: {
-        person: newEntry.agent,
+        person: newEntry.agent || 'Unassigned',
         invoiceNo: newEntry.invoiceNo,
         client: newEntry.client,
         commissionAmount: newEntry.commissionAmount,
@@ -3897,16 +4245,35 @@ async function startServer() {
 
     const existing = db.commissionEntries[index];
     const updates = req.body;
+    const isMarkingPaidOnly =
+      updates &&
+      updates.payoutStatus === 'Paid' &&
+      existing.payoutStatus !== 'Paid' &&
+      Object.keys(updates).every((k) => k === 'payoutStatus' || k === 'eligible' || k === 'paidAt');
+    if (isMarkingPaidOnly) {
+      if (!canPerformCommissionAction(currentUser, currentUser.canPayCommissions)) {
+        return res.status(403).json({ error: 'Permission denied: Commission Payout permission required.' });
+      }
+    } else if (!canPerformCommissionAction(currentUser, currentUser.canEditCommissionRecords)) {
+      return res.status(403).json({ error: 'Permission denied: Edit Commission Record permission required.' });
+    }
+    if (
+      updates?.payoutStatus === 'Paid' &&
+      existing.payoutStatus !== 'Paid' &&
+      !canPerformCommissionAction(currentUser, currentUser.canPayCommissions)
+    ) {
+      return res.status(403).json({ error: 'Permission denied: Commission Payout permission required.' });
+    }
 
     if (updates.date) {
       existing.date = String(updates.date);
       ensureCommissionMonth(existing.date);
     }
     if (updates.invoiceNo) existing.invoiceNo = String(updates.invoiceNo).trim();
-    if (updates.agent) {
+    if (updates.agent !== undefined) {
       const resolvedPerson = resolveExplicitCommissionPerson(String(updates.agent));
       existing.agent = resolvedPerson.name;
-      if (resolvedPerson.linkedUserId) existing.agentId = resolvedPerson.linkedUserId;
+      existing.agentId = resolvedPerson.linkedUserId || undefined;
     }
     if (updates.period) existing.period = String(updates.period);
     if (updates.qty !== undefined) existing.qty = Math.max(1, Number(updates.qty) || 1);
@@ -3991,6 +4358,19 @@ async function startServer() {
   });
 
   app.delete('/api/commissions/:id', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    const canDelRec =
+      currentUser.role === 'owner' ||
+      (currentUser.role === 'admin' &&
+        currentUser.canManageCommissions !== false &&
+        currentUser.canDeleteCommissionRecords !== false) ||
+      (currentUser.canManageCommissions &&
+        (currentUser.canDeleteCommissionRecords !== undefined
+          ? currentUser.canDeleteCommissionRecords
+          : currentUser.canDelete));
+    if (!canDelRec) {
+      return res.status(403).json({ error: 'Permission denied: Delete Commission Record permission required.' });
+    }
     const targetId = req.params.id;
     db.commissionEntries = (db.commissionEntries || []).filter((c) => c.id !== targetId);
     db.deletedRecordIds = db.deletedRecordIds || {};
@@ -4009,6 +4389,10 @@ async function startServer() {
 
   // AI-Powered Document / Photo Commission Statement Extractor
   app.post('/api/commissions/ai-extract', authMiddleware, async (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (!canPerformCommissionAction(currentUser, currentUser.canImportCommissions)) {
+      return res.status(403).json({ error: 'Permission denied: Commission Import permission required.' });
+    }
     try {
       const { fileBase64, mimeType = 'image/png' } = req.body;
       if (!fileBase64) {
@@ -4112,6 +4496,9 @@ Return valid JSON matching the schema.`,
   // Batch Import Commission Entries
   app.post('/api/commissions/batch', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (!canPerformCommissionAction(currentUser, currentUser.canImportCommissions)) {
+      return res.status(403).json({ error: 'Permission denied: Commission Import permission required.' });
+    }
     const { entries } = req.body;
     if (!Array.isArray(entries) || entries.length === 0) {
       return res.status(400).json({ error: 'No entries provided to import' });
@@ -4144,7 +4531,7 @@ Return valid JSON matching the schema.`,
         invoiceNo: String(it.invoiceNo).trim(),
         invoiceStatus: it.invoiceStatus || (it.eligible ? 'Active' : (isClawback ? 'Cancelled' : 'Pending')),
         agent: agentName,
-        agentId: resolvedPerson.linkedUserId || currentUser.id,
+        ...(resolvedPerson.linkedUserId ? { agentId: resolvedPerson.linkedUserId } : {}),
         client: String(it.client).trim(),
         workerName: it.workerName?.trim() || undefined,
         clientMobile: it.clientMobile?.trim() || undefined,
@@ -4161,6 +4548,8 @@ Return valid JSON matching the schema.`,
         payoutStatus: it.payoutStatus || (it.eligible ? 'To pay' : (isClawback ? 'Carried over' : 'Not eligible')),
         period: it.period || dateStr.slice(0, 7),
         notes: it.notes || 'Imported record',
+        createdByUserId: currentUser.id,
+        createdByName: currentUser.name,
         createdAt: now + i,
         updatedAt: now + i,
       };
@@ -4178,6 +4567,9 @@ Return valid JSON matching the schema.`,
 
   app.post('/api/commissions/payout', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (!canPerformCommissionAction(currentUser, currentUser.canPayCommissions)) {
+      return res.status(403).json({ error: 'Permission denied: Commission Payout permission required.' });
+    }
     const { agent, entryIds } = req.body;
 
     let targetEntries: DbCommissionEntry[] = [];
@@ -4186,7 +4578,7 @@ Return valid JSON matching the schema.`,
     } else if (agent && agent !== 'all') {
       targetEntries = (db.commissionEntries || []).filter(
         (c) =>
-          c.agent.toLowerCase() === String(agent).toLowerCase() &&
+          (c.agent || '').toLowerCase() === String(agent).toLowerCase() &&
           c.eligible &&
           !c.isClawback &&
           c.payoutStatus === 'To pay'
@@ -4287,6 +4679,9 @@ Return valid JSON matching the schema.`,
       forceRefreshClients,
     } = req.body;
 
+    const prevAppName = db.globalSettings.appName;
+    const prevVersion = db.globalSettings.version;
+
     if (appName !== undefined && String(appName).trim()) db.globalSettings.appName = String(appName).trim();
     if (companyName !== undefined && String(companyName).trim()) db.globalSettings.companyName = String(companyName).trim();
     if (version !== undefined && String(version).trim()) db.globalSettings.version = String(version).trim();
@@ -4299,7 +4694,10 @@ Return valid JSON matching the schema.`,
     if (sidebarBgColor !== undefined) db.globalSettings.sidebarBgColor = sidebarBgColor || undefined;
 
     const now = Date.now();
-    if (forceRefreshClients) {
+    const versionOrBrandChanged =
+      db.globalSettings.version !== prevVersion || db.globalSettings.appName !== prevAppName;
+    const shouldForceRefresh = Boolean(forceRefreshClients || versionOrBrandChanged);
+    if (shouldForceRefresh) {
       db.globalSettings.forceRefreshAt = now;
     }
     db.globalSettings.updatedAt = now;
@@ -4314,9 +4712,11 @@ Return valid JSON matching the schema.`,
     });
     saveDatabase(db);
 
+    const versionInfo = getAppVersionInfo();
     notifySubscribers('global_settings_updated', { globalSettings: db.globalSettings });
-    if (forceRefreshClients) {
-      notifySubscribers('app_update_available', getAppVersionInfo());
+    notifySubscribers('cloud_sync_pulse', versionInfo);
+    if (shouldForceRefresh) {
+      notifySubscribers('app_update_available', versionInfo);
     }
     return res.json({ globalSettings: db.globalSettings });
   });
@@ -4380,6 +4780,70 @@ Return valid JSON matching the schema.`,
 
     notifySubscribers('database_restored', { timestamp: Date.now() });
     return res.json({ success: true, message: 'Database successfully restored from backup' });
+  });
+
+  /* ------------------- FIREBASE ADMIN SDK FIRESTORE SYNC (Owner Control) ------------------- */
+  app.get('/api/admin/firestore/status', verifiedFirebaseOwnerMiddleware, (_req, res) => {
+    return res.json(getAdminFirestoreStatus());
+  });
+
+  app.post('/api/admin/firestore/sync', verifiedFirebaseOwnerMiddleware, async (req, res) => {
+    try {
+      const ownerUidOverride = (req as any).verifiedFirebaseOwnerUid as string | undefined;
+      const direction: 'push' | 'pull' | 'both' =
+        req.body?.direction === 'push' || req.body?.direction === 'pull' ? req.body.direction : 'both';
+
+      let pullResult: { pulled: boolean; changed: boolean; settingsChanged: boolean; status: string } = {
+        pulled: false,
+        changed: false,
+        settingsChanged: false,
+        status: getAdminFirestoreStatus().status,
+      };
+      if (direction === 'pull' || direction === 'both') {
+        pullResult = await pullFromFirestoreAdmin(db, ownerUidOverride);
+        if (pullResult.changed) {
+          saveDatabase(db);
+          if (pullResult.settingsChanged) {
+            notifySubscribers('global_settings_updated', { globalSettings: db.globalSettings });
+          }
+          notifySubscribers('database_restored', { timestamp: Date.now(), source: 'firebase-admin-pull' });
+          notifySubscribers('cloud_sync_pulse', getAppVersionInfo());
+        }
+      }
+
+      let pushResult: { pushed: boolean; writes: number; status: string } = {
+        pushed: false,
+        writes: 0,
+        status: getAdminFirestoreStatus().status,
+      };
+      if (direction === 'push' || direction === 'both') {
+        pushResult = await pushToFirestoreAdmin(db, ownerUidOverride);
+        if (pushResult.pushed && db.ownerFirebaseUid) {
+          // Persist ownerFirebaseUid silently if newly learned
+          try {
+            const serialized = JSON.stringify(db, null, 2);
+            fs.writeFileSync(DB_FILE, serialized, 'utf-8');
+          } catch {}
+        }
+      }
+
+      return res.json({
+        success: true,
+        status: getAdminFirestoreStatus(),
+        pull: pullResult,
+        push: pushResult,
+      });
+    } catch (err: any) {
+      return res.status(500).json({ error: err?.message || 'Admin Firestore sync failed' });
+    }
+  });
+
+  // Authoritative deletion tombstones for cross-browser / non-owner vault sync
+  app.get('/api/sync/tombstones', authMiddleware, (_req, res) => {
+    return res.json({
+      deletedRecordIds: db.deletedRecordIds || {},
+      deletedCommissionMonths: db.deletedCommissionMonths || {},
+    });
   });
 
   // Non-destructive persistent delta recovery: always restores missing/newer records & photos after container updates
@@ -4519,8 +4983,10 @@ Return valid JSON matching the schema.`,
       const incomingPersons = Array.isArray(snapshot.commissionPersons)
         ? snapshot.commissionPersons.filter((p: any) => {
             if (!p?.name) return false;
-            const low = String(p.name).trim().toLowerCase();
-            if (low === 'faysal' && existingPersons.some((ep) => ep.name.trim().toLowerCase() === 'rh faysal')) {
+            if (
+              db.migrationsApplied?.removedDefaultOwnerCommissionPerson &&
+              (p.id === 'person_rh_faysal' || p.linkedUserId === 'usr_owner_faisal')
+            ) {
               return false;
             }
             return true;
@@ -4672,10 +5138,22 @@ Return valid JSON matching the schema.`,
         }
       }
 
+      db.deletedCommissionMonths = db.deletedCommissionMonths || {};
+      const incomingDeletedMonths =
+        snapshot.deletedCommissionMonths && typeof snapshot.deletedCommissionMonths === 'object'
+          ? snapshot.deletedCommissionMonths
+          : {};
+      Object.entries(incomingDeletedMonths).forEach(([ym, delTs]) => {
+        const tsNum = Number(delTs) || 0;
+        if (tsNum > (db.deletedCommissionMonths![ym] || 0)) {
+          db.deletedCommissionMonths![ym] = tsNum;
+        }
+      });
+
       const monthSet = new Set<string>([...(db.commissionMonths || [])]);
       if (Array.isArray(snapshot.commissionMonths)) {
         snapshot.commissionMonths.forEach((m: any) => {
-          if (typeof m === 'string' && /^\d{4}-\d{2}$/.test(m)) {
+          if (typeof m === 'string' && /^\d{4}-\d{2}$/.test(m) && !db.deletedCommissionMonths?.[m]) {
             if (!monthSet.has(m)) changed = true;
             monthSet.add(m);
           }
@@ -4738,6 +5216,8 @@ Return valid JSON matching the schema.`,
     const versionInfo = getAppVersionInfo();
     let clientSeenBuildId = versionInfo.buildId;
     let clientSeenForceAt = versionInfo.forceRefreshAt;
+    let clientSeenSettingsAt = versionInfo.settingsUpdatedAt;
+    let clientSeenDataAt = versionInfo.dataUpdatedAt;
 
     res.write(
       `event: connected\ndata: ${JSON.stringify({
@@ -4756,14 +5236,25 @@ Return valid JSON matching the schema.`,
         ) {
           clientSeenBuildId = latestInfo.buildId;
           clientSeenForceAt = latestInfo.forceRefreshAt;
+          clientSeenSettingsAt = latestInfo.settingsUpdatedAt;
+          clientSeenDataAt = latestInfo.dataUpdatedAt;
           res.write(`event: app_update_available\ndata: ${JSON.stringify(latestInfo)}\n\n`);
+        } else if (latestInfo.settingsUpdatedAt > clientSeenSettingsAt) {
+          clientSeenSettingsAt = latestInfo.settingsUpdatedAt;
+          clientSeenDataAt = latestInfo.dataUpdatedAt;
+          res.write(
+            `event: global_settings_updated\ndata: ${JSON.stringify({ globalSettings: db.globalSettings })}\n\n`
+          );
+        } else if (latestInfo.dataUpdatedAt > clientSeenDataAt) {
+          clientSeenDataAt = latestInfo.dataUpdatedAt;
+          res.write(`event: cloud_sync_pulse\ndata: ${JSON.stringify(latestInfo)}\n\n`);
         } else {
           res.write(`: keepalive ${Date.now()}\n\n`);
         }
       } catch {
         clearInterval(heartbeatTimer);
       }
-    }, 12000);
+    }, 4000);
 
     req.on('close', () => {
       clearInterval(heartbeatTimer);
@@ -4808,8 +5299,8 @@ Return valid JSON matching the schema.`,
       }
       return res.json({
         id: '/',
-        name: 'ZARA Accounting - Cloud Ledger',
-        short_name: 'ZARA Acc',
+        name: 'ZF Accounting - Cloud Ledger',
+        short_name: 'ZF Accounting',
         description:
           'Enterprise cloud daily accounting ledger with real-time sync, daily invoices, and CRM.',
         theme_color: '#101A2C',
@@ -4872,6 +5363,21 @@ Return valid JSON matching the schema.`,
   const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`  VITE v8.3.0  ready in 120 ms\n\n  ➜  Local:   http://localhost:${PORT}/\n  ➜  Network: http://0.0.0.0:${PORT}/`);
     console.log(`ZARA Accounting Server running at http://0.0.0.0:${PORT}`);
+
+    // Initialize Firebase Admin SDK non-blockingly and merge any newer Firestore Owner Control records
+    initFirebaseAdmin();
+    pullFromFirestoreAdmin(db)
+      .then((pullRes) => {
+        if (pullRes.changed) {
+          saveDatabase(db);
+          if (pullRes.settingsChanged) {
+            notifySubscribers('global_settings_updated', { globalSettings: db.globalSettings });
+          }
+          notifySubscribers('database_restored', { timestamp: Date.now(), source: 'firebase-admin-boot' });
+          notifySubscribers('cloud_sync_pulse', getAppVersionInfo());
+        }
+      })
+      .catch(() => {});
   });
 
   httpServer.on('error', (err: NodeJS.ErrnoException) => {

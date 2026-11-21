@@ -18,9 +18,11 @@ import {
   ShoppingBag,
   Bell,
   RefreshCw,
-  X
+  X,
+  Languages,
+  Coins,
 } from 'lucide-react';
-import { UserAccount, GlobalAppSettings, AppTheme } from '../types/accounting';
+import { UserAccount, GlobalAppSettings, AppTheme, CurrencyCode } from '../types/accounting';
 import { ZaraLogo } from './ZaraLogo';
 import { Language } from '../utils/translations';
 import { PWAInstallButton } from './PWAInstallButton';
@@ -61,6 +63,9 @@ interface SidebarProps {
   onOpenPhotoModal: () => void;
   onOpenAuthModal: () => void;
   sidebarBgColor?: string;
+  currentCurrency?: CurrencyCode;
+  onSelectCurrency?: (curr: CurrencyCode) => void;
+  onToggleLang?: () => void;
 }
 
 const LUXURY_THEMES: Array<{
@@ -103,6 +108,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenPhotoModal,
   onOpenAuthModal,
   sidebarBgColor,
+  currentCurrency = 'SAR',
+  onSelectCurrency,
+  onToggleLang,
 }) => {
   const isBn = currentLang === 'bn';
   const isOwner = currentUser.role === 'owner';
@@ -203,23 +211,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
         />
       )}
 
-      {/* Sidebar Container */}
+      {/* Right-Side Sidebar Container */}
       <aside
         style={{
           backgroundColor: sidebarBgColor || 'var(--theme-primary)',
           borderColor: 'var(--theme-accent-border)',
         }}
-        className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col text-slate-200 border-r shadow-2xl transition-all duration-300 ease-in-out safe-area-top
-          ${isOpen ? 'w-64' : 'w-20'}
-          ${isMobileOpen ? 'translate-x-0 !w-72 max-w-[85vw]' : '-translate-x-full lg:translate-x-0'}
+        className={`fixed top-0 bottom-0 right-0 z-40 flex flex-col text-slate-200 border-l shadow-2xl transition-all duration-300 ease-in-out safe-area-top safe-area-bottom
+          ${
+            isMobileOpen
+              ? 'translate-x-0 w-72 max-w-[85vw]'
+              : `${isOpen ? 'w-64' : 'w-20'} translate-x-full lg:translate-x-0`
+          }
         `}
       >
         {/* Brand & Logo Header */}
         <div
           className={`relative border-b border-[#1E293B] shrink-0 transition-all duration-300 ${
             isExpanded
-              ? 'h-16 sm:h-20 px-3.5 flex items-center justify-between gap-2'
-              : 'h-20 px-2 flex items-center justify-center'
+              ? 'h-14 lg:h-20 px-3.5 flex items-center justify-between gap-2'
+              : 'h-14 lg:h-20 px-2 flex items-center justify-center'
           }`}
         >
           <div className={`flex items-center ${isExpanded ? 'gap-3 min-w-0 flex-1' : 'justify-center'}`}>
@@ -227,7 +238,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {isExpanded && (
               <div className="flex flex-col min-w-0">
                 <span className="font-extrabold text-white text-base tracking-tight font-heading truncate">
-                  {globalSettings.appName || 'ZARA Accounting'}
+                  {globalSettings.appName || 'ZF Accounting'}
                 </span>
                 <span className="text-[10px] font-bold text-[#D4AF37] tracking-wider uppercase flex items-center gap-1">
                   <Cloud className="w-2.5 h-2.5 shrink-0" />
@@ -254,18 +265,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className={`hidden lg:flex items-center justify-center transition cursor-pointer ${
               isOpen
                 ? 'p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 shrink-0'
-                : 'absolute -right-3.5 top-1/2 -translate-y-1/2 z-50 w-7 h-7 rounded-full bg-slate-900 text-emerald-300 hover:text-white hover:bg-emerald-600 border border-emerald-400/50 shadow-[0_4px_14px_rgba(0,0,0,0.65),0_0_12px_rgba(16,185,129,0.35)]'
+                : 'absolute -left-3.5 top-1/2 -translate-y-1/2 z-50 w-7 h-7 rounded-full bg-slate-900 text-emerald-300 hover:text-white hover:bg-emerald-600 border border-emerald-400/50 shadow-[0_4px_14px_rgba(0,0,0,0.65),0_0_12px_rgba(16,185,129,0.35)]'
             }`}
             title={isOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
             aria-label={isOpen ? 'Collapse Sidebar' : 'Expand Sidebar'}
           >
-            {isOpen ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            {isOpen ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
           </button>
         </div>
 
         {/* User Card inside Sidebar */}
-        <div className="p-3 border-b border-[#1E293B]">
-          <div className="flex items-center gap-3 p-2 rounded-xl bg-slate-900/60 border border-slate-800">
+        <div className={`${isExpanded ? 'p-3' : 'px-2 py-2.5'} border-b border-[#1E293B]`}>
+          <div className={`flex items-center rounded-xl bg-slate-900/60 border border-slate-800 ${isExpanded ? 'gap-3 p-2' : 'justify-center p-1.5'}`}>
             {/* User Profile Avatar with photo */}
             <div
               onClick={onOpenPhotoModal}
@@ -335,7 +346,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       }
                     : undefined
                 }
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                className={`w-full flex items-center py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                  isExpanded ? 'gap-3 px-3' : 'justify-center px-0'
+                } ${
                   isActive
                     ? item.highlight
                       ? 'theme-gradient-bg text-slate-950 font-bold shadow-md'
@@ -625,17 +638,99 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   </div>
                 )}
               </div>
+
+              {/* 6. Currency Switcher (Moved from Header into Option Bar under side) */}
+              {onSelectCurrency && (
+                isExpanded ? (
+                  <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-slate-900/90 border border-slate-700/80 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Coins className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                      <span className="font-semibold text-[11px] text-slate-200 truncate">
+                        {isBn ? 'কারেন্সি' : 'Currency'}
+                      </span>
+                    </div>
+                    <div className="flex items-center p-0.5 rounded-lg bg-slate-950 border border-slate-800 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => onSelectCurrency('BDT')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black transition cursor-pointer flex items-center gap-1 ${
+                          currentCurrency === 'BDT'
+                            ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Bangladeshi Taka (৳ BDT)"
+                      >
+                        <span>৳</span>
+                        <span>BDT</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onSelectCurrency('SAR')}
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black transition cursor-pointer flex items-center gap-1 ${
+                          currentCurrency === 'SAR'
+                            ? 'bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 shadow-xs'
+                            : 'text-slate-400 hover:text-white'
+                        }`}
+                        title="Saudi Riyal (⃁ SAR)"
+                      >
+                        <span>⃁</span>
+                        <span>SAR</span>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onSelectCurrency(currentCurrency === 'SAR' ? 'BDT' : 'SAR')}
+                    title={isBn ? 'কারেন্সি পরিবর্তন (৳ BDT / ⃁ SAR)' : 'Switch Currency (৳ BDT / ⃁ SAR)'}
+                    className="w-full flex items-center justify-center py-2 rounded-xl bg-slate-900/90 border border-slate-700/80 text-amber-400 hover:bg-slate-800 text-xs font-black transition cursor-pointer"
+                  >
+                    {currentCurrency === 'BDT' ? '৳' : '⃁'}
+                  </button>
+                )
+              )}
+
+              {/* 7. Language Switcher (Moved from Header into Option Bar under side) */}
+              {onToggleLang && (
+                isExpanded ? (
+                  <button
+                    type="button"
+                    onClick={onToggleLang}
+                    title={isBn ? 'Switch to English' : 'বাংলায় দেখুন'}
+                    className="w-full flex items-center justify-between gap-2 px-2.5 py-2 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 text-xs text-slate-200 transition cursor-pointer"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Languages className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                      <span className="font-semibold text-[11px] truncate">
+                        {isBn ? 'ভাষা (Language)' : 'Language'}
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-950 border border-slate-700 text-[10px] font-bold text-blue-300 shrink-0">
+                      {isBn ? 'বাংলা · EN' : 'EN · বাং'}
+                    </span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onToggleLang}
+                    title={isBn ? 'Switch to English' : 'বাংলায় দেখুন'}
+                    className="w-full flex items-center justify-center py-2 rounded-xl bg-slate-900/90 border border-slate-700/80 text-blue-300 hover:bg-slate-800 text-[11px] font-bold transition cursor-pointer"
+                  >
+                    {isBn ? 'EN' : 'বাং'}
+                  </button>
+                )
+              )}
             </div>
           </div>
         </nav>
 
         {/* Bottom Actions */}
-        <div className="p-3 border-t border-[#1E293B] safe-area-bottom">
-          <div className="flex items-center gap-1.5">
+        <div className={`${isExpanded ? 'p-3' : 'p-2'} border-t border-[#1E293B] shrink-0`}>
+          <div className={isExpanded ? 'flex items-center gap-1.5' : 'flex flex-col items-center gap-1.5'}>
             <button
               onClick={onOpenAuthModal}
-              className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer ${
-                !isExpanded ? 'px-0' : ''
+              className={`flex items-center justify-center gap-2 py-2 rounded-xl text-xs font-semibold bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer ${
+                isExpanded ? 'flex-1 px-3' : 'w-full px-0'
               }`}
               title={isBn ? 'ইউজার পরিবর্তন' : 'Switch User'}
             >
@@ -645,7 +740,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
             <button
               onClick={onLogout}
-              className="p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition cursor-pointer"
+              className={`p-2 rounded-xl text-slate-400 hover:text-rose-400 hover:bg-rose-950/40 transition cursor-pointer flex items-center justify-center ${
+                !isExpanded ? 'w-full' : ''
+              }`}
               title={isBn ? 'লগআউট' : 'Logout'}
             >
               <LogOut className="w-4 h-4" />
