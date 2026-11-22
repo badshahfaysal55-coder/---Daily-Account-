@@ -445,6 +445,12 @@ export async function pushToFirestoreAdmin(
           writes++;
         }
 
+        const delegateEmails = (database.users || [])
+          .filter((u: any) => u && u.status !== 'disabled' && u.email && (u.role === 'owner' || u.canManageBazarBuyers === true || u.canManageBazar !== false))
+          .map((u: any) => String(u.email).trim().toLowerCase())
+          .filter(Boolean)
+          .slice(0, 50);
+
         const buyers = Array.isArray(gs.bazarBuyers) ? gs.bazarBuyers : [];
         const activeBuyerIds = new Set<string>();
         for (const b of buyers) {
@@ -462,6 +468,7 @@ export async function pushToFirestoreAdmin(
           if (typeof b.amount === 'number' && Number.isFinite(b.amount)) buyerDoc.amount = b.amount;
           if (b.notes) buyerDoc.notes = clampStr(b.notes, 1000);
           if (b.photoUrl) buyerDoc.photoUrl = clampStr(b.photoUrl, 512);
+          if (delegateEmails.length > 0) buyerDoc.delegateEmails = delegateEmails;
           if (await upsertDoc(ctx, 'bazarBuyers', docId, buyerDoc)) {
             writes++;
           }
@@ -477,7 +484,7 @@ export async function pushToFirestoreAdmin(
         }
       }
 
-      // 3. Users
+      // 3. Users & Bazar Buyer Delegates
       const activeUserIds = new Set<string>();
       for (const u of database.users || []) {
         if (!u?.id || !u?.username || !u?.passwordHash) continue;
@@ -520,6 +527,7 @@ export async function pushToFirestoreAdmin(
         if (u.canChangeCommissionPersonPhoto !== undefined) userDoc.canChangeCommissionPersonPhoto = Boolean(u.canChangeCommissionPersonPhoto);
         if (u.canManageBazar !== undefined) userDoc.canManageBazar = Boolean(u.canManageBazar);
         if (u.canManageBuyers !== undefined) userDoc.canManageBuyers = Boolean(u.canManageBuyers);
+        if (u.canManageBazarBuyers !== undefined) userDoc.canManageBazarBuyers = Boolean(u.canManageBazarBuyers);
         if (u.isCommissionOnly !== undefined) userDoc.isCommissionOnly = Boolean(u.isCommissionOnly);
         if (u.isCommissionBazarOnly !== undefined) userDoc.isCommissionBazarOnly = Boolean(u.isCommissionBazarOnly);
         if (u.theme) userDoc.theme = clampStr(u.theme, 40);
@@ -531,6 +539,17 @@ export async function pushToFirestoreAdmin(
         if (u.photoUrl) userDoc.photoUrl = clampStr(u.photoUrl, 512);
         if (await upsertDoc(ctx, 'users', docId, userDoc)) {
           writes++;
+        }
+        if (u.email && u.status !== 'disabled') {
+          const emailLower = String(u.email).trim().toLowerCase();
+          await upsertDoc(ctx, 'bazarBuyerDelegates', emailLower, {
+            ownerUid: uid,
+            email: clampStr(emailLower, 254),
+            userId: docId,
+            canManageBazarBuyers: u.role === 'owner' || u.canManageBazarBuyers === true,
+            canManageBazar: u.role === 'owner' || u.canManageBazar !== false,
+            clientUpdatedAt: clampNum(u.updatedAt || u.createdAt, Date.now()),
+          }).catch(() => false);
         }
       }
       for (const [recId] of Object.entries(deletedMap)) {

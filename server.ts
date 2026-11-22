@@ -103,7 +103,8 @@ export interface DbUser {
   canMergeCommissionPersons?: boolean; // Permission: Merge Commission Person accounts
   canChangeCommissionPersonPhoto?: boolean; // Permission: Add / change / remove Commission Person photo
   canManageBazar?: boolean;        // Permission: Daily Bazar ledger
-  canManageBuyers?: boolean;       // Permission: Buyer IDs & Buyer photos
+  canManageBuyers?: boolean;       // Permission: Legacy buyer photo flag
+  canManageBazarBuyers?: boolean;  // Permission: Add/edit/delete Bazar Buyer IDs & photos
   isCommissionOnly?: boolean;      // Permission: Commission sheet only
   isCommissionBazarOnly?: boolean; // Permission: Commission sheet & Daily Bazar only
   theme?: AppTheme;
@@ -579,6 +580,8 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
     }
     if (u.canManageBazar === undefined) u.canManageBazar = u.role === 'owner' || u.role === 'admin' || !u.isCommissionOnly;
     if (u.canManageBuyers === undefined) u.canManageBuyers = u.role === 'owner' || u.role === 'admin';
+    if (u.canManageBazarBuyers === undefined) u.canManageBazarBuyers = u.role === 'owner';
+    if (u.role === 'owner') u.canManageBazarBuyers = true;
     if (u.isCommissionBazarOnly) {
       u.isCommissionOnly = false;
       if (u.canManageCommissions === undefined) u.canManageCommissions = true;
@@ -1490,6 +1493,7 @@ async function startServer() {
       canChangeCommissionPersonPhoto,
       canManageBazar,
       canManageBuyers,
+      canManageBazarBuyers,
       isCommissionOnly,
       isCommissionBazarOnly,
       theme, 
@@ -1579,7 +1583,8 @@ async function startServer() {
       canMergeCommissionPersons: canMergeCommissionPersons !== undefined ? Boolean(canMergeCommissionPersons) : isNewAdmin,
       canChangeCommissionPersonPhoto: canChangeCommissionPersonPhoto !== undefined ? Boolean(canChangeCommissionPersonPhoto) : isNewAdmin,
       canManageBazar: canManageBazar !== undefined ? canManageBazar : (isNewAdmin || commBazarOnlyFlag || !commOnlyFlag),
-      canManageBuyers: canManageBuyers !== undefined ? canManageBuyers : isNewAdmin,
+      canManageBuyers: canManageBuyers !== undefined ? Boolean(canManageBuyers) : Boolean(canManageBazarBuyers),
+      canManageBazarBuyers: Boolean(canManageBazarBuyers),
       isCommissionOnly: commOnlyFlag,
       isCommissionBazarOnly: commBazarOnlyFlag,
       theme: theme || db.globalSettings.defaultTheme || 'midnight-gold',
@@ -1592,6 +1597,9 @@ async function startServer() {
     db.users.push(newUser);
 
     // Auto-sync created user into Bazar Buyers directory so every module recognizes them immediately
+    if (db.deletedRecordIds) {
+      delete db.deletedRecordIds[`buyer:${newUser.username.toLowerCase()}`];
+    }
     if (!Array.isArray(db.globalSettings.bazarBuyers)) {
       db.globalSettings.bazarBuyers = [];
     }
@@ -1655,6 +1663,7 @@ async function startServer() {
       canChangeCommissionPersonPhoto,
       canManageBazar,
       canManageBuyers,
+      canManageBazarBuyers,
       theme, 
       displayMode, 
       language 
@@ -1748,7 +1757,9 @@ async function startServer() {
     if (canMergeCommissionPersons !== undefined) targetUser.canMergeCommissionPersons = Boolean(canMergeCommissionPersons);
     if (canChangeCommissionPersonPhoto !== undefined) targetUser.canChangeCommissionPersonPhoto = Boolean(canChangeCommissionPersonPhoto);
     if (canManageBazar !== undefined) targetUser.canManageBazar = canManageBazar;
-    if (canManageBuyers !== undefined) targetUser.canManageBuyers = canManageBuyers;
+    if (canManageBuyers !== undefined) targetUser.canManageBuyers = Boolean(canManageBuyers);
+    if (canManageBazarBuyers !== undefined) targetUser.canManageBazarBuyers = Boolean(canManageBazarBuyers);
+    if (targetUser.role === 'owner') targetUser.canManageBazarBuyers = true;
     if (req.body.isCommissionOnly !== undefined) targetUser.isCommissionOnly = Boolean(req.body.isCommissionOnly);
     if (req.body.isCommissionBazarOnly !== undefined) targetUser.isCommissionBazarOnly = Boolean(req.body.isCommissionBazarOnly);
     if (targetUser.role === 'admin') {
@@ -3026,6 +3037,8 @@ async function startServer() {
 
     (db.users || []).forEach((u) => {
       const key = u.username.toLowerCase();
+      const delTs = db.deletedRecordIds?.[`buyer:${key}`] || 0;
+      if (delTs) return;
       if (!map.has(key)) {
         map.set(key, {
           buyerId: u.username,
@@ -3356,8 +3369,8 @@ async function startServer() {
     if (currentUser.role === 'viewer') {
       return res.status(403).json({ error: 'Viewer accounts have read-only access' });
     }
-    if (currentUser.role !== 'owner' && !currentUser.canManageBuyers) {
-      return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users can manage Buyer IDs and Photos.' });
+    if (currentUser.role !== 'owner' && currentUser.canManageBazarBuyers !== true) {
+      return res.status(403).json({ error: 'Permission denied: Only Owner or users with canManageBazarBuyers permission can manage Buyer IDs and Photos.' });
     }
 
     const { buyerId, name, phone, role, amount, notes, photoBase64, removePhoto } = req.body;
@@ -3370,6 +3383,10 @@ async function startServer() {
 
     const cleanId = String(buyerId).trim();
     const cleanName = String(name).trim();
+
+    if (db.deletedRecordIds) {
+      delete db.deletedRecordIds[`buyer:${cleanId.toLowerCase()}`];
+    }
 
     if (!Array.isArray(db.globalSettings.bazarBuyers)) {
       db.globalSettings.bazarBuyers = [];
@@ -3436,8 +3453,8 @@ async function startServer() {
     if (currentUser.role === 'viewer') {
       return res.status(403).json({ error: 'Viewer accounts have read-only access' });
     }
-    if (currentUser.role !== 'owner' && !currentUser.canManageBuyers) {
-      return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users can edit Buyer IDs and Photos.' });
+    if (currentUser.role !== 'owner' && currentUser.canManageBazarBuyers !== true) {
+      return res.status(403).json({ error: 'Permission denied: Only Owner or users with canManageBazarBuyers permission can edit Buyer IDs and Photos.' });
     }
 
     const originalId = decodeURIComponent(req.params.buyerId).trim();
@@ -3449,7 +3466,7 @@ async function startServer() {
       (b) => b.buyerId.toLowerCase() === originalId.toLowerCase()
     );
 
-    // If buyer came from a registered user not yet materialized in bazarBuyers, materialize it now
+    // If buyer came from a registered user or historical entry not yet materialized in bazarBuyers, materialize it now
     if (idx === -1) {
       const matchedUser = (db.users || []).find(
         (u) => u.username.toLowerCase() === originalId.toLowerCase()
@@ -3463,6 +3480,18 @@ async function startServer() {
           photoData: matchedUser.photoData,
         });
         idx = db.globalSettings.bazarBuyers.length - 1;
+      } else {
+        const matchedEntry = (db.homeBazarEntries || []).find(
+          (e) => (e.buyerId || e.purchasedBy || '').toLowerCase() === originalId.toLowerCase()
+        );
+        if (matchedEntry) {
+          db.globalSettings.bazarBuyers.push({
+            buyerId: matchedEntry.buyerId || originalId,
+            name: matchedEntry.purchasedBy || originalId,
+            role: 'Buyer',
+          });
+          idx = db.globalSettings.bazarBuyers.length - 1;
+        }
       }
     }
 
@@ -3535,6 +3564,13 @@ async function startServer() {
       });
     }
 
+    if (db.deletedRecordIds) {
+      delete db.deletedRecordIds[`buyer:${targetBuyerId.toLowerCase()}`];
+      if (targetBuyerId.toLowerCase() !== previousId.toLowerCase()) {
+        db.deletedRecordIds[`buyer:${previousId.toLowerCase()}`] = Date.now();
+      }
+    }
+
     db.globalSettings.updatedAt = Date.now();
     saveDatabase(db);
     notifySubscribers('bazar_buyers_updated', { buyers: buildMergedBuyersList() });
@@ -3549,39 +3585,47 @@ async function startServer() {
     });
   });
 
-  // 8. Delete Custom Bazar Buyer
+  // 8. Delete Custom Bazar Buyer (removes Buyer ID from bazarBuyers without deleting historical homeBazarEntries)
   app.delete('/api/home-bazar/buyers/:buyerId', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
     if (currentUser.role === 'viewer') {
       return res.status(403).json({ error: 'Viewer accounts cannot delete buyers.' });
     }
-    if (currentUser.role !== 'owner' && (!currentUser.canManageBuyers || !currentUser.canDelete)) {
-      return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users with Delete access can remove Buyer IDs.' });
+    if (currentUser.role !== 'owner' && currentUser.canManageBazarBuyers !== true) {
+      return res.status(403).json({ error: 'Permission denied: Only Owner or users with canManageBazarBuyers permission can remove Buyer IDs.' });
     }
 
-    const targetId = decodeURIComponent(req.params.buyerId).trim().toLowerCase();
+    const rawId = decodeURIComponent(req.params.buyerId).trim();
+    const targetId = rawId.toLowerCase();
     if (!Array.isArray(db.globalSettings.bazarBuyers)) {
-      return res.status(404).json({ error: 'Buyer not found' });
+      db.globalSettings.bazarBuyers = [];
     }
 
     const idx = db.globalSettings.bazarBuyers.findIndex(
       (b) => b.buyerId.toLowerCase() === targetId
     );
-    if (idx === -1) {
+    const existsInUsers = (db.users || []).some((u) => u.username.toLowerCase() === targetId);
+    const existsInEntries = (db.homeBazarEntries || []).some(
+      (e) => (e.buyerId || e.purchasedBy || '').toLowerCase() === targetId
+    );
+
+    if (idx === -1 && !existsInUsers && !existsInEntries) {
       return res.status(404).json({ error: 'Buyer not found' });
     }
 
-    const target = db.globalSettings.bazarBuyers[idx];
-    unlinkPhotoFileSafe(target.photoUrl);
+    if (idx !== -1) {
+      const target = db.globalSettings.bazarBuyers[idx];
+      unlinkPhotoFileSafe(target.photoUrl);
+      db.globalSettings.bazarBuyers.splice(idx, 1);
+    }
 
-    db.globalSettings.bazarBuyers.splice(idx, 1);
     db.deletedRecordIds = db.deletedRecordIds || {};
-    db.deletedRecordIds[`buyer:${target.buyerId.toLowerCase()}`] = Date.now();
+    db.deletedRecordIds[`buyer:${targetId}`] = Date.now();
     db.globalSettings.updatedAt = Date.now();
     saveDatabase(db);
     notifySubscribers('bazar_buyers_updated', { buyers: buildMergedBuyersList() });
 
-    return res.json({ success: true, deletedBuyerId: req.params.buyerId });
+    return res.json({ success: true, deletedBuyerId: rawId });
   });
 
   /* ------------------- COMMISSION SHEET SPREADSHEET API ------------------- */
@@ -5078,6 +5122,7 @@ Return valid JSON matching the schema.`,
         'canChangeCommissionPersonPhoto',
         'canManageBazar',
         'canManageBuyers',
+        'canManageBazarBuyers',
         'isCommissionOnly',
         'isCommissionBazarOnly',
       ];

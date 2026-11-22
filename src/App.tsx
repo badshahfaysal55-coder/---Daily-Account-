@@ -567,6 +567,24 @@ export default function App() {
 
   useEffect(() => {
     let unsubCloudSnapshot: (() => void) | null = null;
+    let unsubUsersSnapshot: (() => void) | null = null;
+    let unsubDelegateSnapshot: (() => void) | null = null;
+
+    const cleanupSubs = () => {
+      if (unsubCloudSnapshot) {
+        unsubCloudSnapshot();
+        unsubCloudSnapshot = null;
+      }
+      if (unsubUsersSnapshot) {
+        unsubUsersSnapshot();
+        unsubUsersSnapshot = null;
+      }
+      if (unsubDelegateSnapshot) {
+        unsubDelegateSnapshot();
+        unsubDelegateSnapshot = null;
+      }
+    };
+
     const unsubFirestore = firestoreSyncService.subscribe((fsStatus) => {
       if (
         fsStatus.isVerifiedOwner &&
@@ -605,17 +623,53 @@ export default function App() {
             } catch {}
           });
         }
+        if (!unsubUsersSnapshot) {
+          unsubUsersSnapshot = firestoreSyncService.subscribeToUsers((remoteUsers) => {
+            if (Array.isArray(remoteUsers) && remoteUsers.length > 0) {
+              setAllUsersList((prev) =>
+                prev.map((localU) => {
+                  const match = remoteUsers.find((ru: any) => ru.id === localU.id);
+                  return match ? { ...localU, ...match } : localU;
+                })
+              );
+              loadInitialDataRef.current();
+            }
+          });
+        }
+        if (unsubDelegateSnapshot) {
+          unsubDelegateSnapshot();
+          unsubDelegateSnapshot = null;
+        }
+      } else if (fsStatus.isAuthenticated && currentUserRef.current.role !== 'owner') {
+        const curEmail = String(
+          currentUserRef.current.email ||
+            (currentUserRef.current.username?.includes('@') ? currentUserRef.current.username : '')
+        )
+          .trim()
+          .toLowerCase();
+        const fsEmail = String(fsStatus.email || '').trim().toLowerCase();
+        if (curEmail && fsEmail && curEmail === fsEmail && !unsubDelegateSnapshot) {
+          unsubDelegateSnapshot = firestoreSyncService.subscribeToDelegatePermission((perm) => {
+            if (perm) {
+              setCurrentUserAccount((prev) => {
+                if (prev.role === 'owner') return prev;
+                if (prev.canManageBazarBuyers === perm.canManageBazarBuyers) return prev;
+                const next = { ...prev, canManageBazarBuyers: Boolean(perm.canManageBazarBuyers) };
+                ApiService.setCachedUser(next);
+                return next;
+              });
+            }
+            loadInitialDataRef.current();
+          });
+        }
       } else if (!fsStatus.isAuthenticated) {
         hasSyncedCloudOnAuthRef.current = null;
-        if (unsubCloudSnapshot) {
-          unsubCloudSnapshot();
-          unsubCloudSnapshot = null;
-        }
+        cleanupSubs();
       }
     });
     return () => {
       unsubFirestore();
-      if (unsubCloudSnapshot) unsubCloudSnapshot();
+      cleanupSubs();
     };
   }, [currentUserAccount.id]);
 

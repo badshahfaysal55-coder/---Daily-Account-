@@ -198,6 +198,8 @@ export function verifyRulesFileInvariants(): boolean {
     'canDelete',
     'canAddTransactions',
     'canApproveInvoices',
+    'canManageBazarBuyers',
+    'hasBazarBuyerDelegatePermission(',
     'isValidId(',
     'affectedKeys().hasOnly(',
     'request.time',

@@ -231,7 +231,8 @@ export interface UserAccount {
   canDeleteCommissionPersons?: boolean; // Permission: Delete Person accounts in Commission Sheet
   canMergeCommissionPersons?: boolean; // Permission: Merge Person accounts in Commission Sheet
   canManageBazar?: boolean;        // Permission: Access & manage Daily Bazar ledger
-  canManageBuyers?: boolean;       // Permission: Add/edit Buyer IDs & Buyer photos
+  canManageBuyers?: boolean;       // Permission: Legacy buyer photo flag
+  canManageBazarBuyers?: boolean;  // Permission: Add/edit/delete Bazar Buyer IDs & photos
   isCommissionOnly?: boolean;      // Permission: Restricted exclusively to Commission Sheet
   isCommissionBazarOnly?: boolean; // Permission: Restricted exclusively to Commission Sheet & Daily Bazar
   theme?: AppTheme;

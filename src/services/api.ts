@@ -804,6 +804,7 @@ export const ApiService = {
     canMergeCommissionPersons?: boolean;
     canManageBazar?: boolean;
     canManageBuyers?: boolean;
+    canManageBazarBuyers?: boolean;
     isCommissionOnly?: boolean;
     isCommissionBazarOnly?: boolean;
   }): Promise<UserAccount> {

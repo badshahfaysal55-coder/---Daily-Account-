@@ -134,7 +134,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [newCanMergeCommissionPersons, setNewCanMergeCommissionPersons] = useState(false);
   const [newCanDeleteCommissionPersons, setNewCanDeleteCommissionPersons] = useState(false);
   const [newCanManageBazar, setNewCanManageBazar] = useState(true);
-  const [newCanManageBuyers, setNewCanManageBuyers] = useState(false);
+  const [newCanManageBazarBuyers, setNewCanManageBazarBuyers] = useState(false);
   const [newIsCommissionOnly, setNewIsCommissionOnly] = useState(false);
   const [newIsCommissionBazarOnly, setNewIsCommissionBazarOnly] = useState(false);
 
@@ -169,7 +169,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [editCanMergeCommissionPersons, setEditCanMergeCommissionPersons] = useState(false);
   const [editCanDeleteCommissionPersons, setEditCanDeleteCommissionPersons] = useState(false);
   const [editCanManageBazar, setEditCanManageBazar] = useState(true);
-  const [editCanManageBuyers, setEditCanManageBuyers] = useState(false);
+  const [editCanManageBazarBuyers, setEditCanManageBazarBuyers] = useState(false);
   const [editIsCommissionOnly, setEditIsCommissionOnly] = useState(false);
   const [editIsCommissionBazarOnly, setEditIsCommissionBazarOnly] = useState(false);
 
@@ -195,7 +195,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setNewCanDeleteCustomers(false);
     setNewCanApproveInvoices(false);
     setNewCanManageBazar(false);
-    setNewCanManageBuyers(false);
+    setNewCanManageBazarBuyers(false);
     setNewCanChangeProfilePhoto(true);
     setNewCanDelete(false);
     setNewCanExport(true);
@@ -223,7 +223,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setNewCanEditCustomers(false);
     setNewCanDeleteCustomers(false);
     setNewCanApproveInvoices(false);
-    setNewCanManageBuyers(false);
+    setNewCanManageBazarBuyers(false);
     setNewCanChangeProfilePhoto(true);
     setNewCanDelete(false);
     setNewCanExport(true);
@@ -251,7 +251,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanDeleteCustomers(false);
     setEditCanApproveInvoices(false);
     setEditCanManageBazar(false);
-    setEditCanManageBuyers(false);
+    setEditCanManageBazarBuyers(false);
     setEditCanChangeProfilePhoto(true);
     setEditCanDelete(false);
     setEditCanExport(true);
@@ -279,7 +279,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanEditCustomers(false);
     setEditCanDeleteCustomers(false);
     setEditCanApproveInvoices(false);
-    setEditCanManageBuyers(false);
+    setEditCanManageBazarBuyers(false);
     setEditCanChangeProfilePhoto(true);
     setEditCanDelete(false);
     setEditCanExport(true);
@@ -401,13 +401,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canMergeCommissionPersons: newCanMergeCommissionPersons,
         canDeleteCommissionPersons: newCanDeleteCommissionPersons,
         canManageBazar: newCanManageBazar,
-        canManageBuyers: newCanManageBuyers,
+        canManageBuyers: newCanManageBazarBuyers,
+        canManageBazarBuyers: newCanManageBazarBuyers,
         isCommissionOnly: newIsCommissionOnly,
         isCommissionBazarOnly: newIsCommissionBazarOnly,
       });
 
       setUsers((prev) => [...prev, created]);
       onUsersChanged?.();
+      ApiService.syncVaultNow().catch(() => {});
       setShowCreateModal(false);
       setNewIdProvider('email');
       setNewEmail('');
@@ -430,6 +432,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setNewCanChangeCommissionPersonPhoto(false);
       setNewCanMergeCommissionPersons(false);
       setNewCanDeleteCommissionPersons(false);
+      setNewCanManageBazarBuyers(false);
       setNewIsCommissionOnly(false);
       setNewIsCommissionBazarOnly(false);
       triggerToast(isBn ? `ইউজার "${created.name}" সফলভাবে তৈরি ও অটো-সিঙ্ক হয়েছে!` : `User "${created.name}" created & auto-synced!`);
@@ -472,7 +475,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanMergeCommissionPersons(u.canMergeCommissionPersons ?? false);
     setEditCanDeleteCommissionPersons(u.canDeleteCommissionPersons ?? false);
     setEditCanManageBazar(u.canManageBazar ?? true);
-    setEditCanManageBuyers(u.canManageBuyers ?? (u.role === 'owner' || u.role === 'admin'));
+    setEditCanManageBazarBuyers(u.role === 'owner' ? true : Boolean(u.canManageBazarBuyers));
     setEditIsCommissionOnly(Boolean(u.isCommissionOnly));
     setEditIsCommissionBazarOnly(Boolean(u.isCommissionBazarOnly));
   };
@@ -525,13 +528,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canMergeCommissionPersons: editCanMergeCommissionPersons,
         canDeleteCommissionPersons: editCanDeleteCommissionPersons,
         canManageBazar: editCanManageBazar,
-        canManageBuyers: editCanManageBuyers,
+        canManageBuyers: editCanManageBazarBuyers,
+        canManageBazarBuyers: editCanManageBazarBuyers,
         isCommissionOnly: editIsCommissionOnly,
         isCommissionBazarOnly: editIsCommissionBazarOnly,
       });
 
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       onUsersChanged?.();
+      ApiService.syncVaultNow().catch(() => {});
       setEditingUser(null);
       triggerToast(isBn ? 'ইউজার তথ্য আপডেট সম্পন্ন হয়েছে!' : 'User account updated successfully!');
     } catch (err: any) {
@@ -564,6 +569,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
           canChangeCommissionPersonPhoto: false,
           canManageBazar: false,
           canManageBuyers: false,
+          canManageBazarBuyers: false,
           canExport: true,
           canDelete: false,
         }
@@ -587,6 +593,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       const updated = await ApiService.updateUser(targetUser.id, updates);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       onUsersChanged?.();
+      ApiService.syncVaultNow().catch(() => {});
       triggerToast(
         willBeCommOnly
           ? (isBn ? `"${targetUser.name}" কে শুধু কমিশন শিট দেখার অনুমতি দেয়া হয়েছে!` : `User "${targetUser.name}" restricted to Commission Sheet only!`)
@@ -623,6 +630,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
           canApproveInvoices: false,
           canChangeProfilePhoto: true,
           canManageBuyers: false,
+          canManageBazarBuyers: false,
           canExport: true,
           canDelete: false,
         }
@@ -730,12 +738,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       | 'canMergeCommissionPersons'
       | 'canDeleteCommissionPersons'
       | 'canManageBazar'
-      | 'canManageBuyers'
+      | 'canManageBazarBuyers'
       | 'canExport'
       | 'canDelete'
   ) => {
     if (targetUser.role === 'owner') return;
     const resolveCurrentPerm = (): boolean => {
+      if (permKey === 'canManageBazarBuyers') {
+        return targetUser.canManageBazarBuyers === true;
+      }
       if (targetUser[permKey] !== undefined) return Boolean(targetUser[permKey]);
       if (permKey === 'canChangeProfilePhoto') {
         return true;
@@ -746,7 +757,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       if (permKey === 'canChangeCommissionPersonPhoto') {
         return targetUser.role === 'owner' || (targetUser.role === 'admin' && targetUser.canEditCommissionPersons !== false);
       }
-      if (permKey === 'canDelete' || permKey === 'canManageCommissions' || permKey === 'canAddCommissionPersons' || permKey === 'canMergeCommissionPersons' || permKey === 'canDeleteCommissionPersons' || permKey === 'canManageBuyers') {
+      if (permKey === 'canDelete' || permKey === 'canManageCommissions' || permKey === 'canAddCommissionPersons' || permKey === 'canMergeCommissionPersons' || permKey === 'canDeleteCommissionPersons') {
         return false;
       }
       if (permKey === 'canEditCommissionPersons') {
@@ -770,6 +781,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     const newVal = !currentVal;
 
     const extraUpdates: Partial<UserAccount> = {};
+    if (permKey === 'canManageBazarBuyers') {
+      extraUpdates.canManageBuyers = newVal;
+    }
     if (
       (permKey === 'canAddTransactions' ||
         permKey === 'canViewLedger' ||
@@ -805,6 +819,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       const updated = await ApiService.updateUser(targetUser.id, payload);
       setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
       onUsersChanged?.();
+      ApiService.syncVaultNow().catch(() => {});
       triggerToast(
         isBn
           ? `"${targetUser.name}" এর অনুমতি আপডেট সম্পন্ন হয়েছে`
@@ -1468,15 +1483,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                         <button
                           type="button"
                           disabled={isOwner}
-                          onClick={() => handleTogglePermission(u, 'canManageBuyers')}
-                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে Buyer ID ও ছবি পরিবর্তন পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Buyer ID & Photo editing permission')}
+                          onClick={() => handleTogglePermission(u, 'canManageBazarBuyers')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে Bazar Buyer ID এডিট ও ডিলিট পারমিশন দিন/বন্ধ করুন' : 'Can Edit/Delete Bazar Buyer IDs')}
                           className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
                             !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
                           } ${
-                            u.canManageBuyers ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                            (u.role === 'owner' || u.canManageBazarBuyers === true) ? 'bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
                           }`}
                         >
-                          {u.canManageBuyers ? '✓' : '✕'} {isBn ? 'ক্রেতা ও ছবি' : 'Buyer ID & Photo'}
+                          {(u.role === 'owner' || u.canManageBazarBuyers === true) ? '✓' : '✕'} {isBn ? 'ক্রেতার আইডি' : 'Buyer IDs'}
                         </button>
 
                         <button
@@ -2428,11 +2443,11 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
                       <input
                         type="checkbox"
-                        checked={newCanManageBuyers}
-                        onChange={(e) => setNewCanManageBuyers(e.target.checked)}
+                        checked={newCanManageBazarBuyers}
+                        onChange={(e) => setNewCanManageBazarBuyers(e.target.checked)}
                         className="rounded text-indigo-600 focus:ring-indigo-500"
                       />
-                      <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
+                      <span>{isBn ? 'দৈনিক বাজার Buyer ID এডিট ও ডিলিট' : 'Can Edit/Delete Bazar Buyer IDs'}</span>
                     </label>
 
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
@@ -2605,7 +2620,6 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           setEditCanMergeCommissionPersons(true);
                           setEditCanDeleteCommissionPersons(true);
                           setEditCanManageBazar(true);
-                          setEditCanManageBuyers(true);
                           setEditCanDelete(true);
                         }
                       }}
@@ -2965,11 +2979,11 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
                       <input
                         type="checkbox"
-                        checked={editCanManageBuyers}
-                        onChange={(e) => setEditCanManageBuyers(e.target.checked)}
+                        checked={editCanManageBazarBuyers}
+                        onChange={(e) => setEditCanManageBazarBuyers(e.target.checked)}
                         className="rounded text-indigo-600 focus:ring-indigo-500"
                       />
-                      <span>{isBn ? 'Buyer ID ও ছবি পরিবর্তন' : 'Edit Buyer ID & Photo'}</span>
+                      <span>{isBn ? 'দৈনিক বাজার Buyer ID এডিট ও ডিলিট' : 'Can Edit/Delete Bazar Buyer IDs'}</span>
                     </label>
 
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">

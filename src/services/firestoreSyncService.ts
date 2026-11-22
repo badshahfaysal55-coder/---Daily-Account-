@@ -17,7 +17,9 @@ import {
   getDocFromServer,
   onSnapshot,
   setDoc,
+  updateDoc,
   deleteDoc,
+  deleteField,
   query,
   where,
   serverTimestamp,
@@ -285,6 +287,226 @@ class FirestoreSyncService {
     );
   }
 
+  public subscribeToBazarBuyers(
+    onBuyersUpdate: (buyers: any[]) => void
+  ): () => void {
+    const u = this.currentUser || firebaseAuth.currentUser;
+    if (!u || !u.emailVerified) return () => {};
+    const ownerUid = this.getVerifiedOwnerUid();
+    const emailLower = (u.email || '').trim().toLowerCase();
+    const q = ownerUid
+      ? query(collection(firestoreDb, 'bazarBuyers'), where('ownerUid', '==', ownerUid))
+      : emailLower
+        ? query(collection(firestoreDb, 'bazarBuyers'), where('delegateEmails', 'array-contains', emailLower))
+        : null;
+    if (!q) return () => {};
+
+    let firstSnapshot = true;
+    return onSnapshot(
+      q,
+      (snap) => {
+        if (firstSnapshot) {
+          firstSnapshot = false;
+          if (snap.empty) return;
+        }
+        const buyers = snap.docs.map((d) => {
+          const data = { ...d.data() } as any;
+          delete data.ownerUid;
+          delete data.createdAt;
+          delete data.updatedAt;
+          delete data.delegateEmails;
+          const cUpdated = typeof data.clientUpdatedAt === 'number' ? data.clientUpdatedAt : undefined;
+          delete data.clientUpdatedAt;
+          if (cUpdated !== undefined) data.updatedAt = cUpdated;
+          return data;
+        });
+        try {
+          onBuyersUpdate(buyers);
+        } catch {}
+      },
+      (error) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient')) {
+          handleFirestoreError(error, OperationType.LIST, 'bazarBuyers');
+        }
+      }
+    );
+  }
+
+  public subscribeToUsers(
+    onUsersUpdate: (users: any[]) => void
+  ): () => void {
+    const uid = this.getVerifiedOwnerUid();
+    if (!uid) return () => {};
+    const q = query(collection(firestoreDb, 'users'), where('ownerUid', '==', uid));
+    let firstSnapshot = true;
+
+    return onSnapshot(
+      q,
+      (snap) => {
+        if (firstSnapshot) {
+          firstSnapshot = false;
+          return;
+        }
+        if (this.syncing) return;
+        const users = snap.docs.map((d) => {
+          const data = { ...d.data() } as any;
+          const cCreated = typeof data.clientCreatedAt === 'number' ? data.clientCreatedAt : undefined;
+          const cUpdated = typeof data.clientUpdatedAt === 'number' ? data.clientUpdatedAt : undefined;
+          delete data.ownerUid;
+          delete data.createdAt;
+          delete data.updatedAt;
+          delete data.clientCreatedAt;
+          delete data.clientUpdatedAt;
+          if (cCreated !== undefined) data.createdAt = cCreated;
+          if (cUpdated !== undefined) data.updatedAt = cUpdated;
+          return data;
+        });
+        try {
+          onUsersUpdate(users);
+        } catch {}
+      },
+      (error) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient')) {
+          handleFirestoreError(error, OperationType.LIST, 'users');
+        }
+      }
+    );
+  }
+
+  public subscribeToDelegatePermission(
+    onDelegateUpdate: (perm: { canManageBazarBuyers: boolean; canManageBazar?: boolean; ownerUid?: string } | null) => void
+  ): () => void {
+    const u = this.currentUser || firebaseAuth.currentUser;
+    const emailLower = (u?.email || '').trim().toLowerCase();
+    if (!u || !u.emailVerified || !emailLower) return () => {};
+    const path = `bazarBuyerDelegates/${emailLower}`;
+    const ref = doc(firestoreDb, 'bazarBuyerDelegates', emailLower);
+
+    return onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) {
+          onDelegateUpdate(null);
+          return;
+        }
+        const data = snap.data() as any;
+        onDelegateUpdate({
+          canManageBazarBuyers: Boolean(data?.canManageBazarBuyers),
+          canManageBazar: data?.canManageBazar !== undefined ? Boolean(data.canManageBazar) : undefined,
+          ownerUid: data?.ownerUid,
+        });
+      },
+      (error) => {
+        const msg = error instanceof Error ? error.message : String(error);
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient')) {
+          handleFirestoreError(error, OperationType.GET, path);
+        }
+      }
+    );
+  }
+
+  public async upsertBazarBuyer(buyer: {
+    buyerId: string;
+    name: string;
+    phone?: string;
+    role?: string;
+    amount?: number;
+    notes?: string;
+    photoUrl?: string;
+    delegateEmails?: string[];
+    updatedAt?: number;
+  }): Promise<boolean> {
+    const u = this.currentUser || firebaseAuth.currentUser;
+    if (!u || !u.emailVerified || !buyer?.buyerId) return false;
+    let resolvedOwnerUid = this.getVerifiedOwnerUid();
+    if (!resolvedOwnerUid && u.email) {
+      try {
+        const delSnap = await getDoc(doc(firestoreDb, 'bazarBuyerDelegates', u.email.trim().toLowerCase()));
+        if (delSnap.exists() && delSnap.data()?.canManageBazarBuyers === true) {
+          resolvedOwnerUid = delSnap.data()?.ownerUid || null;
+        }
+      } catch {
+        return false;
+      }
+    }
+    if (!resolvedOwnerUid) return false;
+
+    const docId = toSafeDocId('buyer_', buyer.buyerId);
+    const buyerDoc: Record<string, any> = {
+      ownerUid: resolvedOwnerUid,
+      buyerId: clampStr(buyer.buyerId, 80),
+      name: clampStr(buyer.name || buyer.buyerId, 120),
+      clientUpdatedAt: clampNum(buyer.updatedAt, Date.now()),
+    };
+    if (buyer.phone) buyerDoc.phone = clampStr(buyer.phone, 40);
+    if (buyer.role) buyerDoc.role = clampStr(buyer.role, 40);
+    if (typeof buyer.amount === 'number' && Number.isFinite(buyer.amount)) buyerDoc.amount = buyer.amount;
+    if (buyer.notes) buyerDoc.notes = clampStr(buyer.notes, 1000);
+    if (buyer.photoUrl) buyerDoc.photoUrl = clampStr(buyer.photoUrl, 512);
+
+    const emailSet = new Set<string>(
+      Array.isArray(buyer.delegateEmails)
+        ? buyer.delegateEmails.map((e) => String(e).trim().toLowerCase()).filter(Boolean)
+        : []
+    );
+    if (emailSet.size === 0) {
+      try {
+        const existingSnap = await getDoc(doc(firestoreDb, 'bazarBuyers', docId));
+        if (existingSnap.exists()) {
+          const existingList = existingSnap.data()?.delegateEmails;
+          if (Array.isArray(existingList)) {
+            existingList.forEach((e: unknown) => {
+              if (typeof e === 'string' && e.trim()) emailSet.add(e.trim().toLowerCase());
+            });
+          }
+        }
+      } catch {}
+    }
+    if (!this.getVerifiedOwnerUid() && u.email) {
+      emailSet.add(u.email.trim().toLowerCase());
+    }
+    if (emailSet.size > 0) {
+      buyerDoc.delegateEmails = Array.from(emailSet).slice(0, 50);
+    }
+
+    await this.upsertDoc('bazarBuyers', docId, buyerDoc);
+    return true;
+  }
+
+  public async deleteBazarBuyerById(buyerId: string): Promise<boolean> {
+    const u = this.currentUser || firebaseAuth.currentUser;
+    if (!u || !u.emailVerified || !buyerId) return false;
+    let authorized = Boolean(this.getVerifiedOwnerUid());
+    if (!authorized && u.email) {
+      try {
+        const delSnap = await getDoc(doc(firestoreDb, 'bazarBuyerDelegates', u.email.trim().toLowerCase()));
+        authorized = Boolean(delSnap.exists() && delSnap.data()?.canManageBazarBuyers === true);
+      } catch {
+        return false;
+      }
+    }
+    if (!authorized) return false;
+
+    const docId = toSafeDocId('buyer_', buyerId);
+    const key = `bazarBuyers/${docId}`;
+    try {
+      await deleteDoc(doc(firestoreDb, 'bazarBuyers', docId));
+      this.createdAtCache.delete(key);
+      this.syncedSignatureCache.delete(key);
+      const colSet = this.cloudDocIdsByCollection.get('bazarBuyers');
+      if (colSet) colSet.delete(docId);
+      return true;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('insufficient')) {
+        handleFirestoreError(err, OperationType.DELETE, key);
+      }
+      return false;
+    }
+  }
+
   private pendingVaultSignIn: Promise<FirebaseUser | null> | null = null;
   private pendingAppleSignIn: Promise<{ idToken: string; email: string | null; displayName: string | null }> | null = null;
 
@@ -443,7 +665,8 @@ class FirestoreSyncService {
           });
         } catch (updateErr) {
           const serverSnap = await getDocFromServer(ref).catch(() => null);
-          const serverCreatedAt = serverSnap?.data()?.createdAt;
+          const serverData = serverSnap?.data();
+          const serverCreatedAt = serverData?.createdAt;
           if (serverSnap?.exists()) {
             const nextCreatedAt = serverCreatedAt instanceof Timestamp ? serverCreatedAt : serverTimestamp();
             if (serverCreatedAt instanceof Timestamp) {
@@ -451,11 +674,34 @@ class FirestoreSyncService {
             } else {
               this.createdAtCache.delete(key);
             }
-            await setDoc(ref, {
-              ...payloadWithoutTimestamps,
-              createdAt: nextCreatedAt,
-              updatedAt: serverTimestamp(),
-            });
+            try {
+              await setDoc(ref, {
+                ...payloadWithoutTimestamps,
+                createdAt: nextCreatedAt,
+                updatedAt: serverTimestamp(),
+              });
+            } catch (secondUpdateErr) {
+              if (serverCreatedAt instanceof Timestamp) {
+                const patchPayload: Record<string, any> = {
+                  ...payloadWithoutTimestamps,
+                  updatedAt: serverTimestamp(),
+                };
+                if (serverData && typeof serverData === 'object') {
+                  for (const existingKey of Object.keys(serverData)) {
+                    if (
+                      existingKey !== 'createdAt' &&
+                      existingKey !== 'updatedAt' &&
+                      !(existingKey in payloadWithoutTimestamps)
+                    ) {
+                      patchPayload[existingKey] = deleteField();
+                    }
+                  }
+                }
+                await updateDoc(ref, patchPayload);
+              } else {
+                throw secondUpdateErr;
+              }
+            }
           } else {
             throw updateErr;
           }
@@ -479,16 +725,44 @@ class FirestoreSyncService {
           // Handle cross-tab/concurrent create race: if another tab created the doc after our initial getDoc,
           // fetch the server doc's createdAt and retry once as an update preserving createdAt.
           const retrySnap = await getDocFromServer(ref).catch(() => null);
-          const retryCreatedAt = retrySnap?.data()?.createdAt;
-          if (retrySnap?.exists() && retryCreatedAt instanceof Timestamp) {
+          const retryData = retrySnap?.data();
+          const retryCreatedAt = retryData?.createdAt;
+          if (retrySnap?.exists()) {
             existsInCloud = true;
-            existingCreatedAt = retryCreatedAt;
-            this.createdAtCache.set(key, retryCreatedAt);
-            await setDoc(ref, {
-              ...payloadWithoutTimestamps,
-              createdAt: retryCreatedAt,
-              updatedAt: serverTimestamp(),
-            });
+            if (retryCreatedAt instanceof Timestamp) {
+              existingCreatedAt = retryCreatedAt;
+              this.createdAtCache.set(key, retryCreatedAt);
+              try {
+                await setDoc(ref, {
+                  ...payloadWithoutTimestamps,
+                  createdAt: retryCreatedAt,
+                  updatedAt: serverTimestamp(),
+                });
+              } catch {
+                const patchPayload: Record<string, any> = {
+                  ...payloadWithoutTimestamps,
+                  updatedAt: serverTimestamp(),
+                };
+                if (retryData && typeof retryData === 'object') {
+                  for (const existingKey of Object.keys(retryData)) {
+                    if (
+                      existingKey !== 'createdAt' &&
+                      existingKey !== 'updatedAt' &&
+                      !(existingKey in payloadWithoutTimestamps)
+                    ) {
+                      patchPayload[existingKey] = deleteField();
+                    }
+                  }
+                }
+                await updateDoc(ref, patchPayload);
+              }
+            } else {
+              await setDoc(ref, {
+                ...payloadWithoutTimestamps,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp(),
+              });
+            }
           } else {
             throw createErr;
           }
@@ -498,8 +772,111 @@ class FirestoreSyncService {
       const colSet = this.cloudDocIdsByCollection.get(colName);
       if (colSet) colSet.add(docId);
     } catch (err) {
+      let diagSummary = '';
+      try {
+        const diagSnap = await getDocFromServer(ref).catch(() => null);
+        const diagData = diagSnap?.data();
+        const diagKeys = diagData && typeof diagData === 'object' ? Object.keys(diagData) : [];
+        const payloadKeys = Object.keys(payloadWithoutTimestamps);
+        const curUid = this.currentUser?.uid || firebaseAuth.currentUser?.uid;
+        const diagObj: Record<string, unknown> = {
+          path: key,
+          existsInCloud,
+          hasCachedCreatedAt: Boolean(existingCreatedAt),
+          serverExists: Boolean(diagSnap?.exists()),
+          serverCreatedAtIsTs: diagData?.createdAt instanceof Timestamp,
+          serverHasOwnerUid: Boolean(diagData && 'ownerUid' in diagData),
+          serverOwnerUidMatches: diagData?.ownerUid === curUid,
+          serverHasId: Boolean(diagData && 'id' in diagData),
+          serverIdMatches: diagData?.id === docId,
+          serverRole: typeof diagData?.role === 'string' ? diagData.role : typeof diagData?.role,
+          addedKeys: payloadKeys.filter((k) => !diagKeys.includes(k)),
+          removedKeys: diagKeys.filter((k) => k !== 'createdAt' && k !== 'updatedAt' && !payloadKeys.includes(k)),
+        };
+        if (colName === 'users') {
+          const requiredUserKeys = [
+            'ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName',
+            'status', 'canExport', 'canDelete', 'clientCreatedAt', 'clientUpdatedAt',
+          ];
+          const allowedUserKeys = new Set([
+            'ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash',
+            'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions',
+            'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices',
+            'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords',
+            'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions',
+            'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons',
+            'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons',
+            'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers',
+            'canManageBazarBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme',
+            'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor',
+            'photoUrl', 'clientCreatedAt', 'clientUpdatedAt',
+          ]);
+          const boolFields = [
+            'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers',
+            'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto',
+            'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords',
+            'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions',
+            'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons',
+            'canDeleteCommissionPersons', 'canMergeCommissionPersons',
+            'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers',
+            'canManageBazarBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'useBanglaNumerals',
+          ];
+          const failedUserChecks: string[] = [];
+          const missingReq = requiredUserKeys.filter((k) => !(k in payloadWithoutTimestamps));
+          if (missingReq.length) failedUserChecks.push(`missingReq:${missingReq.join(',')}`);
+          const extraKeys = payloadKeys.filter((k) => !allowedUserKeys.has(k));
+          if (extraKeys.length) failedUserChecks.push(`extraKeys:${extraKeys.join(',')}`);
+          for (const bf of boolFields) {
+            if (bf in payloadWithoutTimestamps && typeof payloadWithoutTimestamps[bf] !== 'boolean') {
+              failedUserChecks.push(`notBool:${bf}:${typeof payloadWithoutTimestamps[bf]}`);
+            }
+          }
+          if (typeof payloadWithoutTimestamps.clientCreatedAt !== 'number' || !Number.isFinite(payloadWithoutTimestamps.clientCreatedAt)) {
+            failedUserChecks.push('badClientCreatedAt');
+          }
+          if (typeof payloadWithoutTimestamps.clientUpdatedAt !== 'number' || !Number.isFinite(payloadWithoutTimestamps.clientUpdatedAt)) {
+            failedUserChecks.push('badClientUpdatedAt');
+          }
+          if ('displayMode' in payloadWithoutTimestamps && !['light', 'dark'].includes(String(payloadWithoutTimestamps.displayMode))) {
+            failedUserChecks.push(`badDisplayMode:${String(payloadWithoutTimestamps.displayMode)}`);
+          }
+          if ('language' in payloadWithoutTimestamps && !['bn', 'en'].includes(String(payloadWithoutTimestamps.language))) {
+            failedUserChecks.push(`badLanguage:${String(payloadWithoutTimestamps.language)}`);
+          }
+          if ('idProvider' in payloadWithoutTimestamps && !['email', 'apple'].includes(String(payloadWithoutTimestamps.idProvider))) {
+            failedUserChecks.push(`badIdProvider:${String(payloadWithoutTimestamps.idProvider)}`);
+          }
+          if ('theme' in payloadWithoutTimestamps && (typeof payloadWithoutTimestamps.theme !== 'string' || payloadWithoutTimestamps.theme.length > 40)) {
+            failedUserChecks.push('badTheme');
+          }
+          if ('headerBgColor' in payloadWithoutTimestamps && (typeof payloadWithoutTimestamps.headerBgColor !== 'string' || payloadWithoutTimestamps.headerBgColor.length > 40)) {
+            failedUserChecks.push('badHeaderBgColor');
+          }
+          if ('sidebarBgColor' in payloadWithoutTimestamps && (typeof payloadWithoutTimestamps.sidebarBgColor !== 'string' || payloadWithoutTimestamps.sidebarBgColor.length > 40)) {
+            failedUserChecks.push('badSidebarBgColor');
+          }
+          diagObj.userChecks = {
+            ownerUidMatch: payloadWithoutTimestamps.ownerUid === curUid,
+            idValid: /^[a-zA-Z0-9_-]{1,128}$/.test(String(payloadWithoutTimestamps.id || '')),
+            usernameLen: String(payloadWithoutTimestamps.username || '').length,
+            nameLen: String(payloadWithoutTimestamps.name || '').length,
+            pwLen: String(payloadWithoutTimestamps.passwordHash || '').length,
+            role: payloadWithoutTimestamps.role,
+            status: payloadWithoutTimestamps.status,
+            wsLen: String(payloadWithoutTimestamps.workspaceName || '').length,
+            hasEmail: 'email' in payloadWithoutTimestamps,
+            hasPhotoUrl: 'photoUrl' in payloadWithoutTimestamps,
+            photoUrlLen: typeof payloadWithoutTimestamps.photoUrl === 'string' ? payloadWithoutTimestamps.photoUrl.length : -1,
+            failedUserChecks,
+            payloadKeyCount: payloadKeys.length,
+            diagKeyCount: diagKeys.length,
+          };
+        }
+        diagSummary = ` | diag=${JSON.stringify(diagObj)}`;
+      } catch {}
+      const baseMsg = err instanceof Error ? err.message : String(err);
       handleFirestoreError(
-        err,
+        new Error(`${baseMsg}${diagSummary}`),
         existsInCloud ? OperationType.UPDATE : OperationType.CREATE,
         key
       );
@@ -694,6 +1071,18 @@ class FirestoreSyncService {
         this.lastPushedSettingsAt = Math.max(this.lastPushedSettingsAt, settingsDoc.clientUpdatedAt);
         await this.upsertDoc('appSettings', 'global', settingsDoc);
 
+        // Compute active Bazar Buyer delegate emails from user list
+        const buyerDelegateEmails: string[] = [];
+        for (const u of database.users || []) {
+          if (!u || u.status === 'disabled') continue;
+          const isDelegate = u.role === 'owner' || u.canManageBazarBuyers === true;
+          if (!isDelegate) continue;
+          const uMail = String(u.email || (String(u.username || '').includes('@') ? u.username : '')).trim().toLowerCase();
+          if (uMail && uMail.includes('@') && !buyerDelegateEmails.includes(uMail)) {
+            buyerDelegateEmails.push(uMail);
+          }
+        }
+
         // Bazar Buyers
         const buyers = Array.isArray(gs.bazarBuyers) ? gs.bazarBuyers : [];
         const activeBuyerIds = new Set<string>();
@@ -712,6 +1101,9 @@ class FirestoreSyncService {
           if (typeof b.amount === 'number' && Number.isFinite(b.amount)) buyerDoc.amount = b.amount;
           if (b.notes) buyerDoc.notes = clampStr(b.notes, 1000);
           if (b.photoUrl) buyerDoc.photoUrl = clampStr(b.photoUrl, 512);
+          if (buyerDelegateEmails.length > 0) {
+            buyerDoc.delegateEmails = buyerDelegateEmails.slice(0, 50);
+          }
           await this.upsertDoc('bazarBuyers', docId, buyerDoc);
         }
         for (const [recId] of Object.entries(deletedMap)) {
@@ -725,20 +1117,24 @@ class FirestoreSyncService {
         }
       }
 
-      // 3. Users
+      // 3. Users & Bazar Buyer Delegates
       const activeUserIds = new Set<string>();
+      const activeDelegateEmails = new Set<string>();
       for (const u of database.users || []) {
         if (!u?.id || !u?.username || !u?.passwordHash) continue;
         const docId = toSafeDocId('', u.id);
+        const safeUsername = clampStr(u.username, 64).trim();
+        const safePasswordHash = clampStr(u.passwordHash, 256);
+        if (safeUsername.length < 2 || safePasswordHash.length < 16) continue;
         activeUserIds.add(docId);
         const userDoc: Record<string, any> = {
           ownerUid: uid,
           id: docId,
-          username: clampStr(u.username, 64),
-          name: clampStr(u.name || u.username, 120),
-          passwordHash: clampStr(u.passwordHash, 256),
+          username: safeUsername,
+          name: clampStr(u.name || safeUsername, 120) || safeUsername,
+          passwordHash: safePasswordHash,
           role: ['owner', 'admin', 'manager', 'staff', 'viewer'].includes(u.role) ? u.role : 'staff',
-          workspaceName: clampStr(u.workspaceName || `${u.name || u.username}'s Workspace`, 120),
+          workspaceName: clampStr(u.workspaceName || `${u.name || safeUsername}'s Workspace`, 120),
           status: u.status === 'disabled' ? 'disabled' : 'active',
           canExport: Boolean(u.canExport),
           canDelete: Boolean(u.canDelete),
@@ -768,6 +1164,7 @@ class FirestoreSyncService {
         if (u.canChangeCommissionPersonPhoto !== undefined) userDoc.canChangeCommissionPersonPhoto = Boolean(u.canChangeCommissionPersonPhoto);
         if (u.canManageBazar !== undefined) userDoc.canManageBazar = Boolean(u.canManageBazar);
         if (u.canManageBuyers !== undefined) userDoc.canManageBuyers = Boolean(u.canManageBuyers);
+        if (u.canManageBazarBuyers !== undefined) userDoc.canManageBazarBuyers = Boolean(u.canManageBazarBuyers);
         if (u.isCommissionOnly !== undefined) userDoc.isCommissionOnly = Boolean(u.isCommissionOnly);
         if (u.isCommissionBazarOnly !== undefined) userDoc.isCommissionBazarOnly = Boolean(u.isCommissionBazarOnly);
         if (u.theme) userDoc.theme = clampStr(u.theme, 40);
@@ -778,10 +1175,32 @@ class FirestoreSyncService {
         if (u.sidebarBgColor) userDoc.sidebarBgColor = clampStr(u.sidebarBgColor, 40);
         if (u.photoUrl) userDoc.photoUrl = clampStr(u.photoUrl, 512);
         await this.upsertDoc('users', docId, userDoc);
+
+        const rawMail = String(u.email || (String(u.username || '').includes('@') ? u.username : '')).trim().toLowerCase();
+        if (rawMail && rawMail.length >= 3 && rawMail.includes('@')) {
+          const canManageBazarBuyersFlag = u.role === 'owner' ? true : u.status !== 'disabled' && u.canManageBazarBuyers === true;
+          activeDelegateEmails.add(rawMail);
+          await this.upsertDoc('bazarBuyerDelegates', rawMail, {
+            ownerUid: uid,
+            email: clampStr(rawMail, 254),
+            userId: docId,
+            canManageBazarBuyers: canManageBazarBuyersFlag,
+            canManageBazar: u.status !== 'disabled' && u.canManageBazar !== false,
+            clientUpdatedAt: clampNum(u.updatedAt || u.createdAt, Date.now()),
+          });
+        }
       }
       for (const [recId] of Object.entries(deletedMap)) {
         if (recId.startsWith('usr_') && !activeUserIds.has(recId)) {
           await this.removeDoc('users', toSafeDocId('', recId));
+        }
+      }
+      const existingDelegateSet = this.cloudDocIdsByCollection.get('bazarBuyerDelegates');
+      if (existingDelegateSet) {
+        for (const existingEmail of Array.from(existingDelegateSet)) {
+          if (!activeDelegateEmails.has(existingEmail)) {
+            await this.removeDoc('bazarBuyerDelegates', existingEmail);
+          }
         }
       }
 

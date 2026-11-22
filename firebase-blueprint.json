@@ -106,6 +106,7 @@
         "canChangeCommissionPersonPhoto": { "type": "boolean" },
         "canManageBazar": { "type": "boolean" },
         "canManageBuyers": { "type": "boolean" },
+        "canManageBazarBuyers": { "type": "boolean" },
         "isCommissionOnly": { "type": "boolean" },
         "isCommissionBazarOnly": { "type": "boolean" },
         "theme": { "type": "string", "maxLength": 40 },
@@ -165,11 +166,31 @@
         "amount": { "type": "number" },
         "notes": { "type": "string", "maxLength": 1000 },
         "photoUrl": { "type": "string", "maxLength": 512 },
+        "delegateEmails": {
+          "type": "array",
+          "items": { "type": "string", "maxLength": 254 }
+        },
         "clientUpdatedAt": { "type": "number" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["ownerUid", "buyerId", "name", "clientUpdatedAt", "createdAt", "updatedAt"]
+    },
+    "BazarBuyerDelegateRecord": {
+      "title": "BazarBuyerDelegateRecord",
+      "description": "Owner-granted delegation allowing specific active users to manage Bazar Buyer IDs.",
+      "type": "object",
+      "properties": {
+        "ownerUid": { "type": "string", "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "email": { "type": "string", "maxLength": 254 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "canManageBazarBuyers": { "type": "boolean" },
+        "canManageBazar": { "type": "boolean" },
+        "clientUpdatedAt": { "type": "number" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["ownerUid", "email", "userId", "canManageBazarBuyers", "clientUpdatedAt", "createdAt", "updatedAt"]
     },
     "TransactionRecord": {
       "title": "TransactionRecord",
@@ -390,6 +411,10 @@
     "/bazarBuyers/{buyerId}": {
       "schema": { "$ref": "#/entities/BazarBuyerRecord" },
       "description": "Home Bazar buyer ID profiles."
+    },
+    "/bazarBuyerDelegates/{delegateEmail}": {
+      "schema": { "$ref": "#/entities/BazarBuyerDelegateRecord" },
+      "description": "Delegated Bazar Buyer management permissions keyed by lowercase user email."
     },
     "/transactions/{txId}": {
       "schema": { "$ref": "#/entities/TransactionRecord" },

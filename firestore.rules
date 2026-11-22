@@ -20,7 +20,7 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
     function isBootstrappedOwner() {
-      return isVerified() && request.auth.token.email.lower() == 'rh.faysal007@gmail.com';
+      return isVerified() && 'email' in request.auth.token && request.auth.token.email is string && request.auth.token.email.lower() == 'rh.faysal007@gmail.com';
     }
     function isAdmin() {
       return isBootstrappedOwner() || (isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
@@ -69,9 +69,16 @@ service cloud.firestore {
         'canChangeCommissionPersonPhoto',
         'canManageBazar',
         'canManageBuyers',
+        'canManageBazarBuyers',
         'isCommissionOnly',
         'isCommissionBazarOnly'
       ]);
+    }
+    function hasBazarBuyerDelegatePermission() {
+      return isVerified()
+        && request.auth.token.email is string
+        && exists(/databases/$(database)/documents/bazarBuyerDelegates/$(request.auth.token.email.lower()))
+        && get(/databases/$(database)/documents/bazarBuyerDelegates/$(request.auth.token.email.lower())).data.canManageBazarBuyers == true;
     }
     function hasWorkspaceUserScope(data) {
       return isVerified() && (
@@ -114,7 +121,7 @@ service cloud.firestore {
 
     function isValidUserAccount(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'canManageBazarBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && isValidId(data.id)
         && data.username is string && data.username.size() >= 2 && data.username.size() <= 64
@@ -148,6 +155,7 @@ service cloud.firestore {
         && optBool(data, 'canChangeCommissionPersonPhoto')
         && optBool(data, 'canManageBazar')
         && optBool(data, 'canManageBuyers')
+        && optBool(data, 'canManageBazarBuyers')
         && optBool(data, 'isCommissionOnly')
         && optBool(data, 'isCommissionBazarOnly')
         && optStr(data, 'theme', 40)
@@ -188,8 +196,8 @@ service cloud.firestore {
 
     function isValidBazarBuyer(data) {
       return data.keys().hasAll(['ownerUid', 'buyerId', 'name', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && data.keys().hasOnly(['ownerUid', 'buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'delegateEmails', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid)
         && data.buyerId is string && data.buyerId.size() >= 1 && data.buyerId.size() <= 80
         && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
         && optStr(data, 'phone', 40)
@@ -197,6 +205,20 @@ service cloud.firestore {
         && optNum(data, 'amount')
         && optStr(data, 'notes', 1000)
         && optStr(data, 'photoUrl', 512)
+        && (!('delegateEmails' in data) || (data.delegateEmails is list && data.delegateEmails.size() <= 50))
+        && data.clientUpdatedAt is number
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidBazarBuyerDelegate(data) {
+      return data.keys().hasAll(['ownerUid', 'email', 'userId', 'canManageBazarBuyers', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'email', 'userId', 'canManageBazarBuyers', 'canManageBazar', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && isValidId(data.userId)
+        && data.canManageBazarBuyers is bool
+        && optBool(data, 'canManageBazar')
         && data.clientUpdatedAt is number
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
@@ -426,33 +448,68 @@ service cloud.firestore {
       allow update: if isValidId(userId) && isPrivilegedManager() && isValidUserAccount(incoming())
         && existing().ownerUid == request.auth.uid
         && incoming().ownerUid == existing().ownerUid
-        && (!('id' in existing()) || incoming().id == existing().id)
         && incoming().id == userId
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
         && (!('role' in existing()) || existing().role != 'owner' || isBootstrappedOwner())
         && (incoming().role != 'owner' || isBootstrappedOwner())
-        && (!isUserPrivilegeFieldAffected() || isBootstrappedOwner() || isAdmin())
-        && incoming().diff(existing()).addedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+        && (isBootstrappedOwner() || isAdmin() || !isUserPrivilegeFieldAffected())
+        && incoming().diff(existing()).affectedKeys().hasOnly(['id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'canManageBazarBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
       allow delete: if isValidId(userId) && isPrivilegedManager()
         && (resource == null || (existing().ownerUid == request.auth.uid && (existing().role != 'owner' || isBootstrappedOwner())));
     }
 
-    // Bazar Buyers
-    match /bazarBuyers/{buyerId} {
-      allow get: if isValidId(buyerId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
+    // Delegated Bazar Buyer permissions (written only by Owner, readable by owner or matching verified delegate email)
+    match /bazarBuyerDelegates/{delegateEmail} {
+      allow get: if isBootstrappedOwner()
+        || (isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid))
+        || (isVerified() && request.auth.token.email is string && delegateEmail == request.auth.token.email.lower());
       allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(buyerId) && isPrivilegedManager() && isValidBazarBuyer(incoming())
+      allow create: if isBootstrappedOwner() && isValidBazarBuyerDelegate(incoming())
+        && incoming().email.lower() == delegateEmail
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(buyerId) && isPrivilegedManager() && isValidBazarBuyer(incoming())
+      allow update: if isBootstrappedOwner() && isValidBazarBuyerDelegate(incoming())
         && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && incoming().email.lower() == delegateEmail
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).addedKeys().hasOnly(['email', 'userId', 'canManageBazarBuyers', 'canManageBazar', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['email', 'userId', 'canManageBazarBuyers', 'canManageBazar', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isBootstrappedOwner() && (resource == null || existing().ownerUid == request.auth.uid);
+    }
+
+    // Bazar Buyers (strictly managed by Bootstrapped Owner or active users explicitly granted canManageBazarBuyers == true)
+    match /bazarBuyers/{buyerId} {
+      allow get: if isValidId(buyerId) && (
+        (isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid)) ||
+        hasBazarBuyerDelegatePermission() ||
+        (isVerified() && resource != null && 'delegateEmails' in existing() && request.auth.token.email is string && request.auth.token.email.lower() in existing().delegateEmails)
+      );
+      allow list: if isVerified() && (
+        existing().ownerUid == request.auth.uid ||
+        ('delegateEmails' in existing() && request.auth.token.email is string && request.auth.token.email.lower() in existing().delegateEmails)
+      );
+      allow create: if isValidId(buyerId) && isValidBazarBuyer(incoming())
+        && (
+          (isBootstrappedOwner() && incoming().ownerUid == request.auth.uid) ||
+          (hasBazarBuyerDelegatePermission() && incoming().ownerUid == get(/databases/$(database)/documents/bazarBuyerDelegates/$(request.auth.token.email.lower())).data.ownerUid)
+        )
+        && incoming().createdAt == request.time && incoming().updatedAt == request.time;
+      allow update: if isValidId(buyerId)
+        && (isBootstrappedOwner() || hasBazarBuyerDelegatePermission())
+        && isValidBazarBuyer(incoming())
+        && (!isBootstrappedOwner() || existing().ownerUid == request.auth.uid)
+        && (isBootstrappedOwner() || existing().ownerUid == get(/databases/$(database)/documents/bazarBuyerDelegates/$(request.auth.token.email.lower())).data.ownerUid)
         && incoming().ownerUid == existing().ownerUid
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).addedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
-      allow delete: if isValidId(buyerId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
+        && incoming().diff(existing()).addedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'delegateEmails', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'delegateEmails', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(buyerId) && (
+        (isBootstrappedOwner() && (resource == null || existing().ownerUid == request.auth.uid)) ||
+        (hasBazarBuyerDelegatePermission() && resource != null && existing().ownerUid == get(/databases/$(database)/documents/bazarBuyerDelegates/$(request.auth.token.email.lower())).data.ownerUid)
+      );
     }
 
     // Transactions (scoped by ownerUid or workspace membership)
@@ -471,12 +528,11 @@ service cloud.firestore {
       allow update: if isValidId(txId) && isPrivilegedManager() && isValidTransaction(incoming())
         && existing().ownerUid == request.auth.uid
         && incoming().ownerUid == existing().ownerUid
-        && (!('id' in existing()) || incoming().id == existing().id)
         && incoming().id == txId
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).addedKeys().hasOnly(['userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'createdAt', 'updatedAt']);
+        && incoming().diff(existing()).addedKeys().hasOnly(['id', 'userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['id', 'userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'createdAt', 'updatedAt']);
       allow delete: if isValidId(txId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -495,12 +551,11 @@ service cloud.firestore {
       allow update: if isValidId(customerId) && isPrivilegedManager() && isValidCustomer(incoming())
         && existing().ownerUid == request.auth.uid
         && incoming().ownerUid == existing().ownerUid
-        && (!('id' in existing()) || incoming().id == existing().id)
         && incoming().id == customerId
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).addedKeys().hasOnly(['workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+        && incoming().diff(existing()).addedKeys().hasOnly(['id', 'workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['id', 'workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
       allow delete: if isValidId(customerId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -519,13 +574,12 @@ service cloud.firestore {
       allow update: if isValidId(invoiceId) && isPrivilegedManager() && isValidInvoice(incoming())
         && existing().ownerUid == request.auth.uid
         && incoming().ownerUid == existing().ownerUid
-        && (!('id' in existing()) || incoming().id == existing().id)
         && incoming().id == invoiceId
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
         && (existing().status != 'Cancelled' || isAdmin())
-        && incoming().diff(existing()).addedKeys().hasOnly(['workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'customerBusiness', 'customerAddress', 'serviceName', 'iqamaNo', 'branchOffice', 'countryFlag', 'date', 'dueDate', 'items', 'subtotal', 'taxRate', 'taxAmount', 'discount', 'discountAmount', 'totalAmount', 'paidAmount', 'balanceDue', 'remainingAmount', 'lastPaymentAmount', 'status', 'notes', 'terms', 'payments', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'customerBusiness', 'customerAddress', 'serviceName', 'iqamaNo', 'branchOffice', 'countryFlag', 'date', 'dueDate', 'items', 'subtotal', 'taxRate', 'taxAmount', 'discount', 'discountAmount', 'totalAmount', 'paidAmount', 'balanceDue', 'remainingAmount', 'lastPaymentAmount', 'status', 'notes', 'terms', 'payments', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+        && incoming().diff(existing()).addedKeys().hasOnly(['id', 'workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'customerBusiness', 'customerAddress', 'serviceName', 'iqamaNo', 'branchOffice', 'countryFlag', 'date', 'dueDate', 'items', 'subtotal', 'taxRate', 'taxAmount', 'discount', 'discountAmount', 'totalAmount', 'paidAmount', 'balanceDue', 'remainingAmount', 'lastPaymentAmount', 'status', 'notes', 'terms', 'payments', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['id', 'workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'customerBusiness', 'customerAddress', 'serviceName', 'iqamaNo', 'branchOffice', 'countryFlag', 'date', 'dueDate', 'items', 'subtotal', 'taxRate', 'taxAmount', 'discount', 'discountAmount', 'totalAmount', 'paidAmount', 'balanceDue', 'remainingAmount', 'lastPaymentAmount', 'status', 'notes', 'terms', 'payments', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
       allow delete: if isValidId(invoiceId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -545,13 +599,12 @@ service cloud.firestore {
       allow update: if isValidId(entryId) && isPrivilegedManager() && isValidCommissionEntry(incoming())
         && existing().ownerUid == request.auth.uid
         && incoming().ownerUid == existing().ownerUid
-        && (!('id' in existing()) || incoming().id == existing().id)
         && incoming().id == entryId
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
         && (existing().invoiceStatus != 'Cancelled' || isAdmin())
-        && incoming().diff(existing()).addedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+        && incoming().diff(existing()).addedKeys().hasOnly(['id', 'date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['id', 'date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
       allow delete: if isValidId(entryId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -571,12 +624,11 @@ service cloud.firestore {
       allow update: if isValidId(personId) && isPrivilegedManager() && isValidCommissionPerson(incoming())
         && existing().ownerUid == request.auth.uid
         && incoming().ownerUid == existing().ownerUid
-        && (!('id' in existing()) || incoming().id == existing().id)
         && incoming().id == personId
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).addedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+        && incoming().diff(existing()).addedKeys().hasOnly(['id', 'name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['id', 'name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
       allow delete: if isValidId(personId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
@@ -612,12 +664,11 @@ service cloud.firestore {
       allow update: if isValidId(entryId) && isPrivilegedManager() && isValidHomeBazarEntry(incoming())
         && existing().ownerUid == request.auth.uid
         && incoming().ownerUid == existing().ownerUid
-        && (!('id' in existing()) || incoming().id == existing().id)
         && incoming().id == entryId
         && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).addedKeys().hasOnly(['userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && incoming().diff(existing()).changedKeys().hasOnly(['userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+        && incoming().diff(existing()).addedKeys().hasOnly(['id', 'userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['id', 'userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
       allow delete: if isValidId(entryId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 

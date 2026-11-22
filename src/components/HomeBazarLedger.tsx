@@ -107,7 +107,11 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   const isBn = currentLang === 'bn';
   const isOwner = currentUser.role === 'owner';
   const canManageBazar = isOwner || currentUser.canManageBazar !== false;
-  const canManageBuyers = isOwner || currentUser.canManageBuyers === true;
+  const [delegateCanManageBazarBuyers, setDelegateCanManageBazarBuyers] = useState<boolean | null>(null);
+  const canManageBazarBuyers =
+    isOwner ||
+    currentUser.canManageBazarBuyers === true ||
+    delegateCanManageBazarBuyers === true;
   const canDeleteRecords = isOwner || currentUser.canDelete === true;
 
   const [entries, setEntries] = useState<HomeBazarEntry[]>([]);
@@ -134,6 +138,8 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   const [editingEntry, setEditingEntry] = useState<HomeBazarEntry | null>(null);
   const [entryToDelete, setEntryToDelete] = useState<HomeBazarEntry | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [buyerToDelete, setBuyerToDelete] = useState<{ buyerId: string; name: string } | null>(null);
+  const [isDeletingBuyer, setIsDeletingBuyer] = useState(false);
   const [showBudgetModal, setShowBudgetModal] = useState(false);
   const [newBudgetValue, setNewBudgetValue] = useState<number | ''>(0);
   const [showPrintModal, setShowPrintModal] = useState(false);
@@ -205,13 +211,12 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
       setMonthlyBudget(budget);
       setNewBudgetValue(budget);
 
-      if (res.buyers && res.buyers.length > 0) {
+      if (Array.isArray(res.buyers)) {
         setBuyers(res.buyers);
       } else {
-        // Fallback fetch buyers
         try {
           const bList = await ApiService.getBazarBuyers();
-          if (bList && bList.length > 0) setBuyers(bList);
+          if (Array.isArray(bList)) setBuyers(bList);
         } catch {
           // ignore
         }
@@ -234,6 +239,51 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   useEffect(() => {
     loadBazarData(false);
   }, [loadBazarData]);
+
+  // Firestore real-time onSnapshot listeners for bazarBuyers & delegated permission
+  useEffect(() => {
+    setDelegateCanManageBazarBuyers(null);
+    if (!cloudStatus.isAuthenticated) {
+      return;
+    }
+
+    const userEmail = String(
+      currentUser.email || (currentUser.username?.includes('@') ? currentUser.username : '')
+    ).trim().toLowerCase();
+    const firebaseEmail = String(cloudStatus.email || '').trim().toLowerCase();
+    const emailMatchesCurrentUser = Boolean(userEmail && firebaseEmail && userEmail === firebaseEmail);
+
+    const unsubBuyers =
+      cloudStatus.isVerifiedOwner || (emailMatchesCurrentUser && currentUser.canManageBazarBuyers === true)
+        ? firestoreSyncService.subscribeToBazarBuyers((remoteBuyers) => {
+            setBuyers(remoteBuyers as BazarBuyer[]);
+            setLastSyncedTime(new Date());
+          })
+        : () => {};
+
+    const unsubDelegate =
+      !isOwner && emailMatchesCurrentUser
+        ? firestoreSyncService.subscribeToDelegatePermission((perm) => {
+            setDelegateCanManageBazarBuyers(perm ? Boolean(perm.canManageBazarBuyers) : false);
+            loadBazarData(true);
+          })
+        : () => {};
+
+    return () => {
+      unsubBuyers();
+      unsubDelegate();
+    };
+  }, [
+    cloudStatus.isAuthenticated,
+    cloudStatus.isVerifiedOwner,
+    cloudStatus.email,
+    isOwner,
+    currentUser.id,
+    currentUser.email,
+    currentUser.username,
+    currentUser.canManageBazarBuyers,
+    loadBazarData,
+  ]);
 
   // Real-time SSE listener for automatic sync (shared singleton SSE + cross-tab BroadcastChannel)
   useEffect(() => {
@@ -283,6 +333,7 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
       clearInterval(interval);
       window.removeEventListener('zara-vault-recovered', handleVaultRecovered);
       window.removeEventListener('focus', handleWindowFocus);
+      window.removeEventListener('online', handleWindowFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [loadBazarData]);
@@ -575,6 +626,18 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
     setBuyerPhotoRemoved(false);
   };
 
+  const openEditBuyerFromSummary = (bs: BuyerSpendingSummary) => {
+    if (!canManageBazarBuyers) return;
+    const profile = getBuyerProfile(bs.buyerId);
+    const targetBuyer: BazarBuyer = profile || {
+      buyerId: bs.buyerId,
+      name: bs.buyerName || bs.buyerId,
+      role: 'Buyer',
+    };
+    startEditBuyer(targetBuyer);
+    setShowBuyersModal(true);
+  };
+
   const handleBuyerPhotoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -599,7 +662,7 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
   // Add or Update Buyer ID (with Photo + Full Edit; preserves amount unless explicitly edited)
   const handleSaveBuyer = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canManageBuyers) {
+    if (!canManageBazarBuyers) {
       setToastMessage({ text: 'Only Owner or permitted users can modify Buyer IDs & Photos.', type: 'error' });
       return;
     }
@@ -633,6 +696,11 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
           );
           return [updated, ...filtered];
         });
+        if (renamedFrom) {
+          firestoreSyncService.deleteBazarBuyerById(renamedFrom).catch(() => {});
+        }
+        firestoreSyncService.upsertBazarBuyer(updated).catch(() => {});
+        ApiService.syncVaultNow().catch(() => {});
         resetBuyerForm();
         loadBazarData(true);
         setToastMessage({
@@ -654,9 +722,10 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
           const filtered = prev.filter((b) => b.buyerId.toLowerCase() !== created.buyerId.toLowerCase());
           return [created, ...filtered];
         });
+        firestoreSyncService.upsertBazarBuyer(created).catch(() => {});
+        ApiService.syncVaultNow().catch(() => {});
         resetBuyerForm();
         loadBazarData(true);
-        ApiService.syncVaultNow().catch(() => {});
         setToastMessage({
           text: isBn ? `ক্রেতার আইডি '${created.buyerId}' যুক্ত হয়েছে` : `Buyer ID '${created.buyerId}' saved`,
           type: 'success',
@@ -669,22 +738,49 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
     }
   };
 
-  // Delete buyer
-  const handleDeleteBuyer = async (bId: string) => {
-    if (!canManageBuyers || !canDeleteRecords) {
-      setToastMessage({ text: 'Permission denied: Owner / Delete permission required.', type: 'error' });
+  // Delete buyer (confirmed via custom modal — keeps historical homeBazarEntries intact)
+  const requestDeleteBuyer = (buyerId: string, name?: string) => {
+    if (!canManageBazarBuyers) {
+      setToastMessage({
+        text: isBn
+          ? 'অনুমতি নেই: শুধুমাত্র ওনার বা অনুমোদিত ইউজার Buyer ID মুছতে পারবেন।'
+          : 'Permission denied: Owner or Can Edit/Delete Bazar Buyer IDs permission required.',
+        type: 'error',
+      });
       return;
     }
+    setBuyerToDelete({ buyerId, name: name || buyerId });
+  };
+
+  const handleConfirmDeleteBuyer = async () => {
+    if (!buyerToDelete) return;
+    if (!canManageBazarBuyers) {
+      setBuyerToDelete(null);
+      setToastMessage({ text: 'Permission denied.', type: 'error' });
+      return;
+    }
+    const targetId = buyerToDelete.buyerId;
+    setIsDeletingBuyer(true);
     try {
-      await ApiService.deleteBazarBuyer(bId);
-      setBuyers((prev) => prev.filter((b) => b.buyerId.toLowerCase() !== bId.toLowerCase()));
-      if (editingBuyerTargetId?.toLowerCase() === bId.toLowerCase()) {
+      await ApiService.deleteBazarBuyer(targetId);
+      setBuyers((prev) => prev.filter((b) => b.buyerId.toLowerCase() !== targetId.toLowerCase()));
+      if (editingBuyerTargetId?.toLowerCase() === targetId.toLowerCase()) {
         resetBuyerForm();
       }
+      firestoreSyncService.deleteBazarBuyerById(targetId).catch(() => {});
       ApiService.syncVaultNow().catch(() => {});
-      setToastMessage({ text: `Buyer ID '${bId}' removed`, type: 'success' });
+      setBuyerToDelete(null);
+      loadBazarData(true);
+      setToastMessage({
+        text: isBn
+          ? `Buyer ID '${targetId}' তালিকা থেকে মুছে ফেলা হয়েছে (পুরনো বাজার এন্ট্রি সংরক্ষিত আছে)`
+          : `Buyer ID '${targetId}' removed from Registered Buyer Accounts (historical entries preserved)`,
+        type: 'success',
+      });
     } catch (err: any) {
       setToastMessage({ text: err.message || 'Error deleting buyer', type: 'error' });
+    } finally {
+      setIsDeletingBuyer(false);
     }
   };
 
@@ -983,11 +1079,49 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                             🆔 {bs.buyerId}
                           </span>
                         </div>
-                        <span
-                          className={`text-[10px] font-bold shrink-0 ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`}
-                        >
-                          {bs.itemCount} {isBn ? 'টি এন্ট্রি' : 'items'}
-                        </span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <span
+                            className={`text-[10px] font-bold shrink-0 ${isSelected ? 'text-indigo-200' : 'text-slate-500'}`}
+                          >
+                            {bs.itemCount} {isBn ? 'টি এন্ট্রি' : 'items'}
+                          </span>
+                          {canManageBazarBuyers && (
+                            <div className="flex items-center gap-0.5 ml-1">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditBuyerFromSummary(bs);
+                                }}
+                                className={`p-1 rounded-lg transition cursor-pointer ${
+                                  isSelected
+                                    ? 'text-white/85 hover:text-white hover:bg-white/20'
+                                    : 'text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60'
+                                }`}
+                                title={isBn ? 'Buyer ID এডিট করুন' : 'Edit Buyer ID'}
+                                aria-label={`Edit Buyer ID ${bs.buyerId}`}
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  requestDeleteBuyer(bs.buyerId, profile?.name || bs.buyerName);
+                                }}
+                                className={`p-1 rounded-lg transition cursor-pointer ${
+                                  isSelected
+                                    ? 'text-white/85 hover:text-rose-200 hover:bg-white/20'
+                                    : 'text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40'
+                                }`}
+                                title={isBn ? 'Buyer ID মুছুন' : 'Delete Buyer ID'}
+                                aria-label={`Delete Buyer ID ${bs.buyerId}`}
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       </div>
                       <div className="mt-1.5 font-bold truncate text-xs" title={bs.buyerName}>
                         {profile?.name || bs.buyerName}
@@ -1574,8 +1708,8 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                       {isBn ? 'ক্রেতার আইডি, ছবি ও সম্পূর্ণ ব্যবস্থাপনা' : 'Manage Buyer IDs, Photos & Accounts'}
                     </h3>
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                      {canManageBuyers ? <ShieldCheck className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                      <span>{canManageBuyers ? (isOwner ? 'Owner Full Control' : 'Permitted') : 'View Only'}</span>
+                      {canManageBazarBuyers ? <ShieldCheck className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                      <span>{canManageBazarBuyers ? (isOwner ? 'Owner Full Control' : 'Permitted') : 'View Only'}</span>
                     </span>
                   </div>
                   <p className="text-[10px] text-slate-500">
@@ -1598,7 +1732,7 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
             </div>
 
             {/* Add / Edit Buyer ID Form */}
-            {canManageBuyers ? (
+            {canManageBazarBuyers ? (
               <form
                 onSubmit={handleSaveBuyer}
                 className="mt-4 p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 space-y-3"
@@ -1859,25 +1993,25 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                             {b.role}
                           </span>
                         )}
-                        {canManageBuyers && (
-                          <button
-                            type="button"
-                            onClick={() => startEditBuyer(b)}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer"
-                            title={isBn ? 'সব তথ্য ও ছবি পরিবর্তন করুন' : 'Edit Buyer ID, Photo & Everything'}
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {canManageBuyers && canDeleteRecords && (
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteBuyer(b.buyerId)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
-                            title="Remove Buyer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                        {canManageBazarBuyers && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => startEditBuyer(b)}
+                              className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/60 cursor-pointer"
+                              title={isBn ? 'সব তথ্য ও ছবি পরিবর্তন করুন' : 'Edit Buyer ID, Photo & Everything'}
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => requestDeleteBuyer(b.buyerId, b.name)}
+                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 cursor-pointer"
+                              title={isBn ? 'Buyer ID মুছে ফেলুন' : 'Remove Buyer ID'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
                         )}
                       </div>
                     </div>
@@ -1997,6 +2131,57 @@ export const HomeBazarLedger: React.FC<HomeBazarLedgerProps> = ({
                 className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl cursor-pointer"
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================== */}
+      {/* MODAL 3B: DELETE BUYER ID CONFIRMATION                         */}
+      {/* ============================================================== */}
+      {buyerToDelete && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 backdrop-blur-xs p-4">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-rose-200 dark:border-rose-900/60 text-center text-xs">
+            <div className="w-12 h-12 rounded-2xl bg-rose-100 dark:bg-rose-950/60 text-rose-600 flex items-center justify-center mx-auto mb-3">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <h3 className="text-base font-bold text-slate-900 dark:text-white">
+              {isBn ? 'Buyer ID মুছে ফেলবেন?' : 'Delete Buyer ID?'}
+            </h3>
+            <p className="text-slate-600 dark:text-slate-300 mt-2 text-xs leading-relaxed">
+              {isBn ? (
+                <>
+                  <strong className="font-mono text-slate-900 dark:text-white">🆔 {buyerToDelete.buyerId}</strong> ({buyerToDelete.name}) নিবন্ধিত ক্রেতা তালিকা থেকে মুছে ফেলা হবে।
+                </>
+              ) : (
+                <>
+                  Remove <strong className="font-mono text-slate-900 dark:text-white">🆔 {buyerToDelete.buyerId}</strong> ({buyerToDelete.name}) from Registered Buyer Accounts?
+                </>
+              )}
+            </p>
+            <p className="text-[11px] text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-xl px-3 py-2 mt-3 font-medium">
+              {isBn
+                ? 'নোট: আগের সকল বাজার খরচ এন্ট্রি (homeBazarEntries) সম্পূর্ণ নিরাপদ ও অক্ষত থাকবে।'
+                : 'All existing Daily Bazar entries will remain 100% intact with their recorded Buyer ID.'}
+            </p>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                disabled={isDeletingBuyer}
+                onClick={handleConfirmDeleteBuyer}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white font-bold rounded-xl cursor-pointer shadow-md flex items-center justify-center gap-1.5"
+              >
+                {isDeletingBuyer ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                <span>{isBn ? 'হ্যাঁ, মুছে ফেলুন' : 'Yes, Delete Buyer'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingBuyer}
+                onClick={() => setBuyerToDelete(null)}
+                className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold rounded-xl cursor-pointer"
+              >
+                {isBn ? 'বাতিল' : 'Cancel'}
               </button>
             </div>
           </div>
