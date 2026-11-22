@@ -1141,8 +1141,14 @@ export default function App() {
               currentUserAccount={currentUserAccount}
               currentLang={currentLang}
               onNavigateTab={(tab) => setActiveTab(tab)}
-              onQuickAddIncome={() => setActiveTab('entry')}
-              onQuickAddExpense={() => setActiveTab('entry')}
+              onQuickAddIncome={() => {
+                if (userPerms.canAccessQuickCash) setEntrySubTab('quick');
+                setActiveTab('entry');
+              }}
+              onQuickAddExpense={() => {
+                if (userPerms.canAccessQuickCash) setEntrySubTab('quick');
+                setActiveTab('entry');
+              }}
               onPrintTransaction={openPrintForSingle}
               onOpenReport={openPrintAll}
               onEditTransaction={(tx) => {

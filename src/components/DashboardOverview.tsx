@@ -34,6 +34,7 @@ import { Transaction, UserProfile, UserAccount, Customer } from '../types/accoun
 import { formatCurrency, formatDateBangla, formatDateEn, DEFAULT_CATEGORIES } from '../utils/formatters';
 import { t, Language } from '../utils/translations';
 import { NavTabId } from './Sidebar';
+import { getUserPagePermissions } from '../utils/permissions';
 
 interface DashboardOverviewProps {
   transactions: Transaction[];
@@ -67,6 +68,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onDeleteTransaction,
 }) => {
   const isBn = currentLang === 'bn';
+  const pagePerms = useMemo(() => getUserPagePermissions(currentUserAccount), [currentUserAccount]);
+  const canPrintStatement = pagePerms.canAccessLedger && (pagePerms.isOwner || currentUserAccount.canExport !== false);
+  const canQuickCash = pagePerms.canAccessQuickCash;
+  const canAddCustomers = pagePerms.isOwner || (pagePerms.canAccessCustomers && currentUserAccount.canEditCustomers !== false);
+  const canGenerateInvoice = pagePerms.canAccessInvoices;
+  const canDeleteTx = pagePerms.isOwner || (currentUserAccount.role !== 'viewer' && currentUserAccount.canDelete === true);
+  const canEditTx = pagePerms.isOwner || (currentUserAccount.role !== 'viewer' && currentUserAccount.canAddTransactions !== false);
+  const showQuickActionsSection = canPrintStatement || canQuickCash || canAddCustomers || canGenerateInvoice;
   const [period, setPeriod] = useState<AnalyticsPeriod>('monthly');
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'income' | 'expense'>('all');
@@ -401,6 +410,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       </div>
 
       {/* SECTION 3: Quick Actions Bar */}
+      {showQuickActionsSection && (
       <div className="bg-gradient-to-r from-[#172F4D] to-[#101A2C] rounded-xl p-3 sm:p-3.5 border border-slate-800 shadow-md text-white">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2.5">
           <div>
@@ -413,97 +423,102 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onOpenReport}
-              className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[11px] flex items-center gap-1.5 transition cursor-pointer border border-white/10"
-            >
-              <Printer className="w-3 h-3 text-[#D4AF37]" />
-              <span>{isBn ? 'পূর্ণাঙ্গ রিপোর্ট প্রিন্ট' : 'Full Statement PDF'}</span>
-            </button>
-          </div>
+          {canPrintStatement && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={onOpenReport}
+                className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white font-bold text-[11px] flex items-center gap-1.5 transition cursor-pointer border border-white/10"
+              >
+                <Printer className="w-3 h-3 text-[#D4AF37]" />
+                <span>{isBn ? 'পূর্ণাঙ্গ রিপোর্ট প্রিন্ট' : 'Full Statement PDF'}</span>
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <button
-            onClick={onQuickAddIncome}
-            className="p-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-left transition cursor-pointer group flex flex-col justify-between"
-          >
-            <div className="flex items-center justify-between">
-              <PlusCircle className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
-              <ArrowDownRight className="w-3.5 h-3.5 text-emerald-400/60" />
-            </div>
-            <div className="mt-2">
-              <span className="font-bold text-[11px] text-white block leading-snug">
-                {isBn ? '+ আয় যোগ করুন' : '+ Add Income'}
-              </span>
-              <span className="text-[10px] text-emerald-200/70 block mt-0.5 leading-tight">
-                {isBn ? 'বিক্রয়, কালেকশন' : 'Sales, collection'}
-              </span>
-            </div>
-          </button>
+          {canQuickCash && (
+            <button
+              onClick={onQuickAddIncome}
+              className="p-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 text-left transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <PlusCircle className="w-4 h-4 text-emerald-400 group-hover:scale-110 transition-transform" />
+                <ArrowDownRight className="w-3.5 h-3.5 text-emerald-400/60" />
+              </div>
+              <div className="mt-2">
+                <span className="font-bold text-[11px] text-white block leading-snug">
+                  {isBn ? '+ আয় যোগ করুন' : '+ Add Income'}
+                </span>
+                <span className="text-[10px] text-emerald-200/70 block mt-0.5 leading-tight">
+                  {isBn ? 'বিক্রয়, কালেকশন' : 'Sales, collection'}
+                </span>
+              </div>
+            </button>
+          )}
 
-          <button
-            onClick={onQuickAddExpense}
-            className="p-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-left transition cursor-pointer group flex flex-col justify-between"
-          >
-            <div className="flex items-center justify-between">
-              <PlusCircle className="w-4 h-4 text-rose-400 group-hover:scale-110 transition-transform" />
-              <ArrowUpRight className="w-3.5 h-3.5 text-rose-400/60" />
-            </div>
-            <div className="mt-2">
-              <span className="font-bold text-[11px] text-white block leading-snug">
-                {isBn ? '+ ব্যয় যোগ করুন' : '+ Add Expense'}
-              </span>
-              <span className="text-[10px] text-rose-200/70 block mt-0.5 leading-tight">
-                {isBn ? 'বাজার, বেতন, ইউটিলিটি' : 'Bills, payroll, supplies'}
-              </span>
-            </div>
-          </button>
+          {canQuickCash && (
+            <button
+              onClick={onQuickAddExpense}
+              className="p-2.5 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/30 text-rose-300 text-left transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <PlusCircle className="w-4 h-4 text-rose-400 group-hover:scale-110 transition-transform" />
+                <ArrowUpRight className="w-3.5 h-3.5 text-rose-400/60" />
+              </div>
+              <div className="mt-2">
+                <span className="font-bold text-[11px] text-white block leading-snug">
+                  {isBn ? '+ ব্যয় যোগ করুন' : '+ Add Expense'}
+                </span>
+                <span className="text-[10px] text-rose-200/70 block mt-0.5 leading-tight">
+                  {isBn ? 'বাজার, বেতন, ইউটিলিটি' : 'Bills, payroll, supplies'}
+                </span>
+              </div>
+            </button>
+          )}
 
-          <button
-            onClick={() => onNavigateTab('customers')}
-            className="p-2.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-left transition cursor-pointer group flex flex-col justify-between"
-          >
-            <div className="flex items-center justify-between">
-              <Users className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
-              <ChevronRight className="w-3.5 h-3.5 text-purple-400/60" />
-            </div>
-            <div className="mt-2">
-              <span className="font-bold text-[11px] text-white block leading-snug">
-                {isBn ? '+ গ্রাহক বা ভেন্ডর' : '+ Add Customer'}
-              </span>
-              <span className="text-[10px] text-purple-200/70 block mt-0.5 leading-tight">
-                {isBn ? 'বাকি খাতা ও লেজার' : 'CRM dues & balances'}
-              </span>
-            </div>
-          </button>
+          {canAddCustomers && (
+            <button
+              onClick={() => onNavigateTab('customers')}
+              className="p-2.5 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-500/30 text-purple-300 text-left transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <Users className="w-4 h-4 text-purple-400 group-hover:scale-110 transition-transform" />
+                <ChevronRight className="w-3.5 h-3.5 text-purple-400/60" />
+              </div>
+              <div className="mt-2">
+                <span className="font-bold text-[11px] text-white block leading-snug">
+                  {isBn ? '+ গ্রাহক বা ভেন্ডর' : '+ Add Customer'}
+                </span>
+                <span className="text-[10px] text-purple-200/70 block mt-0.5 leading-tight">
+                  {isBn ? 'বাকি খাতা ও লেজার' : 'CRM dues & balances'}
+                </span>
+              </div>
+            </button>
+          )}
 
-          <button
-            onClick={() => {
-              if (transactions.length > 0) {
-                onPrintTransaction(transactions[0]);
-              } else {
-                onOpenReport();
-              }
-            }}
-            className="p-2.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-left transition cursor-pointer group flex flex-col justify-between"
-          >
-            <div className="flex items-center justify-between">
-              <Receipt className="w-4 h-4 text-[#D4AF37] group-hover:scale-110 transition-transform" />
-              <ChevronRight className="w-3.5 h-3.5 text-[#D4AF37]/60" />
-            </div>
-            <div className="mt-2">
-              <span className="font-bold text-[11px] text-white block leading-snug">
-                {isBn ? 'ইনভয়েস ও ভাউচার' : 'Generate Invoice'}
-              </span>
-              <span className="text-[10px] text-amber-200/70 block mt-0.5 leading-tight">
-                {isBn ? 'গ্রাহক রসিদ ও চালান' : 'Instant corporate bill'}
-              </span>
-            </div>
-          </button>
+          {canGenerateInvoice && (
+            <button
+              onClick={() => onNavigateTab('entry')}
+              className="p-2.5 rounded-lg bg-[#D4AF37]/15 hover:bg-[#D4AF37]/25 border border-[#D4AF37]/40 text-[#D4AF37] text-left transition cursor-pointer group flex flex-col justify-between"
+            >
+              <div className="flex items-center justify-between">
+                <Receipt className="w-4 h-4 text-[#D4AF37] group-hover:scale-110 transition-transform" />
+                <ChevronRight className="w-3.5 h-3.5 text-[#D4AF37]/60" />
+              </div>
+              <div className="mt-2">
+                <span className="font-bold text-[11px] text-white block leading-snug">
+                  {isBn ? 'ইনভয়েস ও ভাউচার' : 'Generate Invoice'}
+                </span>
+                <span className="text-[10px] text-amber-200/70 block mt-0.5 leading-tight">
+                  {isBn ? 'গ্রাহক রসিদ ও চালান' : 'Instant corporate bill'}
+                </span>
+              </div>
+            </button>
+          )}
         </div>
       </div>
+      )}
 
       {/* SECTION 4: Compact Interactive Income vs Expense Chart (Midnight Green Box) */}
       <div className="w-full">
@@ -729,13 +744,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 {isBn ? 'কোন লেনদেন খুঁজে পাওয়া যায়নি' : 'No matching transactions recorded.'}
               </p>
-              <button
-                onClick={onQuickAddIncome}
-                className="mt-3 px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-bold text-xs rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-1.5"
-              >
-                <PlusCircle className="w-3.5 h-3.5" />
-                <span>{isBn ? 'প্রথম এন্ট্রি যোগ করুন' : 'Log First Entry'}</span>
-              </button>
+              {canQuickCash && (
+                <button
+                  onClick={onQuickAddIncome}
+                  className="mt-3 px-4 py-2 bg-gradient-to-r from-amber-500 to-yellow-500 text-slate-950 font-bold text-xs rounded-xl shadow-xs cursor-pointer inline-flex items-center gap-1.5"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>{isBn ? 'প্রথম এন্ট্রি যোগ করুন' : 'Log First Entry'}</span>
+                </button>
+              )}
             </div>
           ) : (
             <table className="w-full text-xs text-left">
@@ -810,27 +827,33 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
                     {/* Actions */}
                     <td className="py-3 px-2 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => onPrintTransaction(tx)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
-                          title={isBn ? 'ইনভয়েস বা ভাউচার প্রিন্ট' : 'Print Invoice'}
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => onEditTransaction(tx)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
-                          title={isBn ? 'সম্পাদনা' : 'Edit'}
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => onDeleteTransaction(tx.id)}
-                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                          title={isBn ? 'মুছে ফেলুন' : 'Delete'}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canPrintStatement && (
+                          <button
+                            onClick={() => onPrintTransaction(tx)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-amber-500 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
+                            title={isBn ? 'ইনভয়েস বা ভাউচার প্রিন্ট' : 'Print Invoice'}
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canEditTx && pagePerms.canAccessLedger && (
+                          <button
+                            onClick={() => onEditTransaction(tx)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-950/40 transition cursor-pointer"
+                            title={isBn ? 'সম্পাদনা' : 'Edit'}
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDeleteTx && (
+                          <button
+                            onClick={() => onDeleteTransaction(tx.id)}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                            title={isBn ? 'মুছে ফেলুন' : 'Delete'}
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -846,13 +869,15 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
               {isBn ? 'সর্বমোট রেকর্ড সংখ্যা:' : 'Total Ledger Records:'}{' '}
               <strong className="text-slate-800 dark:text-slate-200">{transactions.length}</strong>
             </span>
-            <button
-              onClick={() => onNavigateTab('ledger')}
-              className="text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer flex items-center gap-1"
-            >
-              <span>{isBn ? 'সকল খতিয়ান দেখুন' : 'View Full Ledger Book'}</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            {pagePerms.canAccessLedger && (
+              <button
+                onClick={() => onNavigateTab('ledger')}
+                className="text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer flex items-center gap-1"
+              >
+                <span>{isBn ? 'সকল খতিয়ান দেখুন' : 'View Full Ledger Book'}</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </>
       )}

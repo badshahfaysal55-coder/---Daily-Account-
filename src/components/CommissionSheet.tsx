@@ -169,7 +169,11 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   const canEditPerson = isOwner || (isAdmin && currentUser.canEditCommissionPersons !== false) || (currentUser.canEditCommissionPersons ?? currentUser.canAddCommissionPersons === true);
   const canDeletePerson = isOwner || (isAdmin && currentUser.canDeleteCommissionPersons !== false) || currentUser.canDeleteCommissionPersons === true;
   const canMergePerson = isOwner || (isAdmin && currentUser.canMergeCommissionPersons !== false) || currentUser.canMergeCommissionPersons === true;
-  const canManagePersonPhoto = isOwner || (isAdmin && canEditPerson);
+  const canManagePersonPhoto =
+    isOwner ||
+    (currentUser.canChangeCommissionPersonPhoto !== undefined
+      ? currentUser.canChangeCommissionPersonPhoto === true
+      : isAdmin && canEditPerson);
   const currentYm = useMemo(() => getCurrentYearMonth(), []);
 
   // Core Data
@@ -896,9 +900,9 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
   };
 
   const openEditSpecificPersonModal = (person: CommissionPersonAccount) => {
-    if (!canEditPerson) {
+    if (!canEditPerson && !canManagePersonPhoto) {
       setToastMessage({
-        text: 'Permission denied: Owner permission required to edit Person accounts.',
+        text: 'Permission denied: Owner permission required to edit or manage Person photo.',
         type: 'error',
       });
       return;
@@ -1073,16 +1077,45 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
 
   const handleSavePerson = async (e: React.FormEvent) => {
     e.preventDefault();
-    const isEditingExistingPerson = Boolean(editingPerson && !editingPerson.id.startsWith('person_temp'));
-    if (isEditingExistingPerson ? !canEditPerson : !canAddPerson) {
+    const hasPersonTarget = Boolean(editingPerson);
+    const isPhotoOnlyEdit = hasPersonTarget && !canEditPerson && canManagePersonPhoto;
+
+    if (hasPersonTarget ? (!canEditPerson && !canManagePersonPhoto) : !canAddPerson) {
       setToastMessage({
-        text: isEditingExistingPerson
+        text: hasPersonTarget
           ? 'Permission denied: Owner permission required to edit Person accounts.'
           : 'Permission denied: Owner permission required to add Person accounts.',
         type: 'error',
       });
       return;
     }
+
+    if (isPhotoOnlyEdit && editingPerson) {
+      if (!personPhotoBase64 && !personPhotoRemoved) {
+        setShowPersonModal(false);
+        return;
+      }
+      setIsSavingPerson(true);
+      try {
+        if (personPhotoRemoved) {
+          await ApiService.deleteCommissionPersonPhoto(editingPerson.id);
+        } else if (personPhotoBase64) {
+          await ApiService.uploadCommissionPersonPhoto(editingPerson.id, personPhotoBase64, editingPerson.name);
+        }
+        setShowPersonModal(false);
+        await loadData(true);
+        setToastMessage({
+          text: `Person photo for "${editingPerson.name}" updated!`,
+          type: 'success',
+        });
+      } catch (err: any) {
+        setToastMessage({ text: err.message || 'Failed to update person photo', type: 'error' });
+      } finally {
+        setIsSavingPerson(false);
+      }
+      return;
+    }
+
     const cleanName = personNameInput.trim();
     if (!cleanName) return;
     setIsSavingPerson(true);
@@ -1223,7 +1256,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
         office: quickOffice,
         invoiceNo: quickInvoiceNo.trim(),
         invoiceStatus: isClaw ? 'Cancelled' : isElig ? 'Active' : 'Pending',
-        agent: (quickAgent || (selectedAgent !== 'all' ? selectedAgent : availablePersons[0]?.name || '')).trim(),
+        agent: (quickAgent || (selectedAgent !== 'all' ? selectedAgent : '')).trim(),
         client: quickClient.trim(),
         workerName: quickWorker.trim() || undefined,
         clientMobile: quickMobile.trim() || undefined,
@@ -1290,7 +1323,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
     setFormAgent(
       selectedAgent !== 'all'
         ? selectedAgent
-        : activePersonProfile?.name || availablePersons[0]?.name || ''
+        : activePersonProfile?.name || ''
     );
     setFormClient('');
     setFormWorker('');
@@ -2247,12 +2280,12 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
               </span>
               {activePersonProfile && (
                 <>
-                  {canEditPerson && (
+                  {(canEditPerson || canManagePersonPhoto) && (
                     <button
                       onClick={openEditPersonModal}
                       className="text-emerald-700 dark:text-emerald-400 underline font-medium hover:text-emerald-800 cursor-pointer"
                     >
-                      (Edit info)
+                      {canEditPerson ? '(Edit info)' : '(Photo)'}
                     </button>
                   )}
                   {canDeletePerson && selectedAgent !== 'all' && (
@@ -2677,14 +2710,20 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      {canEditPerson && (
+                      {(canEditPerson || canManagePersonPhoto) && (
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             openEditSpecificPersonModal(acc);
                           }}
-                          title={canManagePersonPhoto ? 'Edit person info & photo' : 'Edit person info'}
+                          title={
+                            canEditPerson && canManagePersonPhoto
+                              ? 'Edit person info & photo'
+                              : canManagePersonPhoto
+                              ? 'Change / remove person photo'
+                              : 'Edit person info'
+                          }
                           className="p-1.5 rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-500 hover:text-emerald-600 hover:border-emerald-400 transition"
                         >
                           {canManagePersonPhoto ? <Camera className="w-3.5 h-3.5" /> : <Edit2 className="w-3.5 h-3.5" />}
@@ -3092,14 +3131,26 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                         >
                           Open Sheet
                         </button>
-                        {canEditPerson && (
+                        {(canEditPerson || canManagePersonPhoto) && (
                           <button
                             onClick={() => openEditSpecificPersonModal(acc)}
                             className="inline-flex items-center gap-1 px-2 py-1 rounded bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-300 font-semibold hover:bg-amber-100 cursor-pointer"
-                            title={canManagePersonPhoto ? 'Edit Photo & Info' : 'Edit Info'}
+                            title={
+                              canEditPerson && canManagePersonPhoto
+                                ? 'Edit Photo & Info'
+                                : canManagePersonPhoto
+                                ? 'Change / Remove Photo'
+                                : 'Edit Info'
+                            }
                           >
                             {canManagePersonPhoto ? <Camera className="w-3 h-3" /> : <Edit2 className="w-3 h-3" />}
-                            <span>{canManagePersonPhoto ? 'Edit / Photo' : 'Edit'}</span>
+                            <span>
+                              {canEditPerson && canManagePersonPhoto
+                                ? 'Edit / Photo'
+                                : canManagePersonPhoto
+                                ? 'Photo'
+                                : 'Edit'}
+                            </span>
                           </button>
                         )}
                         {canMergePerson && availablePersons.length >= 2 && (
@@ -4313,7 +4364,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     <span className="font-bold text-slate-800 dark:text-slate-100">Person Photo</span>
                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300 text-[10px] font-bold">
                       {canManagePersonPhoto ? <ShieldCheck className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                      {isAdmin && !isOwner ? 'Admin Full Access' : 'Owner / Admin'}
+                      {canManagePersonPhoto ? 'Photo Enabled' : 'Owner Locked'}
                     </span>
                   </div>
 
@@ -4370,52 +4421,65 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                   ) : (
                     <p className="text-[11px] text-amber-700 dark:text-amber-300 flex items-center gap-1">
                       <Lock className="w-3 h-3 shrink-0" />
-                      <span>Only Owner or Admin can add, change, or remove a person photo.</span>
+                      <span>Owner permission (Change Person Photo) required to add, change, or remove a person photo.</span>
                     </p>
                   )}
                 </div>
               </div>
 
-              <div>
-                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Person Full Name *</label>
-                <input
-                  type="text"
-                  required
-                  value={personNameInput}
-                  onChange={(e) => setPersonNameInput(e.target.value)}
-                  placeholder="e.g. TAREK AHMED"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Iqama / ID Number</label>
-                <input
-                  type="text"
-                  value={personIqamaInput}
-                  onChange={(e) => setPersonIqamaInput(e.target.value)}
-                  placeholder="e.g. 2578518975"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Phone Number</label>
-                <input
-                  type="text"
-                  value={personPhoneInput}
-                  onChange={(e) => setPersonPhoneInput(e.target.value)}
-                  placeholder="e.g. 0577139106"
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Default Office</label>
-                <input
-                  type="text"
-                  value={personOfficeInput}
-                  onChange={(e) => setPersonOfficeInput(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800"
-                />
-              </div>
+              {(() => {
+                const disablePersonFields = Boolean(editingPerson)
+                  ? !canEditPerson
+                  : !canAddPerson;
+                return (
+                  <>
+                    <div>
+                      <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Person Full Name *</label>
+                      <input
+                        type="text"
+                        required
+                        disabled={disablePersonFields}
+                        value={personNameInput}
+                        onChange={(e) => setPersonNameInput(e.target.value)}
+                        placeholder="e.g. TAREK AHMED"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Iqama / ID Number</label>
+                      <input
+                        type="text"
+                        disabled={disablePersonFields}
+                        value={personIqamaInput}
+                        onChange={(e) => setPersonIqamaInput(e.target.value)}
+                        placeholder="e.g. 2578518975"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Phone Number</label>
+                      <input
+                        type="text"
+                        disabled={disablePersonFields}
+                        value={personPhoneInput}
+                        onChange={(e) => setPersonPhoneInput(e.target.value)}
+                        placeholder="e.g. 0577139106"
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-bold text-slate-600 dark:text-slate-300 mb-1">Default Office</label>
+                      <input
+                        type="text"
+                        disabled={disablePersonFields}
+                        value={personOfficeInput}
+                        onChange={(e) => setPersonOfficeInput(e.target.value)}
+                        className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 disabled:opacity-60 disabled:cursor-not-allowed"
+                      />
+                    </div>
+                  </>
+                );
+              })()}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-200 dark:border-slate-800">
                 <div className="flex items-center gap-1.5">
                   {canMergePerson && editingPerson && availablePersons.length >= 2 && (
@@ -4453,7 +4517,7 @@ export const CommissionSheet: React.FC<CommissionSheetProps> = ({
                     className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold flex items-center gap-1.5 cursor-pointer"
                   >
                     {isSavingPerson && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                    <span>Save Person</span>
+                    <span>{!canEditPerson && canManagePersonPhoto && editingPerson ? 'Save Photo' : 'Save Person'}</span>
                   </button>
                 </div>
               </div>

@@ -80,9 +80,8 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Left: Shadowed Brand Logo & App Name */}
         <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
           <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 ml-0.5 sm:ml-4">
-            {/* ZARA Brand Logo — Clean 3D Glowing Emblem */}
-            <ZaraLogo size="xs" showText={false} className="sm:hidden shrink-0" />
-            <ZaraLogo size="sm" showText={false} className="hidden sm:inline-flex shrink-0" />
+            {/* ZARA Brand Logo — Single Clean 3D Glowing Emblem */}
+            <ZaraLogo size="sm" showText={false} className="shrink-0" />
 
             <div className="flex flex-col min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
@@ -206,16 +205,18 @@ export const Header: React.FC<HeaderProps> = ({
                   </button>
 
                   {/* Photo Management button */}
-                  <button
-                    onClick={() => {
-                      setProfileDropdownOpen(false);
-                      onOpenPhotoModal();
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800 transition cursor-pointer"
-                  >
-                    <Camera className="w-4 h-4 text-amber-400" />
-                    <span>{isBn ? 'প্রোফাইল ছবি পরিবর্তন / ক্রপ' : 'Change Profile Photo'}</span>
-                  </button>
+                  {(currentUserAccount?.role === 'owner' || currentUserAccount?.canChangeProfilePhoto !== false) && (
+                    <button
+                      onClick={() => {
+                        setProfileDropdownOpen(false);
+                        onOpenPhotoModal();
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-slate-200 hover:text-white hover:bg-slate-800 transition cursor-pointer"
+                    >
+                      <Camera className="w-4 h-4 text-amber-400" />
+                      <span>{isBn ? 'প্রোফাইল ছবি পরিবর্তন / ক্রপ' : 'Change Profile Photo'}</span>
+                    </button>
+                  )}
 
                   {/* Switch Account */}
                   <button

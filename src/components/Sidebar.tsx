@@ -278,34 +278,49 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className={`${isExpanded ? 'p-3' : 'px-2 py-2.5'} border-b border-[#1E293B]`}>
           <div className={`flex items-center rounded-xl bg-slate-900/60 border border-slate-800 ${isExpanded ? 'gap-3 p-2' : 'justify-center p-1.5'}`}>
             {/* User Profile Avatar with photo */}
-            <div
-              onClick={onOpenPhotoModal}
-              className="relative w-10 h-10 rounded-full p-0.5 bg-gradient-to-tr from-[#D4AF37] to-amber-200 shrink-0 cursor-pointer group"
-              title={isBn ? 'প্রোফাইল ছবি পরিবর্তন করুন' : 'Click to update profile photo'}
-            >
-              <div className="w-full h-full rounded-full bg-slate-900 overflow-hidden flex items-center justify-center">
-                {currentUser.photoUrl || currentUser.photoData ? (
-                  <img
-                    src={currentUser.photoUrl || currentUser.photoData}
-                    alt={currentUser.name}
-                    onError={(e) => {
-                      const img = e.currentTarget;
-                      if (currentUser.photoData && img.src !== currentUser.photoData) {
-                        img.src = currentUser.photoData;
-                      }
-                    }}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-xs font-black text-amber-400">
-                    {currentUser.name.slice(0, 2).toUpperCase()}
-                  </span>
-                )}
-              </div>
-              <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[8px] text-white font-bold">
-                Edit
-              </div>
-            </div>
+            {(() => {
+              const canChangeOwnPhoto = isOwner || currentUser.canChangeProfilePhoto !== false;
+              return (
+                <div
+                  onClick={canChangeOwnPhoto ? onOpenPhotoModal : undefined}
+                  className={`relative w-10 h-10 rounded-full p-0.5 bg-gradient-to-tr from-[#D4AF37] to-amber-200 shrink-0 ${canChangeOwnPhoto ? 'cursor-pointer group' : 'cursor-default'}`}
+                  title={
+                    canChangeOwnPhoto
+                      ? isBn
+                        ? 'প্রোফাইল ছবি পরিবর্তন করুন'
+                        : 'Click to update profile photo'
+                      : isBn
+                      ? 'প্রোফাইল ছবি পরিবর্তনের অনুমতি নেই'
+                      : 'Profile photo change disabled by Owner'
+                  }
+                >
+                  <div className="w-full h-full rounded-full bg-slate-900 overflow-hidden flex items-center justify-center">
+                    {currentUser.photoUrl || currentUser.photoData ? (
+                      <img
+                        src={currentUser.photoUrl || currentUser.photoData}
+                        alt={currentUser.name}
+                        onError={(e) => {
+                          const img = e.currentTarget;
+                          if (currentUser.photoData && img.src !== currentUser.photoData) {
+                            img.src = currentUser.photoData;
+                          }
+                        }}
+                        className="w-full h-full object-cover"
+                      />
+                    ) : (
+                      <span className="text-xs font-black text-amber-400">
+                        {currentUser.name.slice(0, 2).toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  {canChangeOwnPhoto && (
+                    <div className="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-[8px] text-white font-bold">
+                      Edit
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {isExpanded && (
               <div className="flex-1 min-w-0">
@@ -314,7 +329,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     {currentUser.name}
                   </span>
                   {isOwner && (
-                    <span className="bg-[#D4AF37] text-slate-950 text-[9px] font-black px-1.5 py-0.2 rounded uppercase">
+                    <span className="bg-[#D4AF37] text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded uppercase">
                       Owner
                     </span>
                   )}

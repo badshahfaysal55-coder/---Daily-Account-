@@ -787,7 +787,9 @@ export const ApiService = {
     canAddTransactions?: boolean;
     canViewLedger?: boolean;
     canEditCustomers?: boolean;
+    canDeleteCustomers?: boolean;
     canApproveInvoices?: boolean;
+    canChangeProfilePhoto?: boolean;
     canManageCommissions?: boolean;
     canAddCommissionRecords?: boolean;
     canEditCommissionRecords?: boolean;
@@ -797,6 +799,7 @@ export const ApiService = {
     canManageCommissionMonths?: boolean;
     canAddCommissionPersons?: boolean;
     canEditCommissionPersons?: boolean;
+    canChangeCommissionPersonPhoto?: boolean;
     canDeleteCommissionPersons?: boolean;
     canMergeCommissionPersons?: boolean;
     canManageBazar?: boolean;
@@ -1264,12 +1267,15 @@ export const ApiService = {
     return res.person;
   },
 
-  async uploadCommissionPersonPhoto(personId: string, photoBase64: string): Promise<{ success: boolean; photoUrl: string; person: CommissionPersonAccount }> {
+  async uploadCommissionPersonPhoto(personId: string, photoBase64: string, personName?: string): Promise<{ success: boolean; photoUrl: string; person: CommissionPersonAccount }> {
     this.setPhotoBackup(personId, photoBase64);
     const res = await this.request<{ success: boolean; photoUrl: string; person: CommissionPersonAccount }>(`/api/commission-persons/${personId}/photo`, {
       method: 'POST',
-      body: JSON.stringify({ photoBase64 }),
+      body: JSON.stringify(personName ? { photoBase64, personName } : { photoBase64 }),
     });
+    if (res.person?.id) {
+      this.setPhotoBackup(res.person.id, photoBase64);
+    }
     return res;
   },
 

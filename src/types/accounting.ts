@@ -215,7 +215,9 @@ export interface UserAccount {
   canAddTransactions?: boolean;   // Permission: Add daily transactions / income / expense
   canViewLedger?: boolean;         // Permission: View ledger & transaction list
   canEditCustomers?: boolean;      // Permission: Add / edit customers & CRM
+  canDeleteCustomers?: boolean;    // Permission: Delete customers & CRM records
   canApproveInvoices?: boolean;    // Permission: Create invoices & record payments
+  canChangeProfilePhoto?: boolean; // Permission: Change or remove own profile photo
   canManageCommissions?: boolean;  // Permission: View commission sheet
   canAddCommissionRecords?: boolean; // Permission: Add commission records
   canEditCommissionRecords?: boolean; // Permission: Edit commission records
@@ -225,6 +227,7 @@ export interface UserAccount {
   canManageCommissionMonths?: boolean; // Permission: Add / delete month sheets
   canAddCommissionPersons?: boolean; // Permission: Add new Person accounts in Commission Sheet
   canEditCommissionPersons?: boolean; // Permission: Edit existing Person accounts in Commission Sheet
+  canChangeCommissionPersonPhoto?: boolean; // Permission: Add / change / remove Person account photos
   canDeleteCommissionPersons?: boolean; // Permission: Delete Person accounts in Commission Sheet
   canMergeCommissionPersons?: boolean; // Permission: Merge Person accounts in Commission Sheet
   canManageBazar?: boolean;        // Permission: Access & manage Daily Bazar ledger

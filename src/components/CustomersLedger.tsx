@@ -79,6 +79,15 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
   onCustomersUpdated,
 }) => {
   const isBn = currentLang === 'bn';
+  const isOwner = currentUser.role === 'owner';
+  const canAddEditCust = isOwner || currentUser.canEditCustomers !== false;
+  const canDeleteCust =
+    isOwner ||
+    (currentUser.canDeleteCustomers !== undefined
+      ? currentUser.canDeleteCustomers === true
+      : currentUser.canDelete === true);
+  const canCreateInv = isOwner || currentUser.canApproveInvoices !== false;
+  const canDeleteInv = isOwner || currentUser.canDelete === true;
   const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
@@ -304,11 +313,29 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
   };
 
   const openAddModal = () => {
+    if (!canAddEditCust) {
+      setToastMessage({
+        text: isBn
+          ? 'গ্রাহক যোগ বা সম্পাদনার অনুমতি নেই।'
+          : 'Permission denied: Owner permission required to add or edit customers.',
+        type: 'error',
+      });
+      return;
+    }
     resetForm();
     setShowAddModal(true);
   };
 
   const openEditModal = (c: Customer) => {
+    if (!canAddEditCust) {
+      setToastMessage({
+        text: isBn
+          ? 'গ্রাহক সম্পাদনার অনুমতি নেই।'
+          : 'Permission denied: Owner permission required to edit customers.',
+        type: 'error',
+      });
+      return;
+    }
     resetForm();
     setEditingCustomer(c);
     setName(c.name || '');
@@ -656,23 +683,27 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
           </div>
 
           <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-            <button
-              onClick={() => {
-                setInvoicingCustomer(null);
-                setShowCreateInvoiceModal(true);
-              }}
-              className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md hover:scale-[1.02]"
-            >
-              <Receipt className="w-4 h-4 text-slate-950" />
-              <span>{isBn ? '+ ইনভয়েস তৈরি' : '+ New Invoice'}</span>
-            </button>
-            <button
-              onClick={openAddModal}
-              className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md hover:scale-[1.02]"
-            >
-              <UserPlus className="w-4 h-4 text-amber-400" />
-              <span>{isBn ? 'নতুন গ্রাহক যোগ' : 'Add Customer'}</span>
-            </button>
+            {canCreateInv && (
+              <button
+                onClick={() => {
+                  setInvoicingCustomer(null);
+                  setShowCreateInvoiceModal(true);
+                }}
+                className="px-3.5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md hover:scale-[1.02]"
+              >
+                <Receipt className="w-4 h-4 text-slate-950" />
+                <span>{isBn ? '+ ইনভয়েস তৈরি' : '+ New Invoice'}</span>
+              </button>
+            )}
+            {canAddEditCust && (
+              <button
+                onClick={openAddModal}
+                className="px-3.5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700 text-white text-xs sm:text-sm font-bold flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md hover:scale-[1.02]"
+              >
+                <UserPlus className="w-4 h-4 text-amber-400" />
+                <span>{isBn ? 'নতুন গ্রাহক যোগ' : 'Add Customer'}</span>
+              </button>
+            )}
           </div>
         </div>
 
@@ -906,7 +937,7 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                 ? (isBn ? 'আপনার অনুসন্ধানের সাথে মিলছে এমন কোনো রেকর্ড নেই।' : 'No records matched your search query.')
                 : (isBn ? 'নতুন কাস্টমার বা সরবরাহকারী যোগ করতে উপরের বোতামে চাপুন।' : 'Click "Add Customer" above to add your first client account.')}
             </p>
-            {!search && (
+            {!search && canAddEditCust && (
               <button
                 onClick={openAddModal}
                 className="mt-4 px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 shadow-sm"
@@ -1054,17 +1085,19 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                               <span className="hidden xl:inline">{isBn ? 'স্টেটমেন্ট' : 'Statement'}</span>
                             </button>
 
-                            <button
-                              onClick={() => {
-                                setInvoicingCustomer(c);
-                                setShowCreateInvoiceModal(true);
-                              }}
-                              className="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-400 hover:text-slate-950 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
-                              title="Create Invoice for Customer"
-                            >
-                              <Receipt className="w-3.5 h-3.5" />
-                              <span className="hidden xl:inline">{isBn ? '+ চালান' : '+ Invoice'}</span>
-                            </button>
+                            {canCreateInv && (
+                              <button
+                                onClick={() => {
+                                  setInvoicingCustomer(c);
+                                  setShowCreateInvoiceModal(true);
+                                }}
+                                className="px-2 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500 text-amber-700 dark:text-amber-400 hover:text-slate-950 font-bold text-[11px] flex items-center gap-1 transition cursor-pointer"
+                                title="Create Invoice for Customer"
+                              >
+                                <Receipt className="w-3.5 h-3.5" />
+                                <span className="hidden xl:inline">{isBn ? '+ চালান' : '+ Invoice'}</span>
+                              </button>
+                            )}
 
                             <button
                               onClick={() => setViewingCustomer(c)}
@@ -1073,20 +1106,24 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                             >
                               <Eye className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              onClick={() => openEditModal(c)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
-                              title="Edit Customer"
-                            >
-                              <Edit2 className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirmCust(c)}
-                              className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                              title="Delete Record"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                            {canAddEditCust && (
+                              <button
+                                onClick={() => openEditModal(c)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 transition cursor-pointer"
+                                title="Edit Customer"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {canDeleteCust && (
+                              <button
+                                onClick={() => setDeleteConfirmCust(c)}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                                title="Delete Record"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1128,7 +1165,7 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                               {c.name}
                             </button>
                             <span
-                              className={`text-[9px] font-bold px-1.5 py-0.2 rounded uppercase ${
+                              className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase ${
                                 c.type === 'customer'
                                   ? 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-400'
                                   : 'bg-blue-100 text-blue-800 dark:bg-blue-950 dark:text-blue-400'
@@ -1204,17 +1241,19 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                           <FileText className="w-3 h-3 text-blue-500" />
                           <span>{isBn ? 'স্টেটমেন্ট' : 'Statement'}</span>
                         </button>
-                        <button
-                          onClick={() => {
-                            setInvoicingCustomer(c);
-                            setShowCreateInvoiceModal(true);
-                          }}
-                          className="px-2 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[11px] font-bold flex items-center gap-1"
-                          title="Create Invoice"
-                        >
-                          <Receipt className="w-3 h-3" />
-                          <span>{isBn ? '+ চালান' : '+ Inv'}</span>
-                        </button>
+                        {canCreateInv && (
+                          <button
+                            onClick={() => {
+                              setInvoicingCustomer(c);
+                              setShowCreateInvoiceModal(true);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-400 text-[11px] font-bold flex items-center gap-1"
+                            title="Create Invoice"
+                          >
+                            <Receipt className="w-3 h-3" />
+                            <span>{isBn ? '+ চালান' : '+ Inv'}</span>
+                          </button>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1 ml-auto">
@@ -1225,20 +1264,24 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        <button
-                          onClick={() => openEditModal(c)}
-                          className="p-1.5 text-slate-400 hover:text-amber-600"
-                          title="Edit"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => setDeleteConfirmCust(c)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600"
-                          title="Delete"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {canAddEditCust && (
+                          <button
+                            onClick={() => openEditModal(c)}
+                            className="p-1.5 text-slate-400 hover:text-amber-600"
+                            title="Edit"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {canDeleteCust && (
+                          <button
+                            onClick={() => setDeleteConfirmCust(c)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1271,16 +1314,18 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                   ? (isBn ? 'অনুসন্ধানের সাথে মিলছে এমন কোনো ইনভয়েস নেই।' : 'No invoices matched your search filter.')
                   : (isBn ? 'গ্রাহকদের জন্য নতুন চালান তৈরি করতে নিচের বোতাম চাপুন।' : 'Create an individual invoice with custom line items for your customer.')}
               </p>
-              <button
-                onClick={() => {
-                  setInvoicingCustomer(null);
-                  setShowCreateInvoiceModal(true);
-                }}
-                className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
-              >
-                <Plus className="w-4 h-4" />
-                <span>{isBn ? 'নতুন ইনভয়েস তৈরি করুন' : 'Create New Invoice'}</span>
-              </button>
+              {canCreateInv && (
+                <button
+                  onClick={() => {
+                    setInvoicingCustomer(null);
+                    setShowCreateInvoiceModal(true);
+                  }}
+                  className="mt-4 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 hover:to-yellow-600 text-slate-950 font-bold text-xs inline-flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{isBn ? 'নতুন ইনভয়েস তৈরি করুন' : 'Create New Invoice'}</span>
+                </button>
+              )}
             </div>
           ) : (
             <div>
@@ -1453,13 +1498,15 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                               </button>
 
                               {/* Delete invoice */}
-                              <button
-                                onClick={() => handleDeleteInvoice(inv.id)}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
-                                title="Delete Invoice"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {canDeleteInv && (
+                                <button
+                                  onClick={() => handleDeleteInvoice(inv.id)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition cursor-pointer"
+                                  title="Delete Invoice"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1484,7 +1531,7 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                               #{inv.invoiceNumber}
                             </span>
                             <span
-                              className={`px-1.5 py-0.2 rounded-full text-[9px] font-bold uppercase ${
+                              className={`px-1.5 py-0.5 rounded-full text-[9px] font-bold uppercase ${
                                 inv.status === 'paid'
                                   ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/30'
                                   : inv.status === 'partial'
@@ -1566,13 +1613,15 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                           >
                             <Printer className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => handleDeleteInvoice(inv.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {canDeleteInv && (
+                            <button
+                              onClick={() => handleDeleteInvoice(inv.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 cursor-pointer"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -2253,16 +2302,18 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
                 <span>{isBn ? 'সম্পূর্ণ স্টেটমেন্ট' : 'Account Statement'}</span>
               </button>
 
-              <button
-                onClick={() => {
-                  setInvoicingCustomer(viewingCustomer);
-                  setShowCreateInvoiceModal(true);
-                }}
-                className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
-              >
-                <Receipt className="w-4 h-4 text-slate-950" />
-                <span>{isBn ? '+ নতুন চালান তৈরি' : '+ Create Invoice'}</span>
-              </button>
+              {canCreateInv && (
+                <button
+                  onClick={() => {
+                    setInvoicingCustomer(viewingCustomer);
+                    setShowCreateInvoiceModal(true);
+                  }}
+                  className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-600 text-slate-950 font-black text-xs flex items-center justify-center gap-2 shadow-md transition cursor-pointer"
+                >
+                  <Receipt className="w-4 h-4 text-slate-950" />
+                  <span>{isBn ? '+ নতুন চালান তৈরি' : '+ Create Invoice'}</span>
+                </button>
+              )}
             </div>
 
             {/* Detailed Info List */}
@@ -2332,27 +2383,33 @@ export const CustomersLedger: React.FC<CustomersLedgerProps> = ({
             </div>
 
             {/* Footer Actions */}
-            <div className="mt-5 flex gap-2">
-              <button
-                onClick={() => {
-                  openEditModal(viewingCustomer);
-                  setViewingCustomer(null);
-                }}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold hover:bg-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Edit2 className="w-3.5 h-3.5" />
-                <span>Edit Profile</span>
-              </button>
-              <button
-                onClick={() => {
-                  setDeleteConfirmCust(viewingCustomer);
-                }}
-                className="px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 hover:bg-rose-100 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                <span>Delete</span>
-              </button>
-            </div>
+            {(canAddEditCust || canDeleteCust) && (
+              <div className="mt-5 flex gap-2">
+                {canAddEditCust && (
+                  <button
+                    onClick={() => {
+                      openEditModal(viewingCustomer);
+                      setViewingCustomer(null);
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 font-bold hover:bg-slate-200 flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Edit2 className="w-3.5 h-3.5" />
+                    <span>Edit Profile</span>
+                  </button>
+                )}
+                {canDeleteCust && (
+                  <button
+                    onClick={() => {
+                      setDeleteConfirmCust(viewingCustomer);
+                    }}
+                    className="px-3.5 py-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 hover:bg-rose-100 font-bold flex items-center justify-center gap-1.5 cursor-pointer"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -69,7 +69,7 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
 
   const isOwner = currentUser.role === 'owner';
   const isSelf = currentUser.id === targetUser.id;
-  const canManage = isOwner || isSelf;
+  const canManage = isOwner || (isSelf && currentUser.canChangeProfilePhoto !== false);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     setError(null);
@@ -192,7 +192,11 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
             drawHeight
           );
 
-          finalDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          try {
+            finalDataUrl = canvas.toDataURL('image/jpeg', 0.88);
+          } catch {
+            finalDataUrl = previewUrl;
+          }
         }
       }
 
@@ -233,8 +237,8 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200 overflow-y-auto">
-      <div className="bg-white dark:bg-[#101A2C] rounded-3xl max-w-md w-full p-4 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white relative my-auto max-h-[96vh] overflow-y-auto text-xs">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-sm p-3 sm:p-4 safe-area-top safe-area-bottom animate-in fade-in duration-200 overflow-y-auto">
+      <div className="bg-white dark:bg-[#101A2C] rounded-3xl max-w-md w-full p-4 sm:p-6 shadow-2xl border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white relative my-auto max-h-[calc(100dvh-1.5rem)] sm:max-h-[90dvh] overflow-y-auto text-xs">
         {/* Header */}
         <div className="flex items-center justify-between pb-3.5 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-center gap-2.5">
@@ -259,6 +263,17 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
         </div>
 
         {/* Alerts */}
+        {!canManage && (
+          <div className="mt-3 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span className="flex-1">
+              {isBn
+                ? 'প্রোফাইল ছবি পরিবর্তন বা মুছে ফেলার অনুমতি ওনার কর্তৃক বন্ধ করা হয়েছে।'
+                : 'Profile photo changes are locked by Owner permission.'}
+            </span>
+          </div>
+        )}
+
         {error && (
           <div className="mt-3 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2.5">
             <AlertCircle className="w-4 h-4 shrink-0" />
@@ -288,6 +303,7 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
               <img
                 ref={imageRef}
                 src={previewUrl}
+                crossOrigin={!previewUrl.startsWith('data:') ? 'anonymous' : undefined}
                 alt="Profile Preview"
                 draggable={false}
                 style={{
@@ -396,16 +412,18 @@ export const ProfilePhotoModal: React.FC<ProfilePhotoModalProps> = ({
         <div className="mt-4 grid grid-cols-2 gap-2">
           <button
             type="button"
+            disabled={!canManage || isUploading}
             onClick={() => fileInputRef.current?.click()}
-            className="py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs border border-slate-200 dark:border-slate-700"
+            className="py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs border border-slate-200 dark:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Upload className="w-3.5 h-3.5 text-amber-500" />
             <span>Choose from Files</span>
           </button>
           <button
             type="button"
+            disabled={!canManage || isUploading}
             onClick={() => cameraInputRef.current?.click()}
-            className="py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs border border-slate-200 dark:border-slate-700"
+            className="py-2.5 px-3 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-semibold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-xs border border-slate-200 dark:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Camera className="w-3.5 h-3.5 text-blue-500" />
             <span>Take Photo</span>

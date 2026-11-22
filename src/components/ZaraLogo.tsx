@@ -20,8 +20,8 @@ export const ZaraLogo: React.FC<ZaraLogoProps> = ({
   const depthShadowId = `zf-depth-${uid}`;
 
   const sizeMap = {
-    xs: 'w-10 h-10',
-    sm: 'w-11 h-11',
+    xs: 'w-9 h-9',
+    sm: 'w-9 h-9 sm:w-11 sm:h-11',
     md: 'w-12 h-12',
     lg: 'w-16 h-16',
     xl: 'w-22 h-22',
@@ -35,8 +35,10 @@ export const ZaraLogo: React.FC<ZaraLogoProps> = ({
     xl: 'rounded-3xl',
   };
 
+  const displayClass = className.includes('hidden') ? '' : 'inline-flex ';
+
   return (
-    <div className={`inline-flex items-center gap-3.5 select-none ${className}`}>
+    <div className={`${displayClass}items-center gap-3.5 select-none ${className}`}>
       <div className={`relative ${sizeMap[size]} shrink-0 group`}>
         {/* Soft 3D Ambient Multi-Tone Glow Halo */}
         <div

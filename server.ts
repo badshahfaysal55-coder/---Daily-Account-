@@ -49,6 +49,23 @@ if (!fs.existsSync(DB_BACKUPS_DIR)) {
 if (!fs.existsSync(PHOTOS_DIR)) {
   fs.mkdirSync(PHOTOS_DIR, { recursive: true });
 }
+const RESOLVED_PHOTOS_DIR = path.resolve(PHOTOS_DIR);
+
+function resolvePhotoFilePathSafe(photoRef: string): string | null {
+  const cleanName = path.basename(String(photoRef || '').replace(/^\/api\/photos\//, '').trim());
+  if (!cleanName || cleanName === '.' || cleanName === '..') return null;
+  const resolved = path.resolve(RESOLVED_PHOTOS_DIR, cleanName);
+  if (!resolved.startsWith(RESOLVED_PHOTOS_DIR + path.sep)) return null;
+  return resolved;
+}
+
+function unlinkPhotoFileSafe(photoUrl?: string) {
+  if (!photoUrl || !photoUrl.startsWith('/api/photos/')) return;
+  const targetPath = resolvePhotoFilePathSafe(photoUrl);
+  if (targetPath && fs.existsSync(targetPath)) {
+    try { fs.unlinkSync(targetPath); } catch {}
+  }
+}
 
 export type UserRole = 'owner' | 'admin' | 'manager' | 'staff' | 'viewer';
 export type AppTheme = 'midnight-gold' | 'royal-blue' | 'emerald-green' | 'graphite-black' | 'emerald-graphite';
@@ -70,7 +87,9 @@ export interface DbUser {
   canAddTransactions?: boolean;   // Permission: Add transactions
   canViewLedger?: boolean;         // Permission: View ledger
   canEditCustomers?: boolean;      // Permission: Add / edit customers
+  canDeleteCustomers?: boolean;    // Permission: Delete customers
   canApproveInvoices?: boolean;    // Permission: Invoices & payments
+  canChangeProfilePhoto?: boolean; // Permission: Change / remove own profile photo
   canManageCommissions?: boolean;  // Permission: View commission sheet
   canAddCommissionRecords?: boolean; // Permission: Add commission records
   canEditCommissionRecords?: boolean; // Permission: Edit commission records
@@ -82,6 +101,7 @@ export interface DbUser {
   canEditCommissionPersons?: boolean; // Permission: Edit Commission Person accounts
   canDeleteCommissionPersons?: boolean; // Permission: Delete Commission Person accounts
   canMergeCommissionPersons?: boolean; // Permission: Merge Commission Person accounts
+  canChangeCommissionPersonPhoto?: boolean; // Permission: Add / change / remove Commission Person photo
   canManageBazar?: boolean;        // Permission: Daily Bazar ledger
   canManageBuyers?: boolean;       // Permission: Buyer IDs & Buyer photos
   isCommissionOnly?: boolean;      // Permission: Commission sheet only
@@ -294,6 +314,10 @@ export interface DatabaseSchema {
   deletedCommissionMonths?: Record<string, number>;
   migrationsApplied?: {
     removedDefaultOwnerCommissionPerson?: boolean;
+    purgedDemoAndTombstonedRecords?: boolean;
+    grantedFaysalJubailAdminFullPerms?: boolean;
+    removedAhmedFromOwnerName?: boolean;
+    renamedAppToZFAccounting?: boolean;
   };
   ownerFirebaseUid?: string;
   globalSettings: DbGlobalSettings;
@@ -320,7 +344,9 @@ const INITIAL_DATABASE: DatabaseSchema = {
       canAddTransactions: true,
       canViewLedger: true,
       canEditCustomers: true,
+      canDeleteCustomers: true,
       canApproveInvoices: true,
+      canChangeProfilePhoto: true,
       canManageCommissions: true,
       canAddCommissionRecords: true,
       canEditCommissionRecords: true,
@@ -332,6 +358,7 @@ const INITIAL_DATABASE: DatabaseSchema = {
       canEditCommissionPersons: true,
       canDeleteCommissionPersons: true,
       canMergeCommissionPersons: true,
+      canChangeCommissionPersonPhoto: true,
       canManageBazar: true,
       canManageBuyers: true,
       theme: 'midnight-gold',
@@ -340,62 +367,15 @@ const INITIAL_DATABASE: DatabaseSchema = {
       createdAt: Date.now() - 86400000 * 30,
     },
   ],
-  transactions: [
-    {
-      id: 'tx-owner-1',
-      userId: 'usr_owner_faisal',
-      workspaceUserId: 'usr_owner_faisal',
-      description: 'ZARA কর্পোরেট বিনিয়োগ তহবিল জমা',
-      amount: 150000,
-      type: 'income',
-      category: 'investment',
-      paymentMethod: 'bank',
-      timestamp: Date.now() - 86400000 * 3,
-      notes: 'হেড অফিস মাস্টার ফান্ড',
-      createdByName: 'Faysal (Main Owner)',
-      customerName: 'ZARA Holdings',
-    },
-    {
-      id: 'tx-owner-2',
-      userId: 'usr_owner_faisal',
-      workspaceUserId: 'usr_owner_faisal',
-      description: 'সফটওয়্যার ও ক্লাউড সার্ভার লাইসেন্স রিনিউ',
-      amount: 12500,
-      type: 'expense',
-      category: 'bills',
-      paymentMethod: 'bank',
-      timestamp: Date.now() - 86400000 * 1,
-      notes: 'AWS & Cloud Infrastructure',
-      createdByName: 'Faysal (Main Owner)',
-      customerName: 'Cloud Provider Inc.',
-    },
-  ],
-  customers: [
-    {
-      id: 'cust-1',
-      workspaceUserId: 'usr_owner_faisal',
-      name: 'মেসার্স রহিম টেক্সটাইল',
-      phone: '+880 1711-234567',
-      type: 'customer',
-      balance: 45000,
-      updatedAt: Date.now() - 86400000 * 2,
-    },
-    {
-      id: 'cust-2',
-      workspaceUserId: 'usr_owner_faisal',
-      name: 'প্রিমিয়াম ফ্যাব্রিক্স সরবরাহকারী',
-      phone: '+880 1819-876543',
-      type: 'vendor',
-      balance: -28000,
-      updatedAt: Date.now() - 86400000 * 4,
-    },
-  ],
+  transactions: [],
+  customers: [],
   invoices: [],
   commissionEntries: [],
   commissionPersons: [],
   commissionMonths: [new Date().toISOString().slice(0, 7)],
   migrationsApplied: {
     removedDefaultOwnerCommissionPerson: true,
+    purgedDemoAndTombstonedRecords: true,
   },
   homeBazarEntries: [],
   drafts: {},
@@ -444,7 +424,7 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   if (!parsed || !Array.isArray(parsed.users) || !Array.isArray(parsed.transactions) || !parsed.globalSettings) {
     return null;
   }
-  if (!Array.isArray(parsed.customers)) parsed.customers = INITIAL_DATABASE.customers;
+  if (!Array.isArray(parsed.customers)) parsed.customers = [];
   if (!Array.isArray(parsed.invoices)) parsed.invoices = [];
   if (!Array.isArray(parsed.commissionEntries)) parsed.commissionEntries = [];
   if (!Array.isArray(parsed.commissionPersons)) parsed.commissionPersons = [];
@@ -455,6 +435,22 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
   if (!parsed.sessions || typeof parsed.sessions !== 'object') parsed.sessions = {};
   if (!parsed.deletedRecordIds || typeof parsed.deletedRecordIds !== 'object') parsed.deletedRecordIds = {};
   if (!parsed.deletedCommissionMonths || typeof parsed.deletedCommissionMonths !== 'object') parsed.deletedCommissionMonths = {};
+
+  // Enforce tombstone pruning across operational collections so deleted records never resurrect
+  const filterTombstoned = (arr: any[]) =>
+    arr.filter((rec: any) => {
+      if (!rec?.id) return true;
+      const delTs = Number(parsed.deletedRecordIds[rec.id]) || 0;
+      if (delTs <= 0) return true;
+      const itemTs = Number(rec.updatedAt) || Number(rec.createdAt) || Number(rec.timestamp) || 0;
+      return itemTs > delTs;
+    });
+  parsed.transactions = filterTombstoned(parsed.transactions);
+  parsed.customers = filterTombstoned(parsed.customers);
+  parsed.invoices = filterTombstoned(parsed.invoices);
+  parsed.commissionEntries = filterTombstoned(parsed.commissionEntries);
+  parsed.commissionPersons = filterTombstoned(parsed.commissionPersons);
+  parsed.homeBazarEntries = filterTombstoned(parsed.homeBazarEntries);
 
   // Exclude and tombstone any legacy auto-synced 0-commission customer invoices from Commission Sheet
   const purgeTs = Date.now();
@@ -508,6 +504,31 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
     parsed.__migratedPersons = true;
   }
 
+  // One-time idempotent migration: purge seeded demo records & known tombstoned/unknown records
+  if (!parsed.migrationsApplied.purgedDemoAndTombstonedRecords) {
+    const demoCustomerIds = new Set(['cust-1', 'cust-2']);
+    const demoTxIds = new Set(['tx-owner-1', 'tx-owner-2', 'tx-comm-comm-el-3']);
+    const demoCommissionIds = new Set([
+      'comm-el-3',
+      'comm-nel-3',
+      'comm-nel-4',
+      'comm-nel-5',
+      'comm-nel-6',
+      'comm-nel-7',
+      'comm-cb-1',
+      'comm-cb-2',
+      'comm-cb-3',
+    ]);
+    parsed.customers = (parsed.customers || []).filter((c: any) => !c?.id || !demoCustomerIds.has(c.id));
+    parsed.transactions = (parsed.transactions || []).filter((t: any) => !t?.id || !demoTxIds.has(t.id));
+    parsed.commissionEntries = (parsed.commissionEntries || []).filter((e: any) => !e?.id || !demoCommissionIds.has(e.id));
+    [...demoCustomerIds, ...demoTxIds, ...demoCommissionIds].forEach((id) => {
+      parsed.deletedRecordIds[id] = Math.max(nowTs, Number(parsed.deletedRecordIds[id]) || 0) + 1000;
+    });
+    parsed.migrationsApplied.purgedDemoAndTombstonedRecords = true;
+    parsed.__migratedPersons = true;
+  }
+
   // Extract commission months & safely backfill creator attribution if missing and agentId matches an existing user
   const userLookup = new Map<string, any>();
   (parsed.users || []).forEach((u: any) => {
@@ -539,7 +560,9 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
     if (u.canAddTransactions === undefined) u.canAddTransactions = true;
     if (u.canViewLedger === undefined) u.canViewLedger = true;
     if (u.canEditCustomers === undefined) u.canEditCustomers = u.role !== 'viewer';
+    if (u.canDeleteCustomers === undefined) u.canDeleteCustomers = u.role === 'owner' || u.role === 'admin' || Boolean(u.canDelete);
     if (u.canApproveInvoices === undefined) u.canApproveInvoices = u.role === 'owner' || u.role === 'admin' || u.role === 'manager';
+    if (u.canChangeProfilePhoto === undefined) u.canChangeProfilePhoto = true;
     if (u.canManageCommissions === undefined) u.canManageCommissions = u.role === 'owner' || u.role === 'admin' || u.role === 'manager';
     if (u.canAddCommissionRecords === undefined) u.canAddCommissionRecords = u.role === 'owner' || u.role === 'admin' || Boolean(u.canManageCommissions);
     if (u.canEditCommissionRecords === undefined) u.canEditCommissionRecords = u.role === 'owner' || u.role === 'admin' || Boolean(u.canManageCommissions);
@@ -551,6 +574,9 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
     if (u.canEditCommissionPersons === undefined) u.canEditCommissionPersons = u.role === 'owner' || u.role === 'admin' || Boolean(u.canAddCommissionPersons);
     if (u.canDeleteCommissionPersons === undefined) u.canDeleteCommissionPersons = u.role === 'owner' || u.role === 'admin';
     if (u.canMergeCommissionPersons === undefined) u.canMergeCommissionPersons = u.role === 'owner' || u.role === 'admin';
+    if (u.canChangeCommissionPersonPhoto === undefined) {
+      u.canChangeCommissionPersonPhoto = u.role === 'owner' || (u.role === 'admin' && u.canEditCommissionPersons !== false);
+    }
     if (u.canManageBazar === undefined) u.canManageBazar = u.role === 'owner' || u.role === 'admin' || !u.isCommissionOnly;
     if (u.canManageBuyers === undefined) u.canManageBuyers = u.role === 'owner' || u.role === 'admin';
     if (u.isCommissionBazarOnly) {
@@ -579,7 +605,9 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
       faysalJubail.canAddTransactions = true;
       faysalJubail.canViewLedger = true;
       faysalJubail.canEditCustomers = true;
+      faysalJubail.canDeleteCustomers = true;
       faysalJubail.canApproveInvoices = true;
+      faysalJubail.canChangeProfilePhoto = true;
       faysalJubail.canManageCommissions = true;
       faysalJubail.canAddCommissionRecords = true;
       faysalJubail.canEditCommissionRecords = true;
@@ -591,6 +619,7 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
       faysalJubail.canEditCommissionPersons = true;
       faysalJubail.canDeleteCommissionPersons = true;
       faysalJubail.canMergeCommissionPersons = true;
+      faysalJubail.canChangeCommissionPersonPhoto = true;
       faysalJubail.canManageBazar = true;
       faysalJubail.canManageBuyers = true;
       faysalJubail.updatedAt = nowTs;
@@ -628,6 +657,73 @@ function normalizeLoadedDatabase(parsed: any): DatabaseSchema | null {
       parsed.globalSettings.broadcastMessage = parsed.globalSettings.broadcastMessage.replace(/ZARA Accounting/gi, 'ZF Accounting');
     }
     parsed.migrationsApplied.renamedAppToZFAccounting = true;
+    parsed.__migratedPersons = true;
+  }
+
+  // One-time idempotent migration: remove leftover demo invoice payment transactions ("মেসার্স রহিম টেক্সটাইল" / INV-2026-0001)
+  if (!parsed.migrationsApplied.purgedLegacyDemoInvoicePayments) {
+    const legacyDemoTxIds = new Set(['tx-invpay-1794196964108', 'tx-invpay-1794196959669']);
+    const keptTransactions: any[] = [];
+    (parsed.transactions || []).forEach((tx: any) => {
+      const desc = String(tx?.description || '');
+      const notes = String(tx?.notes || '');
+      const customerName = String(tx?.customerName || '');
+      const isLegacyDemoTx =
+        (tx?.id && legacyDemoTxIds.has(tx.id)) ||
+        desc.includes('মেসার্স রহিম টেক্সটাইল') ||
+        notes.includes('মেসার্স রহিম টেক্সটাইল') ||
+        customerName.includes('মেসার্স রহিম টেক্সটাইল') ||
+        desc.includes('INV-2026-0001') ||
+        notes.includes('INV-2026-0001');
+      if (isLegacyDemoTx) {
+        if (tx?.id) {
+          parsed.deletedRecordIds[tx.id] = Math.max(nowTs, Number(parsed.deletedRecordIds[tx.id]) || 0) + 1000;
+        }
+      } else {
+        keptTransactions.push(tx);
+      }
+    });
+    legacyDemoTxIds.forEach((id) => {
+      parsed.deletedRecordIds[id] = Math.max(nowTs, Number(parsed.deletedRecordIds[id]) || 0) + 1000;
+    });
+    parsed.transactions = keptTransactions;
+    parsed.migrationsApplied.purgedLegacyDemoInvoicePayments = true;
+    parsed.__migratedPersons = true;
+  }
+
+  // One-time idempotent migration: repair invoice balanceDue, remainingAmount, discount, taxRate, payments, and lowercase status
+  if (!parsed.migrationsApplied.repairedInvoiceBalanceAndStatus) {
+    parsed.invoices = (parsed.invoices || []).map((inv: any) => {
+      if (!inv || typeof inv !== 'object') return inv;
+      const totalAmount = Number(inv.totalAmount) || 0;
+      const paidAmount = Number(inv.paidAmount) || 0;
+      const discount = typeof inv.discount === 'number' ? inv.discount : Number(inv.discountAmount) || 0;
+      const taxRate = Number(inv.taxRate) || 0;
+      const balanceDue = totalAmount - paidAmount;
+      const remainingAmount = Math.max(0, balanceDue);
+      const validStatuses = ['unpaid', 'partial', 'paid', 'overpaid'];
+      const computedStatus =
+        balanceDue < 0
+          ? 'overpaid'
+          : balanceDue === 0 && totalAmount > 0
+            ? 'paid'
+            : paidAmount > 0
+              ? 'partial'
+              : 'unpaid';
+      const status = validStatuses.includes(inv.status) && inv.status !== 'Draft' ? inv.status : computedStatus;
+      return {
+        ...inv,
+        totalAmount,
+        paidAmount,
+        discount,
+        taxRate,
+        balanceDue,
+        remainingAmount,
+        status,
+        payments: Array.isArray(inv.payments) ? inv.payments : [],
+      };
+    });
+    parsed.migrationsApplied.repairedInvoiceBalanceAndStatus = true;
     parsed.__migratedPersons = true;
   }
 
@@ -969,10 +1065,10 @@ async function startServer() {
   });
   app.use('/api/photos', express.static(PHOTOS_DIR));
 
-  // Helper middleware to authenticate token with persistent session recovery
+  // Helper middleware to authenticate token with persistent session recovery (no arbitrary substring spoofing)
   const authMiddleware = (req: express.Request, res: express.Response, next: express.NextFunction) => {
     const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1]?.trim() : null;
 
     if (token) {
       let user = SESSIONS.get(token);
@@ -984,16 +1080,14 @@ async function startServer() {
         }
       }
       if (!user) {
-        // Re-hydrate session ONLY if token explicitly encodes a known user ID or username
-        const matched = db.users.find(
-          (u) => token.includes(u.id) || token.includes(u.username)
-        );
-        if (matched) {
-          SESSIONS.set(token, matched);
+        // Only allow exact match to the active Primary Owner's preview auto-token after restart
+        const activeOwner = db.users.find((u) => u.role === 'owner' && u.status !== 'disabled');
+        if (activeOwner && token === `token_auto_${activeOwner.id}`) {
+          SESSIONS.set(token, activeOwner);
           if (!db.sessions) db.sessions = {};
-          db.sessions[token] = matched.id;
+          db.sessions[token] = activeOwner.id;
           saveDatabase(db);
-          user = matched;
+          user = activeOwner;
         }
       }
 
@@ -1018,32 +1112,13 @@ async function startServer() {
         }
       }
 
-      // If client supplied an explicit non-auto user token that no longer resolves to any user, reject instead of silently elevating to Owner
-      if (!token.startsWith('token_auto_')) {
-        return res.status(401).json({
-          error: 'User session invalid or account removed',
-          accountRemoved: true,
-        });
-      }
+      return res.status(401).json({
+        error: 'User session invalid or account removed',
+        accountRemoved: !token.startsWith('token_auto_'),
+      });
     }
 
-    // Seamless fallback to active primary owner when no valid token is supplied
-    const defaultUser = db.users.find((u) => u.role === 'owner' && u.status !== 'disabled') || db.users[0];
-    if (defaultUser && defaultUser.status !== 'disabled') {
-      const autoToken = `token_auto_${defaultUser.id}`;
-      SESSIONS.set(autoToken, defaultUser);
-      if (!db.sessions) db.sessions = {};
-      if (db.sessions[autoToken] !== defaultUser.id) {
-        db.sessions[autoToken] = defaultUser.id;
-        saveDatabase(db);
-      }
-      (req as any).user = defaultUser;
-      (req as any).token = autoToken;
-      res.setHeader('x-auth-token', autoToken);
-      return next();
-    }
-
-    return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+    return res.status(401).json({ error: 'Unauthorized: Missing or invalid token', accountRemoved: false });
   };
 
   // Helper middleware for Owner-only routes
@@ -1269,7 +1344,7 @@ async function startServer() {
   // Session verification and persistent recovery endpoint
   app.get('/api/auth/session', (req, res) => {
     const authHeader = req.headers.authorization;
-    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.split(' ')[1]?.trim() : null;
     let user: DbUser | undefined = token ? SESSIONS.get(token) : undefined;
     if (!user && token && db.sessions && db.sessions[token]) {
       const uid = db.sessions[token];
@@ -1277,19 +1352,23 @@ async function startServer() {
       if (user) SESSIONS.set(token, user);
     }
     if (!user && token) {
-      user = db.users.find(
-        (u) => (token.includes(u.id) || token.includes(u.username)) && u.status !== 'disabled'
-      );
-      if (user) {
-        SESSIONS.set(token, user);
-        if (!db.sessions) db.sessions = {};
-        db.sessions[token] = user.id;
-        saveDatabase(db);
+      const activeOwner = db.users.find((u) => u.role === 'owner' && u.status !== 'disabled');
+      if (activeOwner && token === `token_auto_${activeOwner.id}`) {
+        user = activeOwner;
+        SESSIONS.set(token, activeOwner);
+      } else {
+        return res.status(401).json({
+          error: 'Invalid or expired session token',
+          accountRemoved: !token.startsWith('token_auto_'),
+        });
       }
     }
 
     if (!user) {
       user = db.users.find((u) => u.role === 'owner' && u.status !== 'disabled') || db.users[0];
+      if (!user || user.status === 'disabled') {
+        return res.status(401).json({ error: 'No active workspace session available' });
+      }
       const autoToken = `token_auto_${user.id}`;
       SESSIONS.set(autoToken, user);
       if (!db.sessions) db.sessions = {};
@@ -1303,6 +1382,9 @@ async function startServer() {
       return res.json({ user: safe, token: autoToken });
     }
     const freshUser = db.users.find((u) => u.id === user!.id) || user;
+    if (freshUser.status === 'disabled') {
+      return res.status(403).json({ error: 'Your account has been suspended by the Owner' });
+    }
     const safe = { ...freshUser };
     delete (safe as any).passwordHash;
     return res.json({ user: safe, token });
@@ -1391,7 +1473,9 @@ async function startServer() {
       canAddTransactions,
       canViewLedger,
       canEditCustomers,
+      canDeleteCustomers,
       canApproveInvoices,
+      canChangeProfilePhoto,
       canManageCommissions,
       canAddCommissionRecords,
       canEditCommissionRecords,
@@ -1403,6 +1487,7 @@ async function startServer() {
       canEditCommissionPersons,
       canDeleteCommissionPersons,
       canMergeCommissionPersons,
+      canChangeCommissionPersonPhoto,
       canManageBazar,
       canManageBuyers,
       isCommissionOnly,
@@ -1478,7 +1563,9 @@ async function startServer() {
       canAddTransactions: canAddTransactions !== undefined ? canAddTransactions : !restrictedFlag,
       canViewLedger: canViewLedger !== undefined ? canViewLedger : !restrictedFlag,
       canEditCustomers: canEditCustomers !== undefined ? canEditCustomers : (!restrictedFlag && assignedRole !== 'viewer'),
+      canDeleteCustomers: canDeleteCustomers !== undefined ? Boolean(canDeleteCustomers) : isNewAdmin,
       canApproveInvoices: canApproveInvoices !== undefined ? canApproveInvoices : (!restrictedFlag && (isNewAdmin || assignedRole === 'manager')),
+      canChangeProfilePhoto: canChangeProfilePhoto !== undefined ? Boolean(canChangeProfilePhoto) : true,
       canManageCommissions: canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin),
       canAddCommissionRecords: canAddCommissionRecords !== undefined ? Boolean(canAddCommissionRecords) : Boolean(canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin)),
       canEditCommissionRecords: canEditCommissionRecords !== undefined ? Boolean(canEditCommissionRecords) : Boolean(canManageCommissions !== undefined ? canManageCommissions : (restrictedFlag || isNewAdmin)),
@@ -1490,6 +1577,7 @@ async function startServer() {
       canEditCommissionPersons: canEditCommissionPersons !== undefined ? Boolean(canEditCommissionPersons) : isNewAdmin,
       canDeleteCommissionPersons: canDeleteCommissionPersons !== undefined ? Boolean(canDeleteCommissionPersons) : isNewAdmin,
       canMergeCommissionPersons: canMergeCommissionPersons !== undefined ? Boolean(canMergeCommissionPersons) : isNewAdmin,
+      canChangeCommissionPersonPhoto: canChangeCommissionPersonPhoto !== undefined ? Boolean(canChangeCommissionPersonPhoto) : isNewAdmin,
       canManageBazar: canManageBazar !== undefined ? canManageBazar : (isNewAdmin || commBazarOnlyFlag || !commOnlyFlag),
       canManageBuyers: canManageBuyers !== undefined ? canManageBuyers : isNewAdmin,
       isCommissionOnly: commOnlyFlag,
@@ -1550,7 +1638,9 @@ async function startServer() {
       canAddTransactions,
       canViewLedger,
       canEditCustomers,
+      canDeleteCustomers,
       canApproveInvoices,
+      canChangeProfilePhoto,
       canManageCommissions,
       canAddCommissionRecords,
       canEditCommissionRecords,
@@ -1562,6 +1652,7 @@ async function startServer() {
       canEditCommissionPersons,
       canDeleteCommissionPersons,
       canMergeCommissionPersons,
+      canChangeCommissionPersonPhoto,
       canManageBazar,
       canManageBuyers,
       theme, 
@@ -1641,7 +1732,9 @@ async function startServer() {
     if (canAddTransactions !== undefined) targetUser.canAddTransactions = canAddTransactions;
     if (canViewLedger !== undefined) targetUser.canViewLedger = canViewLedger;
     if (canEditCustomers !== undefined) targetUser.canEditCustomers = canEditCustomers;
+    if (canDeleteCustomers !== undefined) targetUser.canDeleteCustomers = Boolean(canDeleteCustomers);
     if (canApproveInvoices !== undefined) targetUser.canApproveInvoices = canApproveInvoices;
+    if (canChangeProfilePhoto !== undefined) targetUser.canChangeProfilePhoto = Boolean(canChangeProfilePhoto);
     if (canManageCommissions !== undefined) targetUser.canManageCommissions = canManageCommissions;
     if (canAddCommissionRecords !== undefined) targetUser.canAddCommissionRecords = Boolean(canAddCommissionRecords);
     if (canEditCommissionRecords !== undefined) targetUser.canEditCommissionRecords = Boolean(canEditCommissionRecords);
@@ -1653,6 +1746,7 @@ async function startServer() {
     if (canEditCommissionPersons !== undefined) targetUser.canEditCommissionPersons = Boolean(canEditCommissionPersons);
     if (canDeleteCommissionPersons !== undefined) targetUser.canDeleteCommissionPersons = Boolean(canDeleteCommissionPersons);
     if (canMergeCommissionPersons !== undefined) targetUser.canMergeCommissionPersons = Boolean(canMergeCommissionPersons);
+    if (canChangeCommissionPersonPhoto !== undefined) targetUser.canChangeCommissionPersonPhoto = Boolean(canChangeCommissionPersonPhoto);
     if (canManageBazar !== undefined) targetUser.canManageBazar = canManageBazar;
     if (canManageBuyers !== undefined) targetUser.canManageBuyers = canManageBuyers;
     if (req.body.isCommissionOnly !== undefined) targetUser.isCommissionOnly = Boolean(req.body.isCommissionOnly);
@@ -1661,11 +1755,14 @@ async function startServer() {
       targetUser.isCommissionOnly = false;
       targetUser.isCommissionBazarOnly = false;
       if (prevRole !== 'admin') {
+        if (canDeleteCustomers === undefined) targetUser.canDeleteCustomers = true;
+        if (canChangeProfilePhoto === undefined) targetUser.canChangeProfilePhoto = true;
         if (canDeleteCommissionRecords === undefined) targetUser.canDeleteCommissionRecords = true;
         if (canAddCommissionPersons === undefined) targetUser.canAddCommissionPersons = true;
         if (canEditCommissionPersons === undefined) targetUser.canEditCommissionPersons = true;
         if (canDeleteCommissionPersons === undefined) targetUser.canDeleteCommissionPersons = true;
         if (canMergeCommissionPersons === undefined) targetUser.canMergeCommissionPersons = true;
+        if (canChangeCommissionPersonPhoto === undefined) targetUser.canChangeCommissionPersonPhoto = true;
       }
     }
     if (theme) targetUser.theme = theme;
@@ -1770,6 +1867,9 @@ async function startServer() {
     if (currentUser.role !== 'owner' && currentUser.id !== targetId) {
       return res.status(403).json({ error: 'Permission denied: You can only update your own profile photo.' });
     }
+    if (currentUser.role !== 'owner' && currentUser.canChangeProfilePhoto === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner disabled profile photo changes for this account.' });
+    }
 
     const targetUser = db.users.find((u) => u.id === targetId);
     if (!targetUser) {
@@ -1798,16 +1898,13 @@ async function startServer() {
     }
 
     // Clean up previous photo if present
-    if (targetUser.photoUrl && targetUser.photoUrl.startsWith('/api/photos/')) {
-      const oldFilename = targetUser.photoUrl.replace('/api/photos/', '');
-      const oldPath = path.join(PHOTOS_DIR, oldFilename);
-      if (fs.existsSync(oldPath)) {
-        try { fs.unlinkSync(oldPath); } catch {}
-      }
-    }
+    unlinkPhotoFileSafe(targetUser.photoUrl);
 
-    const filename = `${targetUser.id}_${Date.now()}.${ext}`;
-    const filePath = path.join(PHOTOS_DIR, filename);
+    const filename = `${path.basename(targetUser.id)}_${Date.now()}.${ext}`;
+    const filePath = resolvePhotoFilePathSafe(filename);
+    if (!filePath) {
+      return res.status(400).json({ error: 'Invalid target photo path' });
+    }
     fs.writeFileSync(filePath, buffer);
 
     const photoUrl = `/api/photos/${filename}`;
@@ -1842,19 +1939,16 @@ async function startServer() {
     if (currentUser.role !== 'owner' && currentUser.id !== targetId) {
       return res.status(403).json({ error: 'Permission denied: You can only remove your own profile photo.' });
     }
+    if (currentUser.role !== 'owner' && currentUser.canChangeProfilePhoto === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner disabled profile photo changes for this account.' });
+    }
 
     const targetUser = db.users.find((u) => u.id === targetId);
     if (!targetUser) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (targetUser.photoUrl && targetUser.photoUrl.startsWith('/api/photos/')) {
-      const oldFilename = targetUser.photoUrl.replace('/api/photos/', '');
-      const oldPath = path.join(PHOTOS_DIR, oldFilename);
-      if (fs.existsSync(oldPath)) {
-        try { fs.unlinkSync(oldPath); } catch {}
-      }
-    }
+    unlinkPhotoFileSafe(targetUser.photoUrl);
 
     targetUser.photoUrl = undefined;
     targetUser.photoData = undefined;
@@ -1909,6 +2003,9 @@ async function startServer() {
     if (currentUser.role === 'viewer') {
       return res.status(403).json({ error: 'Viewer accounts have read-only access' });
     }
+    if (currentUser.role !== 'owner' && currentUser.canAddTransactions === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission required to add transactions.' });
+    }
 
     const { description, amount, type, category, paymentMethod, notes, targetWorkspaceUserId, customerName } = req.body;
 
@@ -1948,6 +2045,9 @@ async function startServer() {
     if (currentUser.role === 'viewer') {
       return res.status(403).json({ error: 'Viewer accounts cannot edit records' });
     }
+    if (currentUser.role !== 'owner' && currentUser.canAddTransactions === false) {
+      return res.status(403).json({ error: 'Permission denied: Transaction editing requires Add/Edit Transactions permission.' });
+    }
 
     const txId = req.params.id;
     const { description, amount, type, category, paymentMethod, notes, customerName } = req.body;
@@ -1962,16 +2062,29 @@ async function startServer() {
       return res.status(403).json({ error: 'You do not have permission to edit this record' });
     }
 
-    if (description) tx.description = description.trim();
-    if (amount) {
+    if (description) tx.description = String(description).trim();
+    if (amount !== undefined) {
       const num = parseFloat(amount);
-      if (!isNaN(num) && num > 0) tx.amount = num;
+      if (isNaN(num) || num <= 0) {
+        return res.status(400).json({ error: 'Valid positive amount is required' });
+      }
+      tx.amount = num;
     }
-    if (type) tx.type = type;
-    if (category) tx.category = category;
-    if (paymentMethod) tx.paymentMethod = paymentMethod;
-    if (notes !== undefined) tx.notes = notes.trim();
-    if (customerName !== undefined) tx.customerName = customerName.trim();
+    if (type) {
+      if (type !== 'income' && type !== 'expense') {
+        return res.status(400).json({ error: 'Invalid transaction type' });
+      }
+      tx.type = type;
+    }
+    if (category) tx.category = String(category);
+    if (paymentMethod) {
+      if (!['cash', 'bkash', 'nagad', 'bank'].includes(paymentMethod)) {
+        return res.status(400).json({ error: 'Invalid payment method' });
+      }
+      tx.paymentMethod = paymentMethod;
+    }
+    if (notes !== undefined) tx.notes = String(notes).trim();
+    if (customerName !== undefined) tx.customerName = String(customerName).trim();
     tx.updatedAt = Date.now();
 
     db.transactions[index] = tx;
@@ -2021,6 +2134,13 @@ async function startServer() {
 
   // Dedicated customer photo upload endpoint
   app.post('/api/customers/photo', authMiddleware, (req, res) => {
+    const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (currentUser.role !== 'owner' && currentUser.canEditCustomers === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner disabled customer editing for this account.' });
+    }
     const { photoBase64 } = req.body;
     if (!photoBase64 || typeof photoBase64 !== 'string') {
       return res.status(400).json({ error: 'Valid photo base64 data is required' });
@@ -2052,6 +2172,12 @@ async function startServer() {
 
   app.post('/api/customers', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (currentUser.role !== 'owner' && currentUser.canEditCustomers === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner disabled adding/editing customers for this account.' });
+    }
     const { 
       name, 
       phone, 
@@ -2143,8 +2269,14 @@ async function startServer() {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts cannot edit customers.' });
+    }
     if (currentUser.role !== 'owner' && cust.workspaceUserId !== currentUser.id) {
       return res.status(403).json({ error: 'Permission denied: You can only edit customers in your workspace.' });
+    }
+    if (currentUser.role !== 'owner' && currentUser.canEditCustomers === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner disabled editing customers for this account.' });
     }
 
     const { 
@@ -2199,12 +2331,7 @@ async function startServer() {
 
     // Handle photo updates
     if (removePhoto) {
-      if (cust.photoUrl && cust.photoUrl.startsWith('/api/photos/')) {
-        const oldFile = path.join(PHOTOS_DIR, cust.photoUrl.replace('/api/photos/', ''));
-        if (fs.existsSync(oldFile)) {
-          try { fs.unlinkSync(oldFile); } catch {}
-        }
-      }
+      unlinkPhotoFileSafe(cust.photoUrl);
       cust.photoUrl = undefined;
       cust.photoData = undefined;
     } else if (photoBase64 && typeof photoBase64 === 'string') {
@@ -2217,16 +2344,14 @@ async function startServer() {
             const buffer = Buffer.from(matches[2], 'base64');
             if (buffer.length <= 5 * 1024 * 1024) {
               // Delete old photo if it was an uploaded file
-              if (cust.photoUrl && cust.photoUrl.startsWith('/api/photos/')) {
-                const oldFile = path.join(PHOTOS_DIR, cust.photoUrl.replace('/api/photos/', ''));
-                if (fs.existsSync(oldFile)) {
-                  try { fs.unlinkSync(oldFile); } catch {}
-                }
+              unlinkPhotoFileSafe(cust.photoUrl);
+              const filename = `cust_${path.basename(cust.id)}_${Date.now()}.${ext}`;
+              const safePath = resolvePhotoFilePathSafe(filename);
+              if (safePath) {
+                fs.writeFileSync(safePath, buffer);
+                cust.photoUrl = `/api/photos/${filename}`;
+                cust.photoData = photoBase64;
               }
-              const filename = `cust_${cust.id}_${Date.now()}.${ext}`;
-              fs.writeFileSync(path.join(PHOTOS_DIR, filename), buffer);
-              cust.photoUrl = `/api/photos/${filename}`;
-              cust.photoData = photoBase64;
             }
           }
         }
@@ -2254,18 +2379,24 @@ async function startServer() {
       return res.status(404).json({ error: 'Customer not found' });
     }
 
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts cannot delete customers.' });
+    }
     const cust = db.customers[index];
     if (currentUser.role !== 'owner' && cust.workspaceUserId !== currentUser.id) {
       return res.status(403).json({ error: 'Permission denied: You can only delete customers in your workspace.' });
     }
+    const canDelCust =
+      currentUser.role === 'owner' ||
+      (currentUser.canDeleteCustomers !== undefined
+        ? currentUser.canDeleteCustomers === true
+        : currentUser.canDelete === true);
+    if (!canDelCust) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission required to delete customers.' });
+    }
 
     // Clean up photo file if present
-    if (cust.photoUrl && cust.photoUrl.startsWith('/api/photos/')) {
-      const oldFile = path.join(PHOTOS_DIR, cust.photoUrl.replace('/api/photos/', ''));
-      if (fs.existsSync(oldFile)) {
-        try { fs.unlinkSync(oldFile); } catch {}
-      }
-    }
+    unlinkPhotoFileSafe(cust.photoUrl);
 
     db.customers.splice(index, 1);
     db.deletedRecordIds = db.deletedRecordIds || {};
@@ -2315,6 +2446,12 @@ async function startServer() {
   // 3. Create Individual Customer Invoice
   app.post('/api/invoices', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (currentUser.role !== 'owner' && currentUser.canApproveInvoices === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission required to create invoices.' });
+    }
     const {
       customerId,
       invoiceNumber,
@@ -2481,6 +2618,12 @@ async function startServer() {
   // 4. Record Partial or Full Payment on an Invoice
   app.post('/api/invoices/:id/payments', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (currentUser.role !== 'owner' && currentUser.canApproveInvoices === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission required to record invoice payments.' });
+    }
     const invId = req.params.id;
     const inv = db.invoices.find((i) => i.id === invId);
 
@@ -2587,6 +2730,12 @@ async function startServer() {
   // 4b. Update / Edit Invoice
   app.put('/api/invoices/:id', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (currentUser.role !== 'owner' && currentUser.canApproveInvoices === false) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission required to edit invoices.' });
+    }
     const invId = req.params.id;
     const inv = db.invoices.find((i) => i.id === invId);
 
@@ -2685,6 +2834,12 @@ async function startServer() {
   // 5. Delete Invoice
   app.delete('/api/invoices/:id', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts cannot delete invoices.' });
+    }
+    if (currentUser.role !== 'owner' && currentUser.canDelete !== true) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission required to delete invoices.' });
+    }
     const invId = req.params.id;
     const index = db.invoices.findIndex((i) => i.id === invId);
 
@@ -2900,17 +3055,15 @@ async function startServer() {
       throw new Error('Image exceeds maximum allowed size of 25MB.');
     }
 
-    if (previousPhotoUrl && previousPhotoUrl.startsWith('/api/photos/')) {
-      const oldFilename = previousPhotoUrl.replace('/api/photos/', '');
-      const oldPath = path.join(PHOTOS_DIR, oldFilename);
-      if (fs.existsSync(oldPath)) {
-        try { fs.unlinkSync(oldPath); } catch {}
-      }
-    }
+    unlinkPhotoFileSafe(previousPhotoUrl);
 
     const safeBuyerKey = 'buyer_' + buyerId.replace(/[^a-zA-Z0-9_-]/g, '_');
     const filename = `${safeBuyerKey}_${Date.now()}.${ext}`;
-    fs.writeFileSync(path.join(PHOTOS_DIR, filename), buffer);
+    const safePath = resolvePhotoFilePathSafe(filename);
+    if (!safePath) {
+      throw new Error('Invalid buyer photo path');
+    }
+    fs.writeFileSync(safePath, buffer);
     return { photoUrl: `/api/photos/${filename}`, photoData: photoBase64 };
   };
 
@@ -3004,7 +3157,13 @@ async function startServer() {
   // 2. Add New Home Bazar Item (with Buyer ID — NO automatic ledger transaction or buyer amount mutation)
   app.post('/api/home-bazar', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
-    if (currentUser.role !== 'owner' && currentUser.canManageBazar === false) {
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (
+      currentUser.role !== 'owner' &&
+      ((currentUser.role !== 'admin' && currentUser.isCommissionOnly) || currentUser.canManageBazar === false)
+    ) {
       return res.status(403).json({ error: 'Permission denied: Owner has disabled Daily Bazar entry access.' });
     }
 
@@ -3089,7 +3248,13 @@ async function startServer() {
   // 3. Update Home Bazar Item (Full Edit Support)
   app.put('/api/home-bazar/:id', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
-    if (currentUser.role !== 'owner' && currentUser.canManageBazar === false) {
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (
+      currentUser.role !== 'owner' &&
+      ((currentUser.role !== 'admin' && currentUser.isCommissionOnly) || currentUser.canManageBazar === false)
+    ) {
       return res.status(403).json({ error: 'Permission denied: Owner has disabled Daily Bazar edit access.' });
     }
 
@@ -3124,7 +3289,13 @@ async function startServer() {
   // 4. Delete Home Bazar Item
   app.delete('/api/home-bazar/:id', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
-    if (currentUser.role !== 'owner' && (currentUser.canManageBazar === false || !currentUser.canDelete)) {
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts cannot delete bazar items.' });
+    }
+    if (
+      currentUser.role !== 'owner' &&
+      ((currentUser.role !== 'admin' && currentUser.isCommissionOnly) || currentUser.canManageBazar === false || !currentUser.canDelete)
+    ) {
       return res.status(403).json({ error: 'Permission denied: Only Owner or users with Delete permission can remove bazar items.' });
     }
 
@@ -3147,7 +3318,13 @@ async function startServer() {
   // 5. Update Monthly Bazar Budget
   app.put('/api/home-bazar/budget', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
-    if (currentUser.role !== 'owner' && currentUser.canManageBazar === false) {
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
+    if (
+      currentUser.role !== 'owner' &&
+      ((currentUser.role !== 'admin' && currentUser.isCommissionOnly) || currentUser.canManageBazar === false)
+    ) {
       return res.status(403).json({ error: 'Permission denied: Owner has disabled Daily Bazar budget access.' });
     }
 
@@ -3176,6 +3353,9 @@ async function startServer() {
   // 7. Add or Upsert Custom Bazar Buyer (supports Photo + Manual Amount without auto-mutating existing amounts)
   app.post('/api/home-bazar/buyers', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
     if (currentUser.role !== 'owner' && !currentUser.canManageBuyers) {
       return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users can manage Buyer IDs and Photos.' });
     }
@@ -3203,12 +3383,7 @@ async function startServer() {
     let photoUrl = existingBuyer?.photoUrl;
     let photoData = existingBuyer?.photoData;
     if (removePhoto) {
-      if (photoUrl && photoUrl.startsWith('/api/photos/')) {
-        const oldPath = path.join(PHOTOS_DIR, photoUrl.replace('/api/photos/', ''));
-        if (fs.existsSync(oldPath)) {
-          try { fs.unlinkSync(oldPath); } catch {}
-        }
-      }
+      unlinkPhotoFileSafe(photoUrl);
       photoUrl = undefined;
       photoData = undefined;
     } else if (photoBase64 && typeof photoBase64 === 'string') {
@@ -3258,6 +3433,9 @@ async function startServer() {
   // 7b. Full Edit for an Existing Buyer ID (Owner or permitted user can change everything)
   app.put('/api/home-bazar/buyers/:buyerId', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts have read-only access' });
+    }
     if (currentUser.role !== 'owner' && !currentUser.canManageBuyers) {
       return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users can edit Buyer IDs and Photos.' });
     }
@@ -3306,12 +3484,7 @@ async function startServer() {
     let photoUrl = existing.photoUrl;
     let photoData = existing.photoData;
     if (removePhoto) {
-      if (photoUrl && photoUrl.startsWith('/api/photos/')) {
-        const oldPath = path.join(PHOTOS_DIR, photoUrl.replace('/api/photos/', ''));
-        if (fs.existsSync(oldPath)) {
-          try { fs.unlinkSync(oldPath); } catch {}
-        }
-      }
+      unlinkPhotoFileSafe(photoUrl);
       photoUrl = undefined;
       photoData = undefined;
     } else if (photoBase64 && typeof photoBase64 === 'string') {
@@ -3379,6 +3552,9 @@ async function startServer() {
   // 8. Delete Custom Bazar Buyer
   app.delete('/api/home-bazar/buyers/:buyerId', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    if (currentUser.role === 'viewer') {
+      return res.status(403).json({ error: 'Viewer accounts cannot delete buyers.' });
+    }
     if (currentUser.role !== 'owner' && (!currentUser.canManageBuyers || !currentUser.canDelete)) {
       return res.status(403).json({ error: 'Permission denied: Only Owner or permitted users with Delete access can remove Buyer IDs.' });
     }
@@ -3396,12 +3572,7 @@ async function startServer() {
     }
 
     const target = db.globalSettings.bazarBuyers[idx];
-    if (target.photoUrl && target.photoUrl.startsWith('/api/photos/')) {
-      const oldPath = path.join(PHOTOS_DIR, target.photoUrl.replace('/api/photos/', ''));
-      if (fs.existsSync(oldPath)) {
-        try { fs.unlinkSync(oldPath); } catch {}
-      }
-    }
+    unlinkPhotoFileSafe(target.photoUrl);
 
     db.globalSettings.bazarBuyers.splice(idx, 1);
     db.deletedRecordIds = db.deletedRecordIds || {};
@@ -3603,33 +3774,26 @@ async function startServer() {
     if (buffer.length > 25 * 1024 * 1024) {
       throw new Error('Image exceeds maximum allowed size of 25MB.');
     }
-    if (person.photoUrl && person.photoUrl.startsWith('/api/photos/')) {
-      const oldFilename = person.photoUrl.replace('/api/photos/', '');
-      const oldPath = path.join(PHOTOS_DIR, oldFilename);
-      if (fs.existsSync(oldPath)) {
-        try { fs.unlinkSync(oldPath); } catch {}
-      }
+    unlinkPhotoFileSafe(person.photoUrl);
+    const filename = `${path.basename(person.id)}_${Date.now()}.${ext}`;
+    const safePath = resolvePhotoFilePathSafe(filename);
+    if (!safePath) {
+      throw new Error('Invalid commission person photo path');
     }
-    const filename = `${person.id}_${Date.now()}.${ext}`;
-    fs.writeFileSync(path.join(PHOTOS_DIR, filename), buffer);
+    fs.writeFileSync(safePath, buffer);
     person.photoUrl = `/api/photos/${filename}`;
     person.photoData = photoBase64;
   }
 
   function removeCommissionPersonPhotoFiles(person: DbCommissionPersonAccount) {
-    if (person.photoUrl && person.photoUrl.startsWith('/api/photos/')) {
-      const oldFilename = person.photoUrl.replace('/api/photos/', '');
-      const oldPath = path.join(PHOTOS_DIR, oldFilename);
-      if (fs.existsSync(oldPath)) {
-        try { fs.unlinkSync(oldPath); } catch {}
-      }
-    }
+    unlinkPhotoFileSafe(person.photoUrl);
     person.photoUrl = undefined;
     person.photoData = undefined;
   }
 
   function canPerformCommissionAction(u: DbUser, specificFlag?: boolean): boolean {
     if (u.role === 'owner') return true;
+    if (u.role === 'viewer') return false;
     if (u.role === 'admin') {
       return u.canManageCommissions !== false && specificFlag !== false;
     }
@@ -3638,6 +3802,7 @@ async function startServer() {
 
   function canPerformPersonAction(u: DbUser, specificFlag?: boolean): boolean {
     if (u.role === 'owner') return true;
+    if (u.role === 'viewer') return false;
     if (u.role === 'admin') return specificFlag !== false;
     return specificFlag === true;
   }
@@ -3653,9 +3818,13 @@ async function startServer() {
     if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Person name is required' });
     }
-    const canManagePhoto = currentUser.role === 'owner' || (currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
+    const canManagePhoto =
+      currentUser.role === 'owner' ||
+      (currentUser.canChangeCommissionPersonPhoto !== undefined
+        ? currentUser.canChangeCommissionPersonPhoto === true
+        : currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
     if (photoBase64 && !canManagePhoto) {
-      return res.status(403).json({ error: 'Owner / Admin Only: Permission required to add or change a person photo.' });
+      return res.status(403).json({ error: 'Permission denied: Owner permission (Change Person Photo) required.' });
     }
     const person = ensureCommissionPersonAccount(String(name).trim(), {
       iqamaNo: iqamaNo !== undefined ? String(iqamaNo) : undefined,
@@ -3695,9 +3864,13 @@ async function startServer() {
     const oldName = existing.name;
     const { name, iqamaNo, phone, office, photoBase64, removePhoto } = req.body;
 
-    const canManagePhoto = currentUser.role === 'owner' || (currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
+    const canManagePhoto =
+      currentUser.role === 'owner' ||
+      (currentUser.canChangeCommissionPersonPhoto !== undefined
+        ? currentUser.canChangeCommissionPersonPhoto === true
+        : currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
     if ((photoBase64 || removePhoto) && !canManagePhoto) {
-      return res.status(403).json({ error: 'Owner / Admin Only: Permission required to change or remove a person photo.' });
+      return res.status(403).json({ error: 'Permission denied: Owner permission (Change Person Photo) required.' });
     }
 
     if (name && String(name).trim()) existing.name = String(name).trim();
@@ -3936,15 +4109,32 @@ async function startServer() {
     });
   });
 
-  // Owner & Admin Person Photo Upload & Delete endpoints
-  app.post('/api/commission-persons/:id/photo', authMiddleware, ownerOrAdminMiddleware, (req, res) => {
+  // Separate Per-User Permission Person Photo Upload & Delete endpoints
+  app.post('/api/commission-persons/:id/photo', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
-    if (currentUser.role !== 'owner' && currentUser.canEditCommissionPersons === false) {
-      return res.status(403).json({ error: 'Permission denied: Person photo edit permission disabled.' });
+    const canManagePhoto =
+      currentUser.role === 'owner' ||
+      (currentUser.canChangeCommissionPersonPhoto !== undefined
+        ? currentUser.canChangeCommissionPersonPhoto === true
+        : currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
+    if (!canManagePhoto) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission (Change Person Photo) required.' });
     }
     const targetId = req.params.id;
     db.commissionPersons = db.commissionPersons || [];
-    const person = db.commissionPersons.find((p) => p.id === targetId);
+    let person = db.commissionPersons.find((p) => p.id === targetId);
+    if (!person && targetId.startsWith('person_temp')) {
+      const reqPersonName = typeof req.body?.personName === 'string' ? req.body.personName.trim() : '';
+      if (reqPersonName) {
+        person =
+          db.commissionPersons.find((p) => p.name.trim().toLowerCase() === reqPersonName.toLowerCase()) ||
+          ensureCommissionPersonAccount(reqPersonName, {
+            createdByUserId: currentUser.id,
+            createdByName: currentUser.name,
+          }) ||
+          undefined;
+      }
+    }
     if (!person) {
       return res.status(404).json({ error: 'Person profile not found' });
     }
@@ -3970,15 +4160,23 @@ async function startServer() {
     return res.json({ success: true, photoUrl: person.photoUrl, person });
   });
 
-  app.delete('/api/commission-persons/:id/photo', authMiddleware, ownerOrAdminMiddleware, (req, res) => {
+  app.delete('/api/commission-persons/:id/photo', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
-    if (currentUser.role !== 'owner' && currentUser.canEditCommissionPersons === false) {
-      return res.status(403).json({ error: 'Permission denied: Person photo delete permission disabled.' });
+    const canManagePhoto =
+      currentUser.role === 'owner' ||
+      (currentUser.canChangeCommissionPersonPhoto !== undefined
+        ? currentUser.canChangeCommissionPersonPhoto === true
+        : currentUser.role === 'admin' && currentUser.canEditCommissionPersons !== false);
+    if (!canManagePhoto) {
+      return res.status(403).json({ error: 'Permission denied: Owner permission (Change Person Photo) required.' });
     }
     const targetId = req.params.id;
     db.commissionPersons = db.commissionPersons || [];
     const person = db.commissionPersons.find((p) => p.id === targetId);
     if (!person) {
+      if (targetId.startsWith('person_temp')) {
+        return res.json({ success: true, person: null });
+      }
       return res.status(404).json({ error: 'Person profile not found' });
     }
     removeCommissionPersonPhotoFiles(person);
@@ -4846,26 +5044,79 @@ Return valid JSON matching the schema.`,
     });
   });
 
-  // Non-destructive persistent delta recovery: always restores missing/newer records & photos after container updates
+  // Non-destructive persistent delta recovery: strictly scoped by Owner role vs workspace user permissions
   app.post('/api/sync/recover-if-empty', authMiddleware, (req, res) => {
     const currentUser = (req as any).user as DbUser;
+    const isMainOwner = currentUser.role === 'owner';
     const { userPhotoData, userPhotos, snapshot } = req.body || {};
     let changed = false;
+
+    // Explicit privilege-escalation check: non-owners may never alter roles, permissions, or globalSettings
+    if (!isMainOwner && snapshot && typeof snapshot === 'object' && Array.isArray(snapshot.users)) {
+      const PERMISSION_KEYS: (keyof DbUser)[] = [
+        'role',
+        'status',
+        'canExport',
+        'canDelete',
+        'canAddTransactions',
+        'canViewLedger',
+        'canEditCustomers',
+        'canDeleteCustomers',
+        'canApproveInvoices',
+        'canChangeProfilePhoto',
+        'canManageCommissions',
+        'canAddCommissionRecords',
+        'canEditCommissionRecords',
+        'canDeleteCommissionRecords',
+        'canPayCommissions',
+        'canImportCommissions',
+        'canManageCommissionMonths',
+        'canAddCommissionPersons',
+        'canEditCommissionPersons',
+        'canDeleteCommissionPersons',
+        'canMergeCommissionPersons',
+        'canChangeCommissionPersonPhoto',
+        'canManageBazar',
+        'canManageBuyers',
+        'isCommissionOnly',
+        'isCommissionBazarOnly',
+      ];
+      for (const incUser of snapshot.users) {
+        if (!incUser || typeof incUser !== 'object') continue;
+        const ext = db.users.find(
+          (u) => u.id === incUser.id || (incUser.username && u.username.toLowerCase() === String(incUser.username).trim().toLowerCase())
+        );
+        if (!ext) continue;
+        if (incUser.id === currentUser.id) {
+          const attemptsEscalation = PERMISSION_KEYS.some(
+            (key) => incUser[key] !== undefined && incUser[key] !== ext[key]
+          );
+          if (attemptsEscalation) {
+            return res.status(403).json({
+              error: 'Permission denied: Only the Main Owner can modify account roles or permissions.',
+            });
+          }
+        }
+      }
+    }
 
     const restorePhotoOnRecord = (rec: any, photoData: string): boolean => {
       if (!rec || typeof photoData !== 'string' || !photoData.startsWith('data:image/')) return false;
       const m = photoData.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/);
       if (!m) return false;
+      let ext = m[1].toLowerCase();
+      if (ext === 'jpeg') ext = 'jpg';
+      if (!['jpg', 'png', 'webp', 'gif', 'svg', 'heic', 'heif'].includes(ext)) return false;
       const diskFile = rec.photoUrl?.startsWith('/api/photos/')
-        ? path.join(PHOTOS_DIR, rec.photoUrl.replace('/api/photos/', ''))
+        ? resolvePhotoFilePathSafe(rec.photoUrl)
         : null;
       const missingOnDisk = !diskFile || !fs.existsSync(diskFile);
       if (!rec.photoData || missingOnDisk) {
-        let ext = m[1].toLowerCase();
-        if (ext === 'jpeg') ext = 'jpg';
-        const filename = `${rec.id}_recovered_${Date.now()}.${ext}`;
+        const filename = `${path.basename(String(rec.id))}_recovered_${Date.now()}.${ext}`;
+        const targetPath = resolvePhotoFilePathSafe(filename);
+        if (!targetPath) return false;
         try {
-          fs.writeFileSync(path.join(PHOTOS_DIR, filename), Buffer.from(m[2], 'base64'));
+          fs.writeFileSync(targetPath, Buffer.from(m[2], 'base64'));
           rec.photoUrl = `/api/photos/${filename}`;
           rec.photoData = photoData;
           return true;
@@ -4876,20 +5127,33 @@ Return valid JSON matching the schema.`,
       return false;
     };
 
-    // 1. Restore user photos (current user + any cached userPhotos map from owner's browser vault)
+    // 1. Restore user photos (Owner: any cached userPhotos; Non-owner: own profile photo only when permitted)
     const userPhotoMap: Record<string, string> = {};
-    if (userPhotos && typeof userPhotos === 'object') {
+    if (isMainOwner && userPhotos && typeof userPhotos === 'object') {
       Object.entries(userPhotos).forEach(([uid, pData]) => {
         if (typeof pData === 'string' && pData.startsWith('data:image/')) {
           userPhotoMap[uid] = pData;
         }
       });
+    } else if (
+      currentUser.canChangeProfilePhoto !== false &&
+      userPhotos &&
+      typeof userPhotos === 'object' &&
+      typeof userPhotos[currentUser.id] === 'string' &&
+      userPhotos[currentUser.id].startsWith('data:image/')
+    ) {
+      userPhotoMap[currentUser.id] = userPhotos[currentUser.id];
     }
-    if (typeof userPhotoData === 'string' && userPhotoData.startsWith('data:image/')) {
+    if (
+      (isMainOwner || currentUser.canChangeProfilePhoto !== false) &&
+      typeof userPhotoData === 'string' &&
+      userPhotoData.startsWith('data:image/')
+    ) {
       userPhotoMap[currentUser.id] = userPhotoData;
     }
 
     Object.entries(userPhotoMap).forEach(([uid, pData]) => {
+      if (!isMainOwner && uid !== currentUser.id) return;
       const userObj = db.users.find((u) => u.id === uid);
       if (userObj && restorePhotoOnRecord(userObj, pData)) {
         for (const [tok, su] of SESSIONS.entries()) {
@@ -4900,17 +5164,19 @@ Return valid JSON matching the schema.`,
     });
 
     // 2. Non-destructively merge missing or newer records & photos from browser vault snapshot
-    if (snapshot && typeof snapshot === 'object') {
+    if (snapshot && typeof snapshot === 'object' && currentUser.role !== 'viewer') {
       db.deletedRecordIds = db.deletedRecordIds || {};
-      const incomingDeleted = snapshot.deletedRecordIds && typeof snapshot.deletedRecordIds === 'object'
-        ? snapshot.deletedRecordIds
-        : {};
-      Object.entries(incomingDeleted).forEach(([recId, delTs]) => {
-        const tsNum = Number(delTs) || 0;
-        if (tsNum > (db.deletedRecordIds![recId] || 0)) {
-          db.deletedRecordIds![recId] = tsNum;
-        }
-      });
+      if (isMainOwner) {
+        const incomingDeleted = snapshot.deletedRecordIds && typeof snapshot.deletedRecordIds === 'object'
+          ? snapshot.deletedRecordIds
+          : {};
+        Object.entries(incomingDeleted).forEach(([recId, delTs]) => {
+          const tsNum = Number(delTs) || 0;
+          if (tsNum > (db.deletedRecordIds![recId] || 0)) {
+            db.deletedRecordIds![recId] = tsNum;
+          }
+        });
+      }
 
       const isTombstoned = (item: any): boolean => {
         if (!item?.id) return true;
@@ -4923,7 +5189,12 @@ Return valid JSON matching the schema.`,
       const mergeCollection = <T extends { id: string; updatedAt?: number; createdAt?: number }>(
         target: T[],
         incoming: any[],
-        options?: { onMatch?: (existing: T, inc: any) => boolean; matchBy?: (existing: T, inc: any) => boolean }
+        options?: {
+          onMatch?: (existing: T, inc: any) => boolean;
+          matchBy?: (existing: T, inc: any) => boolean;
+          allowItem?: (inc: any, existing?: T) => boolean;
+          sanitizeInsert?: (inc: any) => any;
+        }
       ) => {
         if (!Array.isArray(incoming)) return;
         incoming.forEach((item) => {
@@ -4932,21 +5203,25 @@ Return valid JSON matching the schema.`,
             it.id === item.id || (options?.matchBy ? options.matchBy(it, item) : false)
           );
           if (existingIdx === -1) {
-            target.push(item);
-            if ((item as any).photoData) {
-              restorePhotoOnRecord(item, (item as any).photoData);
+            if (options?.allowItem && !options.allowItem(item)) return;
+            const prepared = options?.sanitizeInsert ? options.sanitizeInsert(item) : item;
+            target.push(prepared);
+            if ((prepared as any).photoData) {
+              restorePhotoOnRecord(prepared, (prepared as any).photoData);
             }
             changed = true;
           } else {
             const existing = target[existingIdx] as any;
+            if (options?.allowItem && !options.allowItem(item, existing)) return;
             const incUpdated = Number(item.updatedAt) || Number(item.createdAt) || 0;
             const extUpdated = Number(existing.updatedAt) || Number(existing.createdAt) || 0;
             if (incUpdated > extUpdated) {
               const preservedPhotoData = item.photoData || existing.photoData;
               const preservedPhotoUrl = item.photoUrl || existing.photoUrl;
+              const mergedItem = options?.sanitizeInsert ? options.sanitizeInsert(item) : item;
               target[existingIdx] = {
                 ...existing,
-                ...item,
+                ...mergedItem,
                 id: existing.id,
                 photoData: preservedPhotoData,
                 photoUrl: preservedPhotoUrl,
@@ -4969,204 +5244,243 @@ Return valid JSON matching the schema.`,
         });
       };
 
-      mergeCollection(db.transactions, snapshot.transactions);
-      mergeCollection(db.customers, snapshot.customers);
-      mergeCollection(db.invoices, snapshot.invoices);
-      const explicitSnapshotCommissions = Array.isArray(snapshot.commissionEntries)
-        ? snapshot.commissionEntries.filter((c: any) => !isAutoSyncedCustomerInvoiceCommission(c))
-        : [];
-      mergeCollection(db.commissionEntries, explicitSnapshotCommissions);
-      db.commissionEntries = (db.commissionEntries || []).filter((c) => !isAutoSyncedCustomerInvoiceCommission(c));
+      const isRestrictedMode = currentUser.role !== 'admin' && (Boolean(currentUser.isCommissionOnly) || Boolean(currentUser.isCommissionBazarOnly));
 
-      const existingPersons = db.commissionPersons || [];
-      db.commissionPersons = existingPersons;
-      const incomingPersons = Array.isArray(snapshot.commissionPersons)
-        ? snapshot.commissionPersons.filter((p: any) => {
-            if (!p?.name) return false;
-            if (
-              db.migrationsApplied?.removedDefaultOwnerCommissionPerson &&
-              (p.id === 'person_rh_faysal' || p.linkedUserId === 'usr_owner_faisal')
-            ) {
-              return false;
-            }
-            return true;
-          })
-        : [];
-      mergeCollection(existingPersons, incomingPersons, {
-        matchBy: (ext, inc) =>
-          Boolean(ext.name && inc.name && ext.name.trim().toLowerCase() === inc.name.trim().toLowerCase()),
-      });
-
-      mergeCollection(db.homeBazarEntries, snapshot.homeBazarEntries);
-
-      // Non-destructively restore missing or newer user accounts (preserving Owner & respecting delete tombstones)
-      let usersChanged = false;
-      if (Array.isArray(snapshot.users)) {
-        snapshot.users.forEach((incUser: any) => {
-          if (!incUser || !incUser.id || !incUser.username) return;
-          const delTs = db.deletedRecordIds?.[incUser.id] || 0;
-          const incTs = Number(incUser.updatedAt) || Number(incUser.createdAt) || 0;
-          if (delTs && incTs <= delTs) return;
-
-          const existingIdx = db.users.findIndex(
-            (u) => u.id === incUser.id || u.username.toLowerCase() === String(incUser.username).trim().toLowerCase()
-          );
-
-          const candidatePhotoData = incUser.photoData || userPhotoMap[incUser.id];
-          if (existingIdx === -1) {
-            if (!incUser.passwordHash) return; // Cannot create loginable user without passwordHash
-            const restoredUser: DbUser = {
-              ...incUser,
-              username: String(incUser.username).trim().toLowerCase(),
-              status: incUser.status === 'disabled' ? 'disabled' : 'active',
-              role: incUser.role === 'owner' ? 'staff' : (incUser.role || 'staff'),
-              createdAt: Number(incUser.createdAt) || Date.now(),
-              updatedAt: Number(incUser.updatedAt) || Number(incUser.createdAt) || Date.now(),
-            };
-            if (candidatePhotoData) {
-              restorePhotoOnRecord(restoredUser, candidatePhotoData);
-            }
-            db.users.push(restoredUser);
-            usersChanged = true;
-            changed = true;
-          } else {
-            const existing = db.users[existingIdx];
-            const extTs = Number(existing.updatedAt) || Number(existing.createdAt) || 0;
-            if (incTs > extTs) {
-              const safeRole = existing.role === 'owner' ? 'owner' : (incUser.role === 'owner' ? existing.role : (incUser.role || existing.role));
-              const safeStatus = existing.role === 'owner' ? 'active' : (incUser.status || existing.status);
-              const mergedUser: DbUser = {
-                ...existing,
-                ...incUser,
-                id: existing.id,
-                username: existing.username,
-                role: safeRole,
-                status: safeStatus,
-                passwordHash: incUser.passwordHash || existing.passwordHash,
-                photoData: candidatePhotoData || existing.photoData,
-                photoUrl: incUser.photoUrl || existing.photoUrl,
-                updatedAt: incTs,
-              };
-              if (mergedUser.photoData) {
-                restorePhotoOnRecord(mergedUser, mergedUser.photoData);
-              }
-              db.users[existingIdx] = mergedUser;
-              for (const [tok, su] of SESSIONS.entries()) {
-                if (su.id === mergedUser.id) SESSIONS.set(tok, mergedUser);
-              }
-              usersChanged = true;
-              changed = true;
-            }
-          }
+      if (isMainOwner || (!isRestrictedMode && currentUser.canAddTransactions !== false)) {
+        mergeCollection(db.transactions, snapshot.transactions, {
+          allowItem: (inc, ext) =>
+            isMainOwner ||
+            (inc.workspaceUserId === currentUser.id && (!ext || ext.workspaceUserId === currentUser.id)),
+          sanitizeInsert: (inc) =>
+            isMainOwner ? inc : { ...inc, userId: currentUser.id, workspaceUserId: currentUser.id },
         });
       }
 
-      // Non-destructively restore globalSettings & bazarBuyers (currency, broadcast, monthly budget, buyer IDs + photos)
+      if (isMainOwner || (!isRestrictedMode && currentUser.canEditCustomers !== false)) {
+        mergeCollection(db.customers, snapshot.customers, {
+          allowItem: (inc, ext) =>
+            isMainOwner ||
+            (inc.workspaceUserId === currentUser.id && (!ext || ext.workspaceUserId === currentUser.id)),
+          sanitizeInsert: (inc) =>
+            isMainOwner ? inc : { ...inc, workspaceUserId: currentUser.id },
+        });
+      }
+
+      if (isMainOwner || (!isRestrictedMode && currentUser.canApproveInvoices !== false)) {
+        mergeCollection(db.invoices, snapshot.invoices, {
+          allowItem: (inc, ext) =>
+            isMainOwner ||
+            (inc.workspaceUserId === currentUser.id && (!ext || ext.workspaceUserId === currentUser.id)),
+          sanitizeInsert: (inc) =>
+            isMainOwner ? inc : { ...inc, workspaceUserId: currentUser.id },
+        });
+      }
+
+      let usersChanged = false;
       let settingsChanged = false;
-      if (snapshot.globalSettings && typeof snapshot.globalSettings === 'object') {
-        const incSettings = snapshot.globalSettings;
-        const incSetTs = Number(incSettings.updatedAt) || 0;
-        const extSetTs = Number(db.globalSettings.updatedAt) || 0;
 
-        if (incSetTs > extSetTs) {
-          db.globalSettings = {
-            ...db.globalSettings,
-            appName: incSettings.appName || db.globalSettings.appName,
-            companyName: incSettings.companyName || db.globalSettings.companyName,
-            currency: incSettings.currency || db.globalSettings.currency,
-            broadcastMessage: incSettings.broadcastMessage ?? db.globalSettings.broadcastMessage,
-            broadcastType: incSettings.broadcastType || db.globalSettings.broadcastType,
-            broadcastActive: incSettings.broadcastActive ?? db.globalSettings.broadcastActive,
-            defaultTheme: incSettings.defaultTheme || db.globalSettings.defaultTheme,
-            headerBgColor: incSettings.headerBgColor ?? db.globalSettings.headerBgColor,
-            sidebarBgColor: incSettings.sidebarBgColor ?? db.globalSettings.sidebarBgColor,
-            bazarMonthlyBudget:
-              typeof incSettings.bazarMonthlyBudget === 'number'
-                ? incSettings.bazarMonthlyBudget
-                : db.globalSettings.bazarMonthlyBudget,
-            updatedAt: incSetTs,
-          };
-          settingsChanged = true;
-          changed = true;
-        }
+      if (isMainOwner) {
+        const explicitSnapshotCommissions = Array.isArray(snapshot.commissionEntries)
+          ? snapshot.commissionEntries.filter((c: any) => !isAutoSyncedCustomerInvoiceCommission(c))
+          : [];
+        mergeCollection(db.commissionEntries, explicitSnapshotCommissions);
+        db.commissionEntries = (db.commissionEntries || []).filter((c) => !isAutoSyncedCustomerInvoiceCommission(c));
 
-        if (Array.isArray(incSettings.bazarBuyers)) {
-          db.globalSettings.bazarBuyers = db.globalSettings.bazarBuyers || [];
-          incSettings.bazarBuyers.forEach((incBuyer: any) => {
-            if (!incBuyer || !incBuyer.buyerId) return;
-            const normBuyerId = String(incBuyer.buyerId).trim().toLowerCase();
-            const delTs = db.deletedRecordIds?.[`buyer:${normBuyerId}`] || 0;
-            const incTs = Number(incBuyer.updatedAt) || incSetTs || 0;
+        const existingPersons = db.commissionPersons || [];
+        db.commissionPersons = existingPersons;
+        const incomingPersons = Array.isArray(snapshot.commissionPersons)
+          ? snapshot.commissionPersons.filter((p: any) => {
+              if (!p?.name) return false;
+              if (
+                db.migrationsApplied?.removedDefaultOwnerCommissionPerson &&
+                (p.id === 'person_rh_faysal' || p.linkedUserId === 'usr_owner_faisal')
+              ) {
+                return false;
+              }
+              return true;
+            })
+          : [];
+        mergeCollection(existingPersons, incomingPersons, {
+          matchBy: (ext, inc) =>
+            Boolean(ext.name && inc.name && ext.name.trim().toLowerCase() === inc.name.trim().toLowerCase()),
+        });
+
+        mergeCollection(db.homeBazarEntries, snapshot.homeBazarEntries);
+
+        // Non-destructively restore missing or newer user accounts (Owner only)
+        if (Array.isArray(snapshot.users)) {
+          snapshot.users.forEach((incUser: any) => {
+            if (!incUser || !incUser.id || !incUser.username) return;
+            const delTs = db.deletedRecordIds?.[incUser.id] || 0;
+            const incTs = Number(incUser.updatedAt) || Number(incUser.createdAt) || 0;
             if (delTs && incTs <= delTs) return;
 
-            const extIdx = db.globalSettings.bazarBuyers!.findIndex(
-              (b) => b.buyerId.toLowerCase() === normBuyerId
+            const existingIdx = db.users.findIndex(
+              (u) => u.id === incUser.id || u.username.toLowerCase() === String(incUser.username).trim().toLowerCase()
             );
-            if (extIdx === -1) {
-              const buyerCopy: DbBazarBuyer = { ...incBuyer };
-              if (buyerCopy.photoData) {
-                const tempRec: any = { ...buyerCopy, id: `buyer_${normBuyerId}` };
-                if (restorePhotoOnRecord(tempRec, buyerCopy.photoData)) {
-                  buyerCopy.photoUrl = tempRec.photoUrl;
-                }
+
+            const candidatePhotoData = incUser.photoData || userPhotoMap[incUser.id];
+            if (existingIdx === -1) {
+              if (!incUser.passwordHash) return;
+              const restoredUser: DbUser = {
+                ...incUser,
+                username: String(incUser.username).trim().toLowerCase(),
+                status: incUser.status === 'disabled' ? 'disabled' : 'active',
+                role: incUser.role === 'owner' ? 'staff' : (incUser.role || 'staff'),
+                createdAt: Number(incUser.createdAt) || Date.now(),
+                updatedAt: Number(incUser.updatedAt) || Number(incUser.createdAt) || Date.now(),
+              };
+              if (candidatePhotoData) {
+                restorePhotoOnRecord(restoredUser, candidatePhotoData);
               }
-              db.globalSettings.bazarBuyers!.push(buyerCopy);
-              settingsChanged = true;
+              db.users.push(restoredUser);
+              usersChanged = true;
               changed = true;
             } else {
-              const extBuyer = db.globalSettings.bazarBuyers![extIdx];
-              const extTs = Number(extBuyer.updatedAt) || 0;
+              const existing = db.users[existingIdx];
+              const extTs = Number(existing.updatedAt) || Number(existing.createdAt) || 0;
               if (incTs > extTs) {
-                const updatedBuyer: DbBazarBuyer = {
-                  ...extBuyer,
-                  ...incBuyer,
-                  photoData: incBuyer.photoData || extBuyer.photoData,
-                  photoUrl: incBuyer.photoUrl || extBuyer.photoUrl,
+                const safeRole = existing.role === 'owner' ? 'owner' : (incUser.role === 'owner' ? existing.role : (incUser.role || existing.role));
+                const safeStatus = existing.role === 'owner' ? 'active' : (incUser.status || existing.status);
+                const mergedUser: DbUser = {
+                  ...existing,
+                  ...incUser,
+                  id: existing.id,
+                  username: existing.username,
+                  role: safeRole,
+                  status: safeStatus,
+                  passwordHash: incUser.passwordHash || existing.passwordHash,
+                  photoData: candidatePhotoData || existing.photoData,
+                  photoUrl: incUser.photoUrl || existing.photoUrl,
+                  updatedAt: incTs,
                 };
-                if (updatedBuyer.photoData) {
-                  const tempRec: any = { ...updatedBuyer, id: `buyer_${normBuyerId}` };
-                  if (restorePhotoOnRecord(tempRec, updatedBuyer.photoData)) {
-                    updatedBuyer.photoUrl = tempRec.photoUrl;
-                  }
+                if (mergedUser.photoData) {
+                  restorePhotoOnRecord(mergedUser, mergedUser.photoData);
                 }
-                db.globalSettings.bazarBuyers![extIdx] = updatedBuyer;
-                settingsChanged = true;
+                db.users[existingIdx] = mergedUser;
+                for (const [tok, su] of SESSIONS.entries()) {
+                  if (su.id === mergedUser.id) SESSIONS.set(tok, mergedUser);
+                }
+                usersChanged = true;
                 changed = true;
               }
             }
           });
         }
-      }
 
-      db.deletedCommissionMonths = db.deletedCommissionMonths || {};
-      const incomingDeletedMonths =
-        snapshot.deletedCommissionMonths && typeof snapshot.deletedCommissionMonths === 'object'
-          ? snapshot.deletedCommissionMonths
-          : {};
-      Object.entries(incomingDeletedMonths).forEach(([ym, delTs]) => {
-        const tsNum = Number(delTs) || 0;
-        if (tsNum > (db.deletedCommissionMonths![ym] || 0)) {
-          db.deletedCommissionMonths![ym] = tsNum;
+        // Non-destructively restore globalSettings & bazarBuyers (Owner only)
+        if (snapshot.globalSettings && typeof snapshot.globalSettings === 'object') {
+          const incSettings = snapshot.globalSettings;
+          const incSetTs = Number(incSettings.updatedAt) || 0;
+          const extSetTs = Number(db.globalSettings.updatedAt) || 0;
+
+          if (incSetTs > extSetTs) {
+            db.globalSettings = {
+              ...db.globalSettings,
+              appName: incSettings.appName || db.globalSettings.appName,
+              companyName: incSettings.companyName || db.globalSettings.companyName,
+              currency: incSettings.currency || db.globalSettings.currency,
+              broadcastMessage: incSettings.broadcastMessage ?? db.globalSettings.broadcastMessage,
+              broadcastType: incSettings.broadcastType || db.globalSettings.broadcastType,
+              broadcastActive: incSettings.broadcastActive ?? db.globalSettings.broadcastActive,
+              defaultTheme: incSettings.defaultTheme || db.globalSettings.defaultTheme,
+              headerBgColor: incSettings.headerBgColor ?? db.globalSettings.headerBgColor,
+              sidebarBgColor: incSettings.sidebarBgColor ?? db.globalSettings.sidebarBgColor,
+              bazarMonthlyBudget:
+                typeof incSettings.bazarMonthlyBudget === 'number'
+                  ? incSettings.bazarMonthlyBudget
+                  : db.globalSettings.bazarMonthlyBudget,
+              updatedAt: incSetTs,
+            };
+            settingsChanged = true;
+            changed = true;
+          }
+
+          if (Array.isArray(incSettings.bazarBuyers)) {
+            db.globalSettings.bazarBuyers = db.globalSettings.bazarBuyers || [];
+            incSettings.bazarBuyers.forEach((incBuyer: any) => {
+              if (!incBuyer || !incBuyer.buyerId) return;
+              const normBuyerId = String(incBuyer.buyerId).trim().toLowerCase();
+              const delTs = db.deletedRecordIds?.[`buyer:${normBuyerId}`] || 0;
+              const incTs = Number(incBuyer.updatedAt) || incSetTs || 0;
+              if (delTs && incTs <= delTs) return;
+
+              const extIdx = db.globalSettings.bazarBuyers!.findIndex(
+                (b) => b.buyerId.toLowerCase() === normBuyerId
+              );
+              if (extIdx === -1) {
+                const buyerCopy: DbBazarBuyer = { ...incBuyer };
+                if (buyerCopy.photoData) {
+                  const tempRec: any = { ...buyerCopy, id: `buyer_${normBuyerId}` };
+                  if (restorePhotoOnRecord(tempRec, buyerCopy.photoData)) {
+                    buyerCopy.photoUrl = tempRec.photoUrl;
+                  }
+                }
+                db.globalSettings.bazarBuyers!.push(buyerCopy);
+                settingsChanged = true;
+                changed = true;
+              } else {
+                const extBuyer = db.globalSettings.bazarBuyers![extIdx];
+                const extTs = Number(extBuyer.updatedAt) || 0;
+                if (incTs > extTs) {
+                  const updatedBuyer: DbBazarBuyer = {
+                    ...extBuyer,
+                    ...incBuyer,
+                    photoData: incBuyer.photoData || extBuyer.photoData,
+                    photoUrl: incBuyer.photoUrl || extBuyer.photoUrl,
+                  };
+                  if (updatedBuyer.photoData) {
+                    const tempRec: any = { ...updatedBuyer, id: `buyer_${normBuyerId}` };
+                    if (restorePhotoOnRecord(tempRec, updatedBuyer.photoData)) {
+                      updatedBuyer.photoUrl = tempRec.photoUrl;
+                    }
+                  }
+                  db.globalSettings.bazarBuyers![extIdx] = updatedBuyer;
+                  settingsChanged = true;
+                  changed = true;
+                }
+              }
+            });
+          }
         }
-      });
 
-      const monthSet = new Set<string>([...(db.commissionMonths || [])]);
-      if (Array.isArray(snapshot.commissionMonths)) {
-        snapshot.commissionMonths.forEach((m: any) => {
-          if (typeof m === 'string' && /^\d{4}-\d{2}$/.test(m) && !db.deletedCommissionMonths?.[m]) {
-            if (!monthSet.has(m)) changed = true;
-            monthSet.add(m);
+        db.deletedCommissionMonths = db.deletedCommissionMonths || {};
+        const incomingDeletedMonths =
+          snapshot.deletedCommissionMonths && typeof snapshot.deletedCommissionMonths === 'object'
+            ? snapshot.deletedCommissionMonths
+            : {};
+        Object.entries(incomingDeletedMonths).forEach(([ym, delTs]) => {
+          const tsNum = Number(delTs) || 0;
+          if (tsNum > (db.deletedCommissionMonths![ym] || 0)) {
+            db.deletedCommissionMonths![ym] = tsNum;
           }
         });
-      }
-      (db.commissionEntries || []).forEach((e) => {
-        const ym = typeof e?.date === 'string' && /^\d{4}-\d{2}/.test(e.date) ? e.date.slice(0, 7) : e.period;
-        if (typeof ym === 'string' && /^\d{4}-\d{2}$/.test(ym)) {
-          if (!monthSet.has(ym)) changed = true;
-          monthSet.add(ym);
+
+        const monthSet = new Set<string>([...(db.commissionMonths || [])]);
+        if (Array.isArray(snapshot.commissionMonths)) {
+          snapshot.commissionMonths.forEach((m: any) => {
+            if (typeof m === 'string' && /^\d{4}-\d{2}$/.test(m) && !db.deletedCommissionMonths?.[m]) {
+              if (!monthSet.has(m)) changed = true;
+              monthSet.add(m);
+            }
+          });
         }
-      });
-      db.commissionMonths = Array.from(monthSet).sort();
+        (db.commissionEntries || []).forEach((e) => {
+          const ym = typeof e?.date === 'string' && /^\d{4}-\d{2}/.test(e.date) ? e.date.slice(0, 7) : e.period;
+          if (typeof ym === 'string' && /^\d{4}-\d{2}$/.test(ym)) {
+            if (!monthSet.has(ym)) changed = true;
+            monthSet.add(ym);
+          }
+        });
+        db.commissionMonths = Array.from(monthSet).sort();
+      } else if (currentUser.canManageBazar !== false && !currentUser.isCommissionOnly) {
+        // Non-owner permitted bazar user may only recover their own workspace bazar entries
+        mergeCollection(db.homeBazarEntries, snapshot.homeBazarEntries, {
+          allowItem: (inc, ext) =>
+            inc.workspaceUserId === currentUser.id && (!ext || ext.workspaceUserId === currentUser.id),
+          sanitizeInsert: (inc) => ({ ...inc, userId: currentUser.id, workspaceUserId: currentUser.id }),
+        });
+      }
 
       if (usersChanged) {
         notifySubscribers('user_updated', { type: 'recovered' });

@@ -20,10 +20,13 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
     function isBootstrappedOwner() {
-      return isVerified() && request.auth.token.email == 'rh.faysal007@gmail.com';
+      return isVerified() && request.auth.token.email.lower() == 'rh.faysal007@gmail.com';
     }
     function isAdmin() {
       return isBootstrappedOwner() || (isVerified() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+    function isPrivilegedManager() {
+      return isBootstrappedOwner() || isAdmin();
     }
     function isOwner(uid) {
       return isVerified() && request.auth.uid == uid;
@@ -40,6 +43,63 @@ service cloud.firestore {
     function optNum(data, key) {
       return !(key in data) || data[key] is number;
     }
+    function isUserPrivilegeFieldAffected() {
+      return incoming().diff(existing()).affectedKeys().hasAny([
+        'role',
+        'status',
+        'canExport',
+        'canDelete',
+        'canAddTransactions',
+        'canViewLedger',
+        'canEditCustomers',
+        'canDeleteCustomers',
+        'canApproveInvoices',
+        'canChangeProfilePhoto',
+        'canManageCommissions',
+        'canAddCommissionRecords',
+        'canEditCommissionRecords',
+        'canDeleteCommissionRecords',
+        'canPayCommissions',
+        'canImportCommissions',
+        'canManageCommissionMonths',
+        'canAddCommissionPersons',
+        'canEditCommissionPersons',
+        'canDeleteCommissionPersons',
+        'canMergeCommissionPersons',
+        'canChangeCommissionPersonPhoto',
+        'canManageBazar',
+        'canManageBuyers',
+        'isCommissionOnly',
+        'isCommissionBazarOnly'
+      ]);
+    }
+    function hasWorkspaceUserScope(data) {
+      return isVerified() && (
+        ('ownerUid' in data && data.ownerUid == request.auth.uid) ||
+        ('workspaceUserId' in data && data.workspaceUserId == request.auth.uid) ||
+        ('userId' in data && data.userId == request.auth.uid)
+      );
+    }
+    function hasEntityWorkspaceScope(data) {
+      return isVerified() && (
+        ('ownerUid' in data && data.ownerUid == request.auth.uid) ||
+        ('workspaceUserId' in data && data.workspaceUserId == request.auth.uid)
+      );
+    }
+    function hasCommissionPersonScope(data) {
+      return isVerified() && (
+        ('ownerUid' in data && data.ownerUid == request.auth.uid) ||
+        ('linkedUserId' in data && data.linkedUserId == request.auth.uid) ||
+        ('createdByUserId' in data && data.createdByUserId == request.auth.uid)
+      );
+    }
+    function hasCommissionEntryScope(data) {
+      return isVerified() && (
+        ('ownerUid' in data && data.ownerUid == request.auth.uid) ||
+        ('agentId' in data && data.agentId == request.auth.uid) ||
+        ('createdByUserId' in data && data.createdByUserId == request.auth.uid)
+      );
+    }
 
     // Entity validation blueprints
     function isValidAdminUser(data) {
@@ -54,7 +114,7 @@ service cloud.firestore {
 
     function isValidUserAccount(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'username', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && isValidId(data.id)
         && data.username is string && data.username.size() >= 2 && data.username.size() <= 64
@@ -71,7 +131,9 @@ service cloud.firestore {
         && optBool(data, 'canAddTransactions')
         && optBool(data, 'canViewLedger')
         && optBool(data, 'canEditCustomers')
+        && optBool(data, 'canDeleteCustomers')
         && optBool(data, 'canApproveInvoices')
+        && optBool(data, 'canChangeProfilePhoto')
         && optBool(data, 'canManageCommissions')
         && optBool(data, 'canAddCommissionRecords')
         && optBool(data, 'canEditCommissionRecords')
@@ -83,13 +145,14 @@ service cloud.firestore {
         && optBool(data, 'canEditCommissionPersons')
         && optBool(data, 'canDeleteCommissionPersons')
         && optBool(data, 'canMergeCommissionPersons')
+        && optBool(data, 'canChangeCommissionPersonPhoto')
         && optBool(data, 'canManageBazar')
         && optBool(data, 'canManageBuyers')
         && optBool(data, 'isCommissionOnly')
         && optBool(data, 'isCommissionBazarOnly')
         && optStr(data, 'theme', 40)
-        && (!( 'displayMode' in data ) || data.displayMode in ['light', 'dark'])
-        && (!( 'language' in data ) || data.language in ['bn', 'en'])
+        && (!('displayMode' in data) || data.displayMode in ['light', 'dark'])
+        && (!('language' in data) || data.language in ['bn', 'en'])
         && optBool(data, 'useBanglaNumerals')
         && optStr(data, 'headerBgColor', 40)
         && optStr(data, 'sidebarBgColor', 40)
@@ -147,7 +210,7 @@ service cloud.firestore {
         && data.userId is string && data.userId.size() <= 128
         && data.workspaceUserId is string && data.workspaceUserId.size() <= 128
         && data.description is string && data.description.size() <= 500
-        && data.amount is number
+        && data.amount is number && data.amount >= 0
         && data.type in ['income', 'expense']
         && data.category is string && data.category.size() <= 100
         && data.paymentMethod in ['cash', 'bkash', 'nagad', 'bank']
@@ -183,7 +246,7 @@ service cloud.firestore {
 
     function isValidInvoice(data) {
       return data.keys().hasAll(['ownerUid', 'id', 'workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'date', 'dueDate', 'items', 'subtotal', 'taxAmount', 'discountAmount', 'totalAmount', 'paidAmount', 'remainingAmount', 'status', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
-        && data.keys().hasOnly(['ownerUid', 'id', 'workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'date', 'dueDate', 'items', 'subtotal', 'taxAmount', 'discountAmount', 'totalAmount', 'paidAmount', 'remainingAmount', 'status', 'notes', 'createdByName', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerUid', 'id', 'workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'customerBusiness', 'customerAddress', 'serviceName', 'iqamaNo', 'branchOffice', 'countryFlag', 'date', 'dueDate', 'items', 'subtotal', 'taxRate', 'taxAmount', 'discount', 'discountAmount', 'totalAmount', 'paidAmount', 'balanceDue', 'remainingAmount', 'lastPaymentAmount', 'status', 'notes', 'terms', 'payments', 'createdByName', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
         && isValidId(data.ownerUid) && data.ownerUid == request.auth.uid
         && isValidId(data.id)
         && data.workspaceUserId is string && data.workspaceUserId.size() <= 128
@@ -191,17 +254,29 @@ service cloud.firestore {
         && data.customerId is string && data.customerId.size() <= 128
         && data.customerName is string && data.customerName.size() <= 160
         && optStr(data, 'customerPhone', 40)
+        && optStr(data, 'customerBusiness', 160)
+        && optStr(data, 'customerAddress', 500)
+        && optStr(data, 'serviceName', 200)
+        && optStr(data, 'iqamaNo', 64)
+        && optStr(data, 'branchOffice', 160)
+        && optStr(data, 'countryFlag', 16)
         && data.date is number
         && data.dueDate is number
         && data.items is list && data.items.size() <= 50 && (data.items.size() == 0 || data.items[0] is map)
-        && data.subtotal is number
-        && data.taxAmount is number
-        && data.discountAmount is number
-        && data.totalAmount is number
-        && data.paidAmount is number
-        && data.remainingAmount is number
-        && data.status in ['Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled', 'Partial']
+        && data.subtotal is number && data.subtotal >= 0
+        && optNum(data, 'taxRate')
+        && data.taxAmount is number && data.taxAmount >= 0
+        && optNum(data, 'discount')
+        && data.discountAmount is number && data.discountAmount >= 0
+        && data.totalAmount is number && data.totalAmount >= 0
+        && data.paidAmount is number && data.paidAmount >= 0
+        && optNum(data, 'balanceDue')
+        && data.remainingAmount is number && data.remainingAmount >= 0
+        && optNum(data, 'lastPaymentAmount')
+        && data.status in ['unpaid', 'partial', 'paid', 'overpaid', 'Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled', 'Partial']
         && optStr(data, 'notes', 2000)
+        && optStr(data, 'terms', 1000)
+        && (!('payments' in data) || (data.payments is list && data.payments.size() <= 100 && (data.payments.size() == 0 || data.payments[0] is map)))
         && optStr(data, 'createdByName', 120)
         && data.clientCreatedAt is number
         && data.clientUpdatedAt is number
@@ -224,13 +299,13 @@ service cloud.firestore {
         && optStr(data, 'workerName', 160)
         && optStr(data, 'clientMobile', 40)
         && data['service'] is string && data['service'].size() <= 200
-        && data.qty is number
-        && data.ratePerUnit is number
-        && data.invoiceTotal is number
-        && data.remainingAmount is number
+        && data.qty is number && data.qty >= 0
+        && data.ratePerUnit is number && data.ratePerUnit >= 0
+        && data.invoiceTotal is number && data.invoiceTotal >= 0
+        && data.remainingAmount is number && data.remainingAmount >= 0
         && data.eligible is bool
         && optStr(data, 'reasonNotEligible', 500)
-        && data.commissionAmount is number
+        && data.commissionAmount is number && data.commissionAmount >= 0
         && optBool(data, 'isClawback')
         && optNum(data, 'clawbackAmount')
         && data.payoutStatus in ['To pay', 'Paid', 'Not eligible', 'Carried over']
@@ -284,7 +359,7 @@ service cloud.firestore {
         && data.itemName is string && data.itemName.size() <= 200
         && data.category is string && data.category.size() <= 100
         && optStr(data, 'quantity', 80)
-        && data.amount is number
+        && data.amount is number && data.amount >= 0
         && data.paymentMethod in ['cash', 'bkash', 'nagad', 'bank']
         && optStr(data, 'purchasedBy', 120)
         && optStr(data, 'buyerId', 80)
@@ -311,9 +386,9 @@ service cloud.firestore {
       allow list, write: if false;
     }
 
-    // Admin registry
+    // Admin registry (only bootstrapped owner may provision or update admin docs)
     match /admins/{uid} {
-      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow get: if isValidId(uid) && (isOwner(uid) || isPrivilegedManager());
       allow list: if false;
       allow create: if isValidId(uid) && isBootstrappedOwner() && isValidAdminUser(incoming())
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
@@ -326,154 +401,240 @@ service cloud.firestore {
 
     // Global settings
     match /appSettings/{settingId} {
-      allow get: if isValidId(settingId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow get: if isValidId(settingId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
       allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(settingId) && isAdmin() && isValidAppSettings(incoming())
+      allow create: if isValidId(settingId) && isPrivilegedManager() && isValidAppSettings(incoming())
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(settingId) && isAdmin() && isValidAppSettings(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+      allow update: if isValidId(settingId) && isPrivilegedManager() && isValidAppSettings(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'forceRefreshAt', 'dataUpdatedAt', 'lastUpdatedBy', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(settingId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+        && incoming().diff(existing()).addedKeys().hasOnly(['appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'forceRefreshAt', 'dataUpdatedAt', 'lastUpdatedBy', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['appName', 'companyName', 'version', 'currency', 'broadcastMessage', 'broadcastType', 'broadcastActive', 'defaultTheme', 'headerBgColor', 'sidebarBgColor', 'bazarMonthlyBudget', 'forceRefreshAt', 'dataUpdatedAt', 'lastUpdatedBy', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(settingId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
-    // Users & Permissions
+    // Users & Permissions (strict anti-escalation: only bootstrapped owner or verified admin can create/update roles or permission booleans)
     match /users/{userId} {
-      allow get: if isValidId(userId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow get: if isValidId(userId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
       allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(userId) && isAdmin() && isValidUserAccount(incoming())
+      allow create: if isValidId(userId) && isPrivilegedManager() && isValidUserAccount(incoming())
         && incoming().id == userId
+        && (incoming().role != 'owner' || isBootstrappedOwner())
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(userId) && isAdmin() && isValidUserAccount(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canApproveInvoices', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(userId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow update: if isValidId(userId) && isPrivilegedManager() && isValidUserAccount(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().id == userId
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
+        && (!('role' in existing()) || existing().role != 'owner' || isBootstrappedOwner())
+        && (incoming().role != 'owner' || isBootstrappedOwner())
+        && (!isUserPrivilegeFieldAffected() || isBootstrappedOwner() || isAdmin())
+        && incoming().diff(existing()).addedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['username', 'email', 'appleId', 'idProvider', 'name', 'passwordHash', 'role', 'workspaceName', 'status', 'canExport', 'canDelete', 'canAddTransactions', 'canViewLedger', 'canEditCustomers', 'canDeleteCustomers', 'canApproveInvoices', 'canChangeProfilePhoto', 'canManageCommissions', 'canAddCommissionRecords', 'canEditCommissionRecords', 'canDeleteCommissionRecords', 'canPayCommissions', 'canImportCommissions', 'canManageCommissionMonths', 'canAddCommissionPersons', 'canEditCommissionPersons', 'canDeleteCommissionPersons', 'canMergeCommissionPersons', 'canChangeCommissionPersonPhoto', 'canManageBazar', 'canManageBuyers', 'isCommissionOnly', 'isCommissionBazarOnly', 'theme', 'displayMode', 'language', 'useBanglaNumerals', 'headerBgColor', 'sidebarBgColor', 'photoUrl', 'clientCreatedAt', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(userId) && isPrivilegedManager()
+        && (resource == null || (existing().ownerUid == request.auth.uid && (existing().role != 'owner' || isBootstrappedOwner())));
     }
 
     // Bazar Buyers
     match /bazarBuyers/{buyerId} {
-      allow get: if isValidId(buyerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow get: if isValidId(buyerId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
       allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(buyerId) && isAdmin() && isValidBazarBuyer(incoming())
+      allow create: if isValidId(buyerId) && isPrivilegedManager() && isValidBazarBuyer(incoming())
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(buyerId) && isAdmin() && isValidBazarBuyer(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+      allow update: if isValidId(buyerId) && isPrivilegedManager() && isValidBazarBuyer(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(buyerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+        && incoming().diff(existing()).addedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['buyerId', 'name', 'phone', 'role', 'amount', 'notes', 'photoUrl', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(buyerId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
-    // Transactions
+    // Transactions (scoped by ownerUid or workspace membership)
     match /transactions/{txId} {
-      allow get: if isValidId(txId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
-      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(txId) && isAdmin() && isValidTransaction(incoming())
+      allow get: if isValidId(txId) && isVerified()
+        && ((isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid))
+            || (resource != null && hasWorkspaceUserScope(existing())));
+      allow list: if isVerified() && (
+        existing().ownerUid == request.auth.uid ||
+        existing().workspaceUserId == request.auth.uid ||
+        existing().userId == request.auth.uid
+      );
+      allow create: if isValidId(txId) && isPrivilegedManager() && isValidTransaction(incoming())
         && incoming().id == txId
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(txId) && isAdmin() && isValidTransaction(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'updatedAt']);
-      allow delete: if isValidId(txId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow update: if isValidId(txId) && isPrivilegedManager() && isValidTransaction(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().id == txId
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).addedKeys().hasOnly(['userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['userId', 'workspaceUserId', 'description', 'amount', 'type', 'category', 'paymentMethod', 'timestamp', 'clientUpdatedAt', 'notes', 'createdByName', 'customerName', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(txId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
-    // Customers
+    // Customers (scoped by ownerUid or workspace membership)
     match /customers/{customerId} {
-      allow get: if isValidId(customerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
-      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(customerId) && isAdmin() && isValidCustomer(incoming())
+      allow get: if isValidId(customerId) && isVerified()
+        && ((isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid))
+            || (resource != null && hasEntityWorkspaceScope(existing())));
+      allow list: if isVerified() && (
+        existing().ownerUid == request.auth.uid ||
+        existing().workspaceUserId == request.auth.uid
+      );
+      allow create: if isValidId(customerId) && isPrivilegedManager() && isValidCustomer(incoming())
         && incoming().id == customerId
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(customerId) && isAdmin() && isValidCustomer(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(customerId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow update: if isValidId(customerId) && isPrivilegedManager() && isValidCustomer(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().id == customerId
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).addedKeys().hasOnly(['workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['workspaceUserId', 'name', 'phone', 'whatsapp', 'photoUrl', 'email', 'address', 'businessName', 'notes', 'type', 'balance', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(customerId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
-    // Invoices (with terminal state protection & admin override)
+    // Invoices (scoped by ownerUid or workspace membership, with terminal state protection & admin override)
     match /invoices/{invoiceId} {
-      allow get: if isValidId(invoiceId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
-      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(invoiceId) && isAdmin() && isValidInvoice(incoming())
+      allow get: if isValidId(invoiceId) && isVerified()
+        && ((isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid))
+            || (resource != null && hasEntityWorkspaceScope(existing())));
+      allow list: if isVerified() && (
+        existing().ownerUid == request.auth.uid ||
+        existing().workspaceUserId == request.auth.uid
+      );
+      allow create: if isValidId(invoiceId) && isPrivilegedManager() && isValidInvoice(incoming())
         && incoming().id == invoiceId
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(invoiceId) && isAdmin() && isValidInvoice(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+      allow update: if isValidId(invoiceId) && isPrivilegedManager() && isValidInvoice(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().id == invoiceId
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
         && (existing().status != 'Cancelled' || isAdmin())
-        && incoming().diff(existing()).affectedKeys().hasOnly(['workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'date', 'dueDate', 'items', 'subtotal', 'taxAmount', 'discountAmount', 'totalAmount', 'paidAmount', 'remainingAmount', 'status', 'notes', 'createdByName', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(invoiceId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+        && incoming().diff(existing()).addedKeys().hasOnly(['workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'customerBusiness', 'customerAddress', 'serviceName', 'iqamaNo', 'branchOffice', 'countryFlag', 'date', 'dueDate', 'items', 'subtotal', 'taxRate', 'taxAmount', 'discount', 'discountAmount', 'totalAmount', 'paidAmount', 'balanceDue', 'remainingAmount', 'lastPaymentAmount', 'status', 'notes', 'terms', 'payments', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['workspaceUserId', 'invoiceNumber', 'customerId', 'customerName', 'customerPhone', 'customerBusiness', 'customerAddress', 'serviceName', 'iqamaNo', 'branchOffice', 'countryFlag', 'date', 'dueDate', 'items', 'subtotal', 'taxRate', 'taxAmount', 'discount', 'discountAmount', 'totalAmount', 'paidAmount', 'balanceDue', 'remainingAmount', 'lastPaymentAmount', 'status', 'notes', 'terms', 'payments', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(invoiceId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
-    // Commission Entries (with terminal state protection & admin override)
+    // Commission Entries (scoped by ownerUid or workspace membership, with terminal state protection & admin override)
     match /commissionEntries/{entryId} {
-      allow get: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
-      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(entryId) && isAdmin() && isValidCommissionEntry(incoming())
+      allow get: if isValidId(entryId) && isVerified()
+        && ((isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid))
+            || (resource != null && hasCommissionEntryScope(existing())));
+      allow list: if isVerified() && (
+        existing().ownerUid == request.auth.uid ||
+        (('agentId' in existing()) && existing().agentId == request.auth.uid) ||
+        (('createdByUserId' in existing()) && existing().createdByUserId == request.auth.uid)
+      );
+      allow create: if isValidId(entryId) && isPrivilegedManager() && isValidCommissionEntry(incoming())
         && incoming().id == entryId
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(entryId) && isAdmin() && isValidCommissionEntry(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
+      allow update: if isValidId(entryId) && isPrivilegedManager() && isValidCommissionEntry(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().id == entryId
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
         && (existing().invoiceStatus != 'Cancelled' || isAdmin())
-        && incoming().diff(existing()).affectedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+        && incoming().diff(existing()).addedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['date', 'office', 'invoiceNo', 'invoiceStatus', 'agent', 'agentId', 'client', 'workerName', 'clientMobile', 'service', 'qty', 'ratePerUnit', 'invoiceTotal', 'remainingAmount', 'eligible', 'reasonNotEligible', 'commissionAmount', 'isClawback', 'clawbackAmount', 'payoutStatus', 'paidAt', 'period', 'notes', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(entryId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
-    // Commission Persons
+    // Commission Persons (scoped by ownerUid or workspace membership)
     match /commissionPersons/{personId} {
-      allow get: if isValidId(personId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
-      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(personId) && isAdmin() && isValidCommissionPerson(incoming())
+      allow get: if isValidId(personId) && isVerified()
+        && ((isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid))
+            || (resource != null && hasCommissionPersonScope(existing())));
+      allow list: if isVerified() && (
+        existing().ownerUid == request.auth.uid ||
+        (('linkedUserId' in existing()) && existing().linkedUserId == request.auth.uid) ||
+        (('createdByUserId' in existing()) && existing().createdByUserId == request.auth.uid)
+      );
+      allow create: if isValidId(personId) && isPrivilegedManager() && isValidCommissionPerson(incoming())
         && incoming().id == personId
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(personId) && isAdmin() && isValidCommissionPerson(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(personId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow update: if isValidId(personId) && isPrivilegedManager() && isValidCommissionPerson(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().id == personId
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).addedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['name', 'iqamaNo', 'phone', 'office', 'linkedUserId', 'photoUrl', 'createdByUserId', 'createdByName', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(personId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
     // Commission Months
     match /commissionMonths/{monthId} {
-      allow get: if isValidId(monthId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow get: if isValidId(monthId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
       allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(monthId) && isAdmin() && isValidCommissionMonth(incoming())
+      allow create: if isValidId(monthId) && isPrivilegedManager() && isValidCommissionMonth(incoming())
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(monthId) && isAdmin() && isValidCommissionMonth(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+      allow update: if isValidId(monthId) && isPrivilegedManager() && isValidCommissionMonth(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['month', 'updatedAt']);
-      allow delete: if isValidId(monthId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+        && incoming().diff(existing()).addedKeys().hasOnly(['month', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['month', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(monthId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
-    // Home Bazar Entries
+    // Home Bazar Entries (scoped by ownerUid or workspace membership)
     match /homeBazarEntries/{entryId} {
-      allow get: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
-      allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(entryId) && isAdmin() && isValidHomeBazarEntry(incoming())
+      allow get: if isValidId(entryId) && isVerified()
+        && ((isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid))
+            || (resource != null && hasWorkspaceUserScope(existing())));
+      allow list: if isVerified() && (
+        existing().ownerUid == request.auth.uid ||
+        existing().workspaceUserId == request.auth.uid ||
+        existing().userId == request.auth.uid
+      );
+      allow create: if isValidId(entryId) && isPrivilegedManager() && isValidHomeBazarEntry(incoming())
         && incoming().id == entryId
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(entryId) && isAdmin() && isValidHomeBazarEntry(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().id == existing().id
-        && incoming().createdAt == existing().createdAt && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'updatedAt']);
-      allow delete: if isValidId(entryId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow update: if isValidId(entryId) && isPrivilegedManager() && isValidHomeBazarEntry(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && (!('id' in existing()) || incoming().id == existing().id)
+        && incoming().id == entryId
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).addedKeys().hasOnly(['userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['userId', 'workspaceUserId', 'date', 'itemName', 'category', 'quantity', 'amount', 'paymentMethod', 'purchasedBy', 'buyerId', 'notes', 'clientUpdatedAt', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(entryId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
 
     // Deleted Record Tombstones
     match /deletedRecords/{recordId} {
-      allow get: if isValidId(recordId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+      allow get: if isValidId(recordId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
       allow list: if isBootstrappedOwner() && existing().ownerUid == request.auth.uid;
-      allow create: if isValidId(recordId) && isAdmin() && isValidDeletedTombstone(incoming())
+      allow create: if isValidId(recordId) && isPrivilegedManager() && isValidDeletedTombstone(incoming())
         && incoming().createdAt == request.time && incoming().updatedAt == request.time;
-      allow update: if isValidId(recordId) && isAdmin() && isValidDeletedTombstone(incoming())
-        && incoming().ownerUid == existing().ownerUid && incoming().createdAt == existing().createdAt
+      allow update: if isValidId(recordId) && isPrivilegedManager() && isValidDeletedTombstone(incoming())
+        && existing().ownerUid == request.auth.uid
+        && incoming().ownerUid == existing().ownerUid
+        && ((('createdAt' in existing()) && existing().createdAt is timestamp) ? incoming().createdAt == existing().createdAt : incoming().createdAt == request.time)
         && incoming().updatedAt == request.time
-        && incoming().diff(existing()).affectedKeys().hasOnly(['deletedAtMs', 'updatedAt']);
-      allow delete: if isValidId(recordId) && isAdmin() && (resource == null || existing().ownerUid == request.auth.uid);
+        && incoming().diff(existing()).addedKeys().hasOnly(['deletedAtMs', 'createdAt', 'updatedAt'])
+        && incoming().diff(existing()).changedKeys().hasOnly(['deletedAtMs', 'createdAt', 'updatedAt']);
+      allow delete: if isValidId(recordId) && isPrivilegedManager() && (resource == null || existing().ownerUid == request.auth.uid);
     }
   }
 }

@@ -118,7 +118,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [newCanAddTransactions, setNewCanAddTransactions] = useState(true);
   const [newCanViewLedger, setNewCanViewLedger] = useState(true);
   const [newCanEditCustomers, setNewCanEditCustomers] = useState(true);
+  const [newCanDeleteCustomers, setNewCanDeleteCustomers] = useState(false);
   const [newCanApproveInvoices, setNewCanApproveInvoices] = useState(true);
+  const [newCanChangeProfilePhoto, setNewCanChangeProfilePhoto] = useState(true);
   const [newCanManageCommissions, setNewCanManageCommissions] = useState(false);
   const [newCanAddCommissionRecords, setNewCanAddCommissionRecords] = useState(true);
   const [newCanEditCommissionRecords, setNewCanEditCommissionRecords] = useState(true);
@@ -128,6 +130,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [newCanManageCommissionMonths, setNewCanManageCommissionMonths] = useState(true);
   const [newCanAddCommissionPersons, setNewCanAddCommissionPersons] = useState(false);
   const [newCanEditCommissionPersons, setNewCanEditCommissionPersons] = useState(false);
+  const [newCanChangeCommissionPersonPhoto, setNewCanChangeCommissionPersonPhoto] = useState(false);
   const [newCanMergeCommissionPersons, setNewCanMergeCommissionPersons] = useState(false);
   const [newCanDeleteCommissionPersons, setNewCanDeleteCommissionPersons] = useState(false);
   const [newCanManageBazar, setNewCanManageBazar] = useState(true);
@@ -150,7 +153,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [editCanAddTransactions, setEditCanAddTransactions] = useState(true);
   const [editCanViewLedger, setEditCanViewLedger] = useState(true);
   const [editCanEditCustomers, setEditCanEditCustomers] = useState(true);
+  const [editCanDeleteCustomers, setEditCanDeleteCustomers] = useState(false);
   const [editCanApproveInvoices, setEditCanApproveInvoices] = useState(true);
+  const [editCanChangeProfilePhoto, setEditCanChangeProfilePhoto] = useState(true);
   const [editCanManageCommissions, setEditCanManageCommissions] = useState(false);
   const [editCanAddCommissionRecords, setEditCanAddCommissionRecords] = useState(true);
   const [editCanEditCommissionRecords, setEditCanEditCommissionRecords] = useState(true);
@@ -160,6 +165,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
   const [editCanManageCommissionMonths, setEditCanManageCommissionMonths] = useState(true);
   const [editCanAddCommissionPersons, setEditCanAddCommissionPersons] = useState(false);
   const [editCanEditCommissionPersons, setEditCanEditCommissionPersons] = useState(false);
+  const [editCanChangeCommissionPersonPhoto, setEditCanChangeCommissionPersonPhoto] = useState(false);
   const [editCanMergeCommissionPersons, setEditCanMergeCommissionPersons] = useState(false);
   const [editCanDeleteCommissionPersons, setEditCanDeleteCommissionPersons] = useState(false);
   const [editCanManageBazar, setEditCanManageBazar] = useState(true);
@@ -180,14 +186,17 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setNewCanManageCommissionMonths(true);
     setNewCanAddCommissionPersons(false);
     setNewCanEditCommissionPersons(false);
+    setNewCanChangeCommissionPersonPhoto(false);
     setNewCanMergeCommissionPersons(false);
     setNewCanDeleteCommissionPersons(false);
     setNewCanAddTransactions(false);
     setNewCanViewLedger(false);
     setNewCanEditCustomers(false);
+    setNewCanDeleteCustomers(false);
     setNewCanApproveInvoices(false);
     setNewCanManageBazar(false);
     setNewCanManageBuyers(false);
+    setNewCanChangeProfilePhoto(true);
     setNewCanDelete(false);
     setNewCanExport(true);
   };
@@ -205,14 +214,17 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setNewCanManageCommissionMonths(true);
     setNewCanAddCommissionPersons(false);
     setNewCanEditCommissionPersons(false);
+    setNewCanChangeCommissionPersonPhoto(false);
     setNewCanMergeCommissionPersons(false);
     setNewCanDeleteCommissionPersons(false);
     setNewCanManageBazar(true);
     setNewCanAddTransactions(false);
     setNewCanViewLedger(false);
     setNewCanEditCustomers(false);
+    setNewCanDeleteCustomers(false);
     setNewCanApproveInvoices(false);
     setNewCanManageBuyers(false);
+    setNewCanChangeProfilePhoto(true);
     setNewCanDelete(false);
     setNewCanExport(true);
   };
@@ -230,14 +242,17 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanManageCommissionMonths(true);
     setEditCanAddCommissionPersons(false);
     setEditCanEditCommissionPersons(false);
+    setEditCanChangeCommissionPersonPhoto(false);
     setEditCanMergeCommissionPersons(false);
     setEditCanDeleteCommissionPersons(false);
     setEditCanAddTransactions(false);
     setEditCanViewLedger(false);
     setEditCanEditCustomers(false);
+    setEditCanDeleteCustomers(false);
     setEditCanApproveInvoices(false);
     setEditCanManageBazar(false);
     setEditCanManageBuyers(false);
+    setEditCanChangeProfilePhoto(true);
     setEditCanDelete(false);
     setEditCanExport(true);
   };
@@ -255,14 +270,17 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanManageCommissionMonths(true);
     setEditCanAddCommissionPersons(false);
     setEditCanEditCommissionPersons(false);
+    setEditCanChangeCommissionPersonPhoto(false);
     setEditCanMergeCommissionPersons(false);
     setEditCanDeleteCommissionPersons(false);
     setEditCanManageBazar(true);
     setEditCanAddTransactions(false);
     setEditCanViewLedger(false);
     setEditCanEditCustomers(false);
+    setEditCanDeleteCustomers(false);
     setEditCanApproveInvoices(false);
     setEditCanManageBuyers(false);
+    setEditCanChangeProfilePhoto(true);
     setEditCanDelete(false);
     setEditCanExport(true);
   };
@@ -367,7 +385,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canAddTransactions: newCanAddTransactions,
         canViewLedger: newCanViewLedger,
         canEditCustomers: newCanEditCustomers,
+        canDeleteCustomers: newCanDeleteCustomers,
         canApproveInvoices: newCanApproveInvoices,
+        canChangeProfilePhoto: newCanChangeProfilePhoto,
         canManageCommissions: newCanManageCommissions,
         canAddCommissionRecords: newCanAddCommissionRecords,
         canEditCommissionRecords: newCanEditCommissionRecords,
@@ -377,6 +397,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canManageCommissionMonths: newCanManageCommissionMonths,
         canAddCommissionPersons: newCanAddCommissionPersons,
         canEditCommissionPersons: newCanEditCommissionPersons,
+        canChangeCommissionPersonPhoto: newCanChangeCommissionPersonPhoto,
         canMergeCommissionPersons: newCanMergeCommissionPersons,
         canDeleteCommissionPersons: newCanDeleteCommissionPersons,
         canManageBazar: newCanManageBazar,
@@ -396,6 +417,8 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setNewName('');
       setNewPassword('');
       setNewWorkspace('');
+      setNewCanDeleteCustomers(false);
+      setNewCanChangeProfilePhoto(true);
       setNewCanAddCommissionRecords(true);
       setNewCanEditCommissionRecords(true);
       setNewCanDeleteCommissionRecords(false);
@@ -404,6 +427,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       setNewCanManageCommissionMonths(true);
       setNewCanAddCommissionPersons(false);
       setNewCanEditCommissionPersons(false);
+      setNewCanChangeCommissionPersonPhoto(false);
       setNewCanMergeCommissionPersons(false);
       setNewCanDeleteCommissionPersons(false);
       setNewIsCommissionOnly(false);
@@ -430,7 +454,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanAddTransactions(u.canAddTransactions ?? true);
     setEditCanViewLedger(u.canViewLedger ?? true);
     setEditCanEditCustomers(u.canEditCustomers ?? true);
+    setEditCanDeleteCustomers(u.canDeleteCustomers ?? (u.role === 'owner' || u.role === 'admin' || Boolean(u.canDelete)));
     setEditCanApproveInvoices(u.canApproveInvoices ?? true);
+    setEditCanChangeProfilePhoto(u.canChangeProfilePhoto ?? true);
     setEditCanManageCommissions(u.canManageCommissions ?? false);
     setEditCanAddCommissionRecords(u.canAddCommissionRecords ?? Boolean(u.canManageCommissions));
     setEditCanEditCommissionRecords(u.canEditCommissionRecords ?? Boolean(u.canManageCommissions));
@@ -440,6 +466,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     setEditCanManageCommissionMonths(u.canManageCommissionMonths ?? Boolean(u.canManageCommissions));
     setEditCanAddCommissionPersons(u.canAddCommissionPersons ?? false);
     setEditCanEditCommissionPersons(u.canEditCommissionPersons ?? Boolean(u.canAddCommissionPersons));
+    setEditCanChangeCommissionPersonPhoto(
+      u.canChangeCommissionPersonPhoto ?? (u.role === 'owner' || (u.role === 'admin' && u.canEditCommissionPersons !== false))
+    );
     setEditCanMergeCommissionPersons(u.canMergeCommissionPersons ?? false);
     setEditCanDeleteCommissionPersons(u.canDeleteCommissionPersons ?? false);
     setEditCanManageBazar(u.canManageBazar ?? true);
@@ -480,7 +509,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canAddTransactions: editCanAddTransactions,
         canViewLedger: editCanViewLedger,
         canEditCustomers: editCanEditCustomers,
+        canDeleteCustomers: editCanDeleteCustomers,
         canApproveInvoices: editCanApproveInvoices,
+        canChangeProfilePhoto: editCanChangeProfilePhoto,
         canManageCommissions: editCanManageCommissions,
         canAddCommissionRecords: editCanAddCommissionRecords,
         canEditCommissionRecords: editCanEditCommissionRecords,
@@ -490,6 +521,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
         canManageCommissionMonths: editCanManageCommissionMonths,
         canAddCommissionPersons: editCanAddCommissionPersons,
         canEditCommissionPersons: editCanEditCommissionPersons,
+        canChangeCommissionPersonPhoto: editCanChangeCommissionPersonPhoto,
         canMergeCommissionPersons: editCanMergeCommissionPersons,
         canDeleteCommissionPersons: editCanDeleteCommissionPersons,
         canManageBazar: editCanManageBazar,
@@ -526,7 +558,10 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
           canAddTransactions: false,
           canViewLedger: false,
           canEditCustomers: false,
+          canDeleteCustomers: false,
           canApproveInvoices: false,
+          canChangeProfilePhoto: true,
+          canChangeCommissionPersonPhoto: false,
           canManageBazar: false,
           canManageBuyers: false,
           canExport: true,
@@ -579,11 +614,14 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
           canPayCommissions: true,
           canImportCommissions: true,
           canManageCommissionMonths: true,
+          canChangeCommissionPersonPhoto: false,
           canManageBazar: true,
           canAddTransactions: false,
           canViewLedger: false,
           canEditCustomers: false,
+          canDeleteCustomers: false,
           canApproveInvoices: false,
+          canChangeProfilePhoto: true,
           canManageBuyers: false,
           canExport: true,
           canDelete: false,
@@ -676,7 +714,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       | 'canAddTransactions'
       | 'canViewLedger'
       | 'canEditCustomers'
+      | 'canDeleteCustomers'
       | 'canApproveInvoices'
+      | 'canChangeProfilePhoto'
       | 'canManageCommissions'
       | 'canAddCommissionRecords'
       | 'canEditCommissionRecords'
@@ -686,6 +726,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
       | 'canManageCommissionMonths'
       | 'canAddCommissionPersons'
       | 'canEditCommissionPersons'
+      | 'canChangeCommissionPersonPhoto'
       | 'canMergeCommissionPersons'
       | 'canDeleteCommissionPersons'
       | 'canManageBazar'
@@ -696,6 +737,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
     if (targetUser.role === 'owner') return;
     const resolveCurrentPerm = (): boolean => {
       if (targetUser[permKey] !== undefined) return Boolean(targetUser[permKey]);
+      if (permKey === 'canChangeProfilePhoto') {
+        return true;
+      }
+      if (permKey === 'canDeleteCustomers') {
+        return targetUser.role === 'owner' || targetUser.role === 'admin' || Boolean(targetUser.canDelete);
+      }
+      if (permKey === 'canChangeCommissionPersonPhoto') {
+        return targetUser.role === 'owner' || (targetUser.role === 'admin' && targetUser.canEditCommissionPersons !== false);
+      }
       if (permKey === 'canDelete' || permKey === 'canManageCommissions' || permKey === 'canAddCommissionPersons' || permKey === 'canMergeCommissionPersons' || permKey === 'canDeleteCommissionPersons' || permKey === 'canManageBuyers') {
         return false;
       }
@@ -927,7 +977,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                   <span className="font-bold text-amber-300">
                     {isBn ? 'ক্লাউড সিস্টেম ব্রডকাস্ট নোটিশ' : 'Cloud System Broadcast Notice'}
                   </span>
-                  <span className={`text-[10px] px-2 py-0.2 rounded-full font-bold uppercase tracking-wider ${globalSettings.broadcastActive ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-700 text-slate-300'}`}>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider ${globalSettings.broadcastActive ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-slate-700 text-slate-300'}`}>
                     {globalSettings.broadcastActive ? (isBn ? 'সক্রিয়' : 'Active') : (isBn ? 'নিষ্ক্রিয়' : 'Inactive')}
                   </span>
                 </div>
@@ -1206,6 +1256,20 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                         <button
                           type="button"
                           disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canDeleteCustomers')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে গ্রাহক ডিলিট পারমিশন পরিবর্তন করুন' : 'Click to toggle Delete Customer permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canDeleteCustomers ?? (u.role === 'owner' || u.role === 'admin' || Boolean(u.canDelete))) ? 'bg-rose-50 text-rose-700 border border-rose-200 hover:bg-rose-100' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canDeleteCustomers ?? (u.role === 'owner' || u.role === 'admin' || Boolean(u.canDelete))) ? '✓' : '✕'} {isBn ? 'ডিলিট CRM' : 'Del CRM'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
                           onClick={() => handleTogglePermission(u, 'canApproveInvoices')}
                           title={isOwner ? undefined : (isBn ? 'ক্লিক করে ইনভয়েস পারমিশন পরিবর্তন করুন' : 'Click to toggle Invoice permission')}
                           className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
@@ -1374,6 +1438,22 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                         <button
                           type="button"
                           disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canChangeCommissionPersonPhoto')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে Person ছবি যোগ/পরিবর্তন পারমিশন দিন' : 'Click to toggle Person Photo edit/remove permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            (u.canChangeCommissionPersonPhoto ?? (u.role === 'owner' || (u.role === 'admin' && u.canEditCommissionPersons !== false)))
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                              : 'bg-slate-100 text-slate-400 hover:bg-slate-200'
+                          }`}
+                        >
+                          {(u.canChangeCommissionPersonPhoto ?? (u.role === 'owner' || (u.role === 'admin' && u.canEditCommissionPersons !== false))) ? '✓' : '✕'} {isBn ? 'পার্সন ছবি' : 'Person Photo'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
                           onClick={() => handleTogglePermission(u, 'canManageBazar')}
                           title={isOwner ? undefined : (isBn ? 'ক্লিক করে দৈনিক বাজার খাতা পারমিশন পরিবর্তন করুন' : 'Click to toggle Daily Bazar access permission')}
                           className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
@@ -1443,6 +1523,20 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           }`}
                         >
                           {u.canExport ? '✓' : '✕'} {isBn ? 'এক্সপোর্ট' : 'Export'}
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isOwner}
+                          onClick={() => handleTogglePermission(u, 'canChangeProfilePhoto')}
+                          title={isOwner ? undefined : (isBn ? 'ক্লিক করে নিজের প্রোফাইল ছবি পরিবর্তনের পারমিশন দিন/বন্ধ করুন' : 'Click to toggle Own Profile Photo permission')}
+                          className={`text-[10px] font-medium px-1.5 py-0.5 rounded flex items-center gap-1 transition select-none ${
+                            !isOwner ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                          } ${
+                            u.canChangeProfilePhoto !== false ? 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100' : 'bg-slate-100 text-slate-400 line-through hover:bg-slate-200'
+                          }`}
+                        >
+                          {u.canChangeProfilePhoto !== false ? '✓' : '✕'} {isBn ? 'প্রোফাইল ছবি' : 'Profile Photo'}
                         </button>
 
                         <button
@@ -2103,6 +2197,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                       <span>{isBn ? 'গ্রাহক তৈরি/সম্পাদনা (CRM)' : 'Edit Customers'}</span>
                     </label>
 
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-rose-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanDeleteCustomers}
+                        onChange={(e) => setNewCanDeleteCustomers(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{isBn ? 'গ্রাহক মুছে ফেলা (Del CRM)' : 'Delete Customers'}</span>
+                    </label>
+
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
                       <input
                         type="checkbox"
@@ -2111,6 +2215,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                         className="rounded text-amber-600 focus:ring-amber-500"
                       />
                       <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={newCanChangeProfilePhoto}
+                        onChange={(e) => setNewCanChangeProfilePhoto(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'নিজের প্রোফাইল ছবি পরিবর্তন' : 'Change Own Profile Photo'}</span>
                     </label>
 
                     <div className="sm:col-span-2 p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
@@ -2229,6 +2343,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                             onClick={() => {
                               setNewCanAddCommissionPersons(true);
                               setNewCanEditCommissionPersons(true);
+                              setNewCanChangeCommissionPersonPhoto(true);
                               setNewCanMergeCommissionPersons(true);
                               setNewCanDeleteCommissionPersons(true);
                             }}
@@ -2241,6 +2356,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                             onClick={() => {
                               setNewCanAddCommissionPersons(false);
                               setNewCanEditCommissionPersons(false);
+                              setNewCanChangeCommissionPersonPhoto(false);
                               setNewCanMergeCommissionPersons(false);
                               setNewCanDeleteCommissionPersons(false);
                             }}
@@ -2269,6 +2385,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           />
                           <span>{isBn ? 'পার্সন এডিট' : 'Edit Person'}</span>
                         </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-emerald-800 select-none">
+                          <input
+                            type="checkbox"
+                            checked={newCanChangeCommissionPersonPhoto}
+                            onChange={(e) => setNewCanChangeCommissionPersonPhoto(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>{isBn ? 'পার্সন ছবি পরিবর্তন' : 'Person Photo'}</span>
+                        </label>
                         <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
                           <input
                             type="checkbox"
@@ -2278,7 +2403,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           />
                           <span>{isBn ? 'পার্সন মার্জ' : 'Merge Persons'}</span>
                         </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 select-none">
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 sm:col-span-2 select-none">
                           <input
                             type="checkbox"
                             checked={newCanDeleteCommissionPersons}
@@ -2464,7 +2589,9 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           setEditCanAddTransactions(true);
                           setEditCanViewLedger(true);
                           setEditCanEditCustomers(true);
+                          setEditCanDeleteCustomers(true);
                           setEditCanApproveInvoices(true);
+                          setEditCanChangeProfilePhoto(true);
                           setEditCanManageCommissions(true);
                           setEditCanAddCommissionRecords(true);
                           setEditCanEditCommissionRecords(true);
@@ -2474,6 +2601,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           setEditCanManageCommissionMonths(true);
                           setEditCanAddCommissionPersons(true);
                           setEditCanEditCommissionPersons(true);
+                          setEditCanChangeCommissionPersonPhoto(true);
                           setEditCanMergeCommissionPersons(true);
                           setEditCanDeleteCommissionPersons(true);
                           setEditCanManageBazar(true);
@@ -2606,6 +2734,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                       <span>{isBn ? 'গ্রাহক তৈরি/সম্পাদনা (CRM)' : 'Edit Customers'}</span>
                     </label>
 
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-rose-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanDeleteCustomers}
+                        onChange={(e) => setEditCanDeleteCustomers(e.target.checked)}
+                        className="rounded text-rose-600 focus:ring-rose-500"
+                      />
+                      <span>{isBn ? 'গ্রাহক মুছে ফেলা (Del CRM)' : 'Delete Customers'}</span>
+                    </label>
+
                     <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
                       <input
                         type="checkbox"
@@ -2614,6 +2752,16 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                         className="rounded text-blue-600 focus:ring-blue-500"
                       />
                       <span>{isBn ? 'ইনভয়েস ও রসিদ (Invoices)' : 'Approve Invoices'}</span>
+                    </label>
+
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 select-none">
+                      <input
+                        type="checkbox"
+                        checked={editCanChangeProfilePhoto}
+                        onChange={(e) => setEditCanChangeProfilePhoto(e.target.checked)}
+                        className="rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span>{isBn ? 'নিজের প্রোফাইল ছবি পরিবর্তন' : 'Change Own Profile Photo'}</span>
                     </label>
 
                     <div className="sm:col-span-2 p-2.5 rounded-lg bg-emerald-50/70 border border-emerald-200 space-y-2">
@@ -2732,6 +2880,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                             onClick={() => {
                               setEditCanAddCommissionPersons(true);
                               setEditCanEditCommissionPersons(true);
+                              setEditCanChangeCommissionPersonPhoto(true);
                               setEditCanMergeCommissionPersons(true);
                               setEditCanDeleteCommissionPersons(true);
                             }}
@@ -2744,6 +2893,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                             onClick={() => {
                               setEditCanAddCommissionPersons(false);
                               setEditCanEditCommissionPersons(false);
+                              setEditCanChangeCommissionPersonPhoto(false);
                               setEditCanMergeCommissionPersons(false);
                               setEditCanDeleteCommissionPersons(false);
                             }}
@@ -2772,6 +2922,15 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           />
                           <span>{isBn ? 'পার্সন এডিট' : 'Edit Person'}</span>
                         </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-emerald-800 select-none">
+                          <input
+                            type="checkbox"
+                            checked={editCanChangeCommissionPersonPhoto}
+                            onChange={(e) => setEditCanChangeCommissionPersonPhoto(e.target.checked)}
+                            className="rounded text-emerald-600 focus:ring-emerald-500"
+                          />
+                          <span>{isBn ? 'পার্সন ছবি পরিবর্তন' : 'Person Photo'}</span>
+                        </label>
                         <label className="flex items-center gap-1.5 cursor-pointer font-medium text-slate-700 select-none">
                           <input
                             type="checkbox"
@@ -2781,7 +2940,7 @@ export const OwnerControlCenter: React.FC<OwnerControlCenterProps> = ({
                           />
                           <span>{isBn ? 'পার্সন মার্জ' : 'Merge Persons'}</span>
                         </label>
-                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 select-none">
+                        <label className="flex items-center gap-1.5 cursor-pointer font-medium text-rose-700 sm:col-span-2 select-none">
                           <input
                             type="checkbox"
                             checked={editCanDeleteCommissionPersons}

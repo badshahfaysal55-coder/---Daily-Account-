@@ -118,6 +118,45 @@ function clampNum(val: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function normalizePulledInvoice(raw: any): any {
+  const totalAmount = clampNum(raw?.totalAmount, 0);
+  const paidAmount = clampNum(raw?.paidAmount, 0);
+  const balanceDue =
+    typeof raw?.balanceDue === 'number' && Number.isFinite(raw.balanceDue)
+      ? raw.balanceDue
+      : totalAmount - paidAmount;
+  const remainingAmount = Math.max(0, balanceDue);
+  const discount =
+    typeof raw?.discount === 'number' && Number.isFinite(raw.discount)
+      ? raw.discount
+      : clampNum(raw?.discountAmount, 0);
+  const taxRate = clampNum(raw?.taxRate, 0);
+  const derivedStatus =
+    balanceDue < 0
+      ? 'overpaid'
+      : balanceDue === 0 && totalAmount > 0
+        ? 'paid'
+        : paidAmount > 0
+          ? 'partial'
+          : 'unpaid';
+  const status = ['unpaid', 'partial', 'paid', 'overpaid'].includes(raw?.status)
+    ? raw.status
+    : raw?.status === 'Cancelled'
+      ? 'Cancelled'
+      : derivedStatus;
+  return {
+    ...raw,
+    totalAmount,
+    paidAmount,
+    balanceDue,
+    remainingAmount,
+    discount,
+    taxRate,
+    status,
+    payments: Array.isArray(raw?.payments) ? raw.payments : [],
+  };
+}
+
 export interface FirestoreSyncStatus {
   isAuthenticated: boolean;
   isVerifiedOwner: boolean;
@@ -396,11 +435,31 @@ class FirestoreSyncService {
 
     try {
       if (existsInCloud && existingCreatedAt) {
-        await setDoc(ref, {
-          ...payloadWithoutTimestamps,
-          createdAt: existingCreatedAt,
-          updatedAt: serverTimestamp(),
-        });
+        try {
+          await setDoc(ref, {
+            ...payloadWithoutTimestamps,
+            createdAt: existingCreatedAt,
+            updatedAt: serverTimestamp(),
+          });
+        } catch (updateErr) {
+          const serverSnap = await getDocFromServer(ref).catch(() => null);
+          const serverCreatedAt = serverSnap?.data()?.createdAt;
+          if (serverSnap?.exists()) {
+            const nextCreatedAt = serverCreatedAt instanceof Timestamp ? serverCreatedAt : serverTimestamp();
+            if (serverCreatedAt instanceof Timestamp) {
+              this.createdAtCache.set(key, serverCreatedAt);
+            } else {
+              this.createdAtCache.delete(key);
+            }
+            await setDoc(ref, {
+              ...payloadWithoutTimestamps,
+              createdAt: nextCreatedAt,
+              updatedAt: serverTimestamp(),
+            });
+          } else {
+            throw updateErr;
+          }
+        }
       } else {
         try {
           await setDoc(ref, {
@@ -547,7 +606,7 @@ class FirestoreSyncService {
         globalSettings,
         transactions: txRows.map(stripInternal),
         customers: custRows.map(stripInternal),
-        invoices: invRows.map(stripInternal),
+        invoices: invRows.map((inv) => normalizePulledInvoice(stripInternal(inv))),
         commissionEntries: commRows.map(stripInternal).filter((ce: any) => {
           const id = String(ce?.id || '');
           const notes = String(ce?.notes || '');
@@ -692,7 +751,9 @@ class FirestoreSyncService {
         if (u.canAddTransactions !== undefined) userDoc.canAddTransactions = Boolean(u.canAddTransactions);
         if (u.canViewLedger !== undefined) userDoc.canViewLedger = Boolean(u.canViewLedger);
         if (u.canEditCustomers !== undefined) userDoc.canEditCustomers = Boolean(u.canEditCustomers);
+        if (u.canDeleteCustomers !== undefined) userDoc.canDeleteCustomers = Boolean(u.canDeleteCustomers);
         if (u.canApproveInvoices !== undefined) userDoc.canApproveInvoices = Boolean(u.canApproveInvoices);
+        if (u.canChangeProfilePhoto !== undefined) userDoc.canChangeProfilePhoto = Boolean(u.canChangeProfilePhoto);
         if (u.canManageCommissions !== undefined) userDoc.canManageCommissions = Boolean(u.canManageCommissions);
         if (u.canAddCommissionRecords !== undefined) userDoc.canAddCommissionRecords = Boolean(u.canAddCommissionRecords);
         if (u.canEditCommissionRecords !== undefined) userDoc.canEditCommissionRecords = Boolean(u.canEditCommissionRecords);
@@ -704,6 +765,7 @@ class FirestoreSyncService {
         if (u.canEditCommissionPersons !== undefined) userDoc.canEditCommissionPersons = Boolean(u.canEditCommissionPersons);
         if (u.canDeleteCommissionPersons !== undefined) userDoc.canDeleteCommissionPersons = Boolean(u.canDeleteCommissionPersons);
         if (u.canMergeCommissionPersons !== undefined) userDoc.canMergeCommissionPersons = Boolean(u.canMergeCommissionPersons);
+        if (u.canChangeCommissionPersonPhoto !== undefined) userDoc.canChangeCommissionPersonPhoto = Boolean(u.canChangeCommissionPersonPhoto);
         if (u.canManageBazar !== undefined) userDoc.canManageBazar = Boolean(u.canManageBazar);
         if (u.canManageBuyers !== undefined) userDoc.canManageBuyers = Boolean(u.canManageBuyers);
         if (u.isCommissionOnly !== undefined) userDoc.isCommissionOnly = Boolean(u.isCommissionOnly);
@@ -798,6 +860,47 @@ class FirestoreSyncService {
               total: clampNum(it?.total, 0),
             }))
           : [];
+        const totalAmount = clampNum(inv.totalAmount, 0);
+        const paidAmount = clampNum(inv.paidAmount, 0);
+        const discount = clampNum(inv.discount ?? inv.discountAmount, 0);
+        const taxRate = clampNum(inv.taxRate, 0);
+        const balanceDue =
+          typeof inv.balanceDue === 'number' && Number.isFinite(inv.balanceDue)
+            ? inv.balanceDue
+            : totalAmount - paidAmount;
+        const remainingAmount = Math.max(
+          0,
+          typeof inv.remainingAmount === 'number' && inv.remainingAmount > 0
+            ? inv.remainingAmount
+            : balanceDue
+        );
+        const derivedStatus =
+          balanceDue < 0
+            ? 'overpaid'
+            : balanceDue === 0 && totalAmount > 0
+              ? 'paid'
+              : paidAmount > 0
+                ? 'partial'
+                : 'unpaid';
+        const status = ['unpaid', 'partial', 'paid', 'overpaid'].includes(inv.status)
+          ? inv.status
+          : inv.status === 'Cancelled'
+            ? 'Cancelled'
+            : derivedStatus;
+        const payments = Array.isArray(inv.payments)
+          ? inv.payments.slice(0, 100).map((p: any) => ({
+              id: clampStr(p?.id || '', 64),
+              invoiceId: clampStr(p?.invoiceId || docId, 128),
+              customerId: clampStr(p?.customerId || inv.customerId || '', 128),
+              amount: clampNum(p?.amount, 0),
+              paymentDate: clampNum(p?.paymentDate, Date.now()),
+              paymentMethod: ['cash', 'bkash', 'nagad', 'bank'].includes(p?.paymentMethod) ? p.paymentMethod : 'cash',
+              ...(p?.reference ? { reference: clampStr(p.reference, 160) } : {}),
+              ...(p?.notes ? { notes: clampStr(p.notes, 500) } : {}),
+              ...(p?.recordedByName ? { recordedByName: clampStr(p.recordedByName, 120) } : {}),
+              createdAt: clampNum(p?.createdAt, Date.now()),
+            }))
+          : [];
         const invDoc: Record<string, any> = {
           ownerUid: uid,
           id: docId,
@@ -809,19 +912,31 @@ class FirestoreSyncService {
           dueDate: clampNum(inv.dueDate, Date.now()),
           items,
           subtotal: clampNum(inv.subtotal, 0),
+          taxRate,
           taxAmount: clampNum(inv.taxAmount, 0),
-          discountAmount: clampNum(inv.discountAmount, 0),
-          totalAmount: clampNum(inv.totalAmount, 0),
-          paidAmount: clampNum(inv.paidAmount, 0),
-          remainingAmount: clampNum(inv.remainingAmount, 0),
-          status: ['Draft', 'Sent', 'Paid', 'Overdue', 'Cancelled', 'Partial'].includes(inv.status)
-            ? inv.status
-            : 'Draft',
+          discount,
+          discountAmount: clampNum(inv.discountAmount ?? discount, 0),
+          totalAmount,
+          paidAmount,
+          balanceDue,
+          remainingAmount,
+          status,
+          payments,
           clientCreatedAt: clampNum(inv.createdAt, Date.now()),
           clientUpdatedAt: clampNum(inv.updatedAt || inv.createdAt, Date.now()),
         };
         if (inv.customerPhone) invDoc.customerPhone = clampStr(inv.customerPhone, 40);
+        if (inv.customerBusiness) invDoc.customerBusiness = clampStr(inv.customerBusiness, 160);
+        if (inv.customerAddress) invDoc.customerAddress = clampStr(inv.customerAddress, 500);
+        if (inv.serviceName) invDoc.serviceName = clampStr(inv.serviceName, 200);
+        if (inv.iqamaNo) invDoc.iqamaNo = clampStr(inv.iqamaNo, 64);
+        if (inv.branchOffice) invDoc.branchOffice = clampStr(inv.branchOffice, 160);
+        if (inv.countryFlag) invDoc.countryFlag = clampStr(inv.countryFlag, 16);
+        if (typeof inv.lastPaymentAmount === 'number' && Number.isFinite(inv.lastPaymentAmount)) {
+          invDoc.lastPaymentAmount = inv.lastPaymentAmount;
+        }
         if (inv.notes) invDoc.notes = clampStr(inv.notes, 2000);
+        if (inv.terms) invDoc.terms = clampStr(inv.terms, 1000);
         if (inv.createdByName) invDoc.createdByName = clampStr(inv.createdByName, 120);
         await this.upsertDoc('invoices', docId, invDoc);
       }

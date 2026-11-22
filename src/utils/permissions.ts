@@ -105,7 +105,11 @@ export function getUserPagePermissions(user: UserAccount): UserPagePermissions {
   const canAccessEntry = canAccessInvoices || canAccessBazar || canAccessQuickCash;
   const canAccessDashboard = !restrictedOnlyMode && (isAdmin || hasAnyCoreDefault || hasCoreAccounting);
   const canAccessLedger = !restrictedOnlyMode && user.canViewLedger !== false;
-  const canAccessCustomers = !restrictedOnlyMode && user.canEditCustomers !== false;
+  const canAccessCustomers =
+    !restrictedOnlyMode &&
+    (user.canEditCustomers !== false ||
+      user.canDeleteCustomers === true ||
+      user.canApproveInvoices !== false);
   const canAccessCommission = isAdmin || hasComm || isCommissionOnly || isCommissionBazarOnly;
   const canAccessAppearance = !isCommissionBazarOnly && !isBazarOnly;
   const canAccessRnCode = !restrictedOnlyMode && (isAdmin || user.canViewLedger !== false);
